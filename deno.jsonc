@@ -1,0 +1,24 @@
+{
+  "version": "0.9.3",
+  "license": "MIT",
+  "name": "@brandonhorst/yourturn",
+  "exports": {
+    "./server": "./server.ts",
+    "./hooks": "./hooks.ts",
+    "./types": "./types.ts"
+  },
+  "imports": {
+    "preact": "npm:preact@10",
+    "preact/hooks": "npm:preact@10/hooks",
+    "preact/jsx-runtime": "npm:preact@10/jsx-runtime",
+    "jsr:@std/ulid": "jsr:@std/ulid@1",
+    "jsr:@std/assert": "jsr:@std/assert@1",
+    "jsr:@std/testing/": "jsr:@std/testing@1/",
+    "npm:@testing-library/preact": "npm:@testing-library/preact@3"
+  },
+  "unstable": ["kv"],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "npm:preact"
+  }
+}
