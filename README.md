@@ -17,7 +17,6 @@ Games built with `yourturn` get automatic support for:
 
 - Hidden Information
 - Simultaneous or Out-of-turn Play
-- Chat
 - Randomness
 - Timers
 
@@ -83,9 +82,16 @@ export const game: {
   ): boolean;
   processMove(
     s: GameState,
-    move: Move,
-    o: { timestamp: Date; playerId: number },
+    o: { m: Move, timestamp: Date; playerId: number },
   ): void;
+  refreshTimeout?(
+    s: GameState,
+    o: { config: Config; timestamp: Date },
+  ): number | undefined;
+  refresh?(
+    s: GameState,
+    o: { config: Config; timestamp: Date },
+  ): GameState;
   playerState(s: GameState, o: { playerId: number; isComplete: boolean }): PlayerState;
   observerState(s: GameState, o: { isComplete: boolean }): ObserverState;
   isComplete(s: GameState): boolean;
@@ -113,11 +119,13 @@ are only executed on the server.
   nicer interface for building the UI upon.
 - `isComplete` should return true if the game is done and no further `Move`s
   should be permitted.
-
-To implement functionality in involving time (such as timers), `timestamp: Date`
-objects are provided for the `setup`, `isValidMove`, and `processMove` methods.
-This ensures that `isValidMove` and `processMove` can work off the same
-timestamp.
+- `refreshTimeout` can be called to trigger a `refresh` call and an `isComplete`
+  check after a certain number of milliseconds. This can be used to implement
+  timers.
+- `refreshTimeout` can be used to create a new `GameState` object in response to
+  a `refreshTimeout` trigger. Note that it's OK to implement `refreshTimeout`
+  without implementing `refresh` in cases where the only time-based effect is
+  ending the game in a loss (such as a chess timer).
 
 ### `View`
 
