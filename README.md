@@ -23,6 +23,11 @@ Games built with `yourturn` get automatic support for:
 `yourturn` is built to run on Deno and uses Deno KV as its database. Games
 render their UI with Preact components.
 
+## Usage
+
+To get started, it's recommended to start with
+[yourturn-template](https://github.com/brandonhorst/yourturn-template).
+
 ## Designing Game and UI Logic
 
 These are the things you need to define to build your game.
