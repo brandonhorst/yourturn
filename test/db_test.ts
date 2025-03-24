@@ -300,12 +300,28 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
   // Using FakeTime to control time progression
   using fakeTime = new FakeTime();
 
-  // Create a game first
-  const { gameId } = await db.createGame(
-    2,
-    undefined,
-    () => ({ timestamp: new Date() }),
-  );
+  // Create a game directly with KV
+  const gameId = "test-refresh-game";
+  const gameKey = ["games", gameId];
+  const activeGameKey = ["activegames", gameId];
+  const activeGameTriggerKey = ["activegametrigger"];
+  
+  // Set up the game data directly
+  await kv.atomic()
+    .set(activeGameTriggerKey, {})
+    .set(activeGameKey, {})
+    .set(gameKey, {
+      config: undefined,
+      gameState: { timestamp: new Date() },
+      sessionTokens: { "session-1": 0, "session-2": 1 },
+      players: [
+        { playerId: 0, name: "Player 1" },
+        { playerId: 1, name: "Player 2" },
+      ],
+      isComplete: false,
+      version: 0
+    })
+    .commit();
 
   // Set up a stream to listen for refreshes
   const refreshStream = db.listenForRefreshes();

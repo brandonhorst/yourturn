@@ -33,12 +33,33 @@ Deno.test("registers and unregisters a socket", async () => {
 Deno.test("sends state updates to all observer sockets", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const { gameId, sessionTokens } = await db.createGame(2, undefined, () => 1);
+  
+  // Create a game directly with KV
+  const gameId = "test-game-id";
+  const gameKey = ["games", gameId];
+  const activeGameKey = ["activegames", gameId];
+  const activeGameTriggerKey = ["activegametrigger"];
+  
+  const sessionTokens = { "session-1": 0, "session-2": 1 };
   const players = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
   ];
-
+  
+  // Set up the game data directly
+  await kv.atomic()
+    .set(activeGameTriggerKey, {})
+    .set(activeGameKey, {})
+    .set(gameKey, {
+      config: undefined,
+      gameState: 1,
+      sessionTokens,
+      players,
+      isComplete: false,
+      version: 0
+    })
+    .commit();
+    
   const observeSocketStore = new ObserveSocketStore<undefined, number, number>(
     db,
   );
@@ -91,11 +112,32 @@ Deno.test("only sends updates when state changes", async () => {
   const observeSocketStore = new ObserveSocketStore<undefined, number, number>(
     db,
   );
-  const { gameId, sessionTokens } = await db.createGame(2, undefined, () => 1);
+  
+  // Create a game directly with KV
+  const gameId = "test-game-id-2";
+  const gameKey = ["games", gameId];
+  const activeGameKey = ["activegames", gameId];
+  const activeGameTriggerKey = ["activegametrigger"];
+  
+  const sessionTokens = { "session-1": 0, "session-2": 1 };
   const players = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
   ];
+  
+  // Set up the game data directly
+  await kv.atomic()
+    .set(activeGameTriggerKey, {})
+    .set(activeGameKey, {})
+    .set(gameKey, {
+      config: undefined,
+      gameState: 1,
+      sessionTokens,
+      players,
+      isComplete: false,
+      version: 0
+    })
+    .commit();
 
   // Create a socket and register it
   const socket = { send: spy() };
