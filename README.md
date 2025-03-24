@@ -28,6 +28,9 @@ render their UI with Preact components.
 To get started, it's recommended to start with
 [yourturn-template](https://github.com/brandonhorst/yourturn-template).
 
+If you want to use the library directly, it's available at
+[jsr:@brandonhorst/yourturn](https://jsr.io/@brandonhorst/yourturn).
+
 ## Designing Game and UI Logic
 
 These are the things you need to define to build your game.
