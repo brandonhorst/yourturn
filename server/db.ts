@@ -106,7 +106,7 @@ export class DB {
       // Get desired queue entries, if they exist
       const queueEntries = await Array.fromAsync(this.kv.list<string>(
         { prefix: queuePrefix },
-        { limit: 2 },
+        { limit: queueConfig.numPlayers },
       ));
 
       // If the queue doesn't have enough entrants, stop
