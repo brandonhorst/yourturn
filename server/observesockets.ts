@@ -2,7 +2,7 @@ import type { DB } from "./db.ts";
 import type { GameStorageData } from "./db.ts";
 import { deepEquals, type Socket } from "./socketutils.ts";
 import type { ObserverStateObject } from "../types.ts";
-import { assert } from "jsr:@std/assert";
+import { assert } from "@std/assert";
 import type { ObserveSocketResponse } from "../common/types.ts";
 import { getObserverState } from "./gamedata.ts";
 

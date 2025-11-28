@@ -1,9 +1,9 @@
-import { assertEquals, assertExists } from "jsr:@std/assert";
-import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
-import { FakeTime } from "jsr:@std/testing/time";
+import { assertEquals, assertExists } from "@std/assert";
+import { assertSpyCalls, spy } from "@std/testing/mock";
+import { FakeTime } from "@std/testing/time";
 import { useSocket } from "../client/hookutils.ts";
-import { renderHook } from "npm:@testing-library/preact";
-import { DOMParser } from "npm:linkedom";
+import { renderHook } from "@testing-library/preact";
+import { DOMParser } from "linkedom";
 
 // Set up DOM globals for tests
 const dom = new DOMParser().parseFromString(

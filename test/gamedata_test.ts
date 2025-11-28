@@ -1,5 +1,5 @@
-import { assertEquals } from "jsr:@std/assert";
-import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
+import { assertEquals } from "@std/assert";
+import { assertSpyCalls, spy } from "@std/testing/mock";
 import { DB, GameStorageData } from "../server/db.ts";
 import {
   fetchActiveGames,
@@ -244,7 +244,7 @@ Deno.test("getObserverState returns correct observer state", async () => {
   const db = new DB(kv);
 
   const gameId = ulid();
-  
+
   const players: Player[] = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
@@ -278,7 +278,7 @@ Deno.test("getObserverState handles completed games", async () => {
 
   // Create a completed game
   const gameId = ulid();
-  
+
   const players: Player[] = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
@@ -323,7 +323,7 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
 
   // Create a game with initial value 1
   const gameId = ulid();
-  
+
   const players: Player[] = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
@@ -366,7 +366,7 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
 
   // Create a game with value 4 (one increment away from being complete)
   const gameId = ulid();
-  
+
   const players: Player[] = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
@@ -567,7 +567,7 @@ Deno.test("handleRefresh properly marks game as complete when threshold reached"
 
   // Create a game with value 4 (one refresh away from being complete)
   const gameId = ulid();
-  
+
   const players: Player[] = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
@@ -614,7 +614,7 @@ Deno.test("handleRefresh doesn't update completed games", async () => {
 
   // Create a completed game
   const gameId = ulid();
-  
+
   const players: Player[] = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
@@ -674,7 +674,7 @@ Deno.test("handleMove schedules refresh with refreshTimeout", async () => {
 
   // Create a game with initial value 1 (below the refreshTimeout threshold of 3)
   const gameId = ulid();
-  
+
   const players: Player[] = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
@@ -763,7 +763,7 @@ Deno.test("handleRefresh schedules refresh with refreshTimeout", async () => {
 
   // Create a game with initial value 1 (below the refreshTimeout threshold of 3)
   const gameId = ulid();
-  
+
   const players: Player[] = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },

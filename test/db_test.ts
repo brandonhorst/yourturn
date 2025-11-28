@@ -1,5 +1,5 @@
-import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
-import { FakeTime } from "jsr:@std/testing/time";
+import { assertEquals, assertExists, assertRejects } from "@std/assert";
+import { FakeTime } from "@std/testing/time";
 import { DB } from "../server/db.ts";
 
 // Mock game implementation for testing
@@ -305,7 +305,7 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
   const gameKey = ["games", gameId];
   const activeGameKey = ["activegames", gameId];
   const activeGameTriggerKey = ["activegametrigger"];
-  
+
   // Set up the game data directly
   await kv.atomic()
     .set(activeGameTriggerKey, {})
@@ -319,7 +319,7 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
         { playerId: 1, name: "Player 2" },
       ],
       isComplete: false,
-      version: 0
+      version: 0,
     })
     .commit();
 

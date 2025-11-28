@@ -1,7 +1,7 @@
 import type { DB, GameStorageData } from "./db.ts";
 import { deepEquals, type Socket } from "./socketutils.ts";
 import type { PlayerStateObject } from "../types.ts";
-import { assert } from "jsr:@std/assert";
+import { assert } from "@std/assert";
 import type { PlaySocketResponse } from "../common/types.ts";
 import { getPlayerState } from "./gamedata.ts";
 
