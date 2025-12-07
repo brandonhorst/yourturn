@@ -12,10 +12,10 @@ export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
   return await db.getAllActiveGames();
 }
 
-export function getPlayerId<C, S>(
+export function getPlayerId<C, S, I>(
   gameData: GameStorageData<C, S>,
   sessionId: string,
-): number {
+): I {
   const playerId = gameData.sessionTokens[sessionId];
   return playerId;
 }
