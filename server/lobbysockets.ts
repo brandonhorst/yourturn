@@ -87,7 +87,7 @@ export class LobbySocketStore {
   // Creates a new queue entry, assigns it to the given queue in the database,
   // and stores the socket. Watches for assignments, and when an assignment is
   // made, sends it to the socket.
-  public async joinQueue<C, S, I extends string | number>(
+  public async joinQueue<C, S, I>(
     socket: Socket,
     queueConfig: QueueConfig<C, I>,
     setupGame: (o: SetupObject<C, I>) => S,

@@ -10,6 +10,7 @@ import {
   handleRefresh,
 } from "../server/gamedata.ts";
 import type { Game, Player } from "../types.ts";
+import type { GameStorageData } from "../server/db.ts";
 import { ulid } from "@std/ulid";
 
 // Helper functions for test use only

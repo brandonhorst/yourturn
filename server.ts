@@ -23,7 +23,7 @@ export async function initializeServer<
   M,
   P,
   O,
-  I extends string | number,
+  I,
 >(
   game: Game<C, S, M, P, O, I>,
 ): Promise<Server<C, S, M, P, O, I>> {
@@ -58,7 +58,7 @@ export async function initializeServer<
 
 export type { Server };
 
-class Server<C, S, M, P, O, I extends string | number> {
+class Server<C, S, M, P, O, I> {
   constructor(
     private game: Game<C, S, M, P, O, I>,
     private db: DB,

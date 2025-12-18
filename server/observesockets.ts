@@ -10,12 +10,12 @@ type ObserveSocket<O> = {
   lastValue: O | undefined;
   socket: Socket;
 };
-type ConnectionData<C, S, O, I extends string | number> = {
+type ConnectionData<C, S, O, I> = {
   sockets: ObserveSocket<O>[];
   changesReader: ReadableStreamDefaultReader<GameStorageData<C, S, I>>;
 };
 
-export class ObserveSocketStore<C, S, O, I extends string | number> {
+export class ObserveSocketStore<C, S, O, I> {
   private connections: Map<string, ConnectionData<C, S, O, I>> = new Map();
   constructor(private db: DB) {}
 

@@ -5,17 +5,17 @@ import { assert } from "@std/assert";
 import type { PlaySocketResponse } from "../common/types.ts";
 import { getPlayerState } from "./gamedata.ts";
 
-type PlaySocket<P, I extends string | number> = {
+type PlaySocket<P, I> = {
   playerId: I;
   lastValue: P | undefined;
   socket: Socket;
 };
-type PlayConnection<C, S, P, I extends string | number> = {
+type PlayConnection<C, S, P, I> = {
   sockets: PlaySocket<P, I>[];
   changesReader: ReadableStreamDefaultReader<GameStorageData<C, S, I>>;
 };
 
-export class PlaySocketStore<C, S, P, I extends string | number> {
+export class PlaySocketStore<C, S, P, I> {
   private connections: Map<string, PlayConnection<C, S, P, I>> = new Map();
 
   constructor(private db: DB) {}
@@ -141,7 +141,7 @@ export class PlaySocketStore<C, S, P, I extends string | number> {
   }
 }
 
-function updatePlayerStateIfNecessary<P, I extends string | number>(
+function updatePlayerStateIfNecessary<P, I>(
   playSocket: PlaySocket<P, I>,
   playerState: P,
 ) {
@@ -157,7 +157,7 @@ function updatePlayerStateIfNecessary<P, I extends string | number>(
   playSocket.socket.send(JSON.stringify(response));
 }
 
-function markComplete<P, I extends string | number>(
+function markComplete<P, I>(
   playSocket: PlaySocket<P, I>,
 ) {
   const response: PlaySocketResponse<P> = {

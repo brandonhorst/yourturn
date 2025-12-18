@@ -11,7 +11,7 @@ type SessionTokens<I> = {
   [x: string]: I;
 };
 
-export type GameStorageData<C, S, I extends string | number> = {
+export type GameStorageData<C, S, I> = {
   config: C;
   gameState: S;
   sessionTokens: SessionTokens<I>;
@@ -62,7 +62,7 @@ export class DB {
     this.kv = kv;
   }
 
-  public async addToQueue<C, S, I extends string | number>(
+  public async addToQueue<C, S, I>(
     queueConfig: QueueConfig<C, I>,
     entryId: string,
     setupGame: (setupObject: SetupObject<C, I>) => S,
@@ -92,7 +92,7 @@ export class DB {
     });
   }
 
-  private async maybeGraduateFromQueue<C, S, I extends string | number>(
+  private async maybeGraduateFromQueue<C, S, I>(
     queueConfig: QueueConfig<C, I>,
     setupGame: (o: SetupObject<C, I>) => S,
   ): Promise<void> {
@@ -188,7 +188,7 @@ export class DB {
    * @param gameData The updated game data
    * @param refreshDelay Optional delay in milliseconds for scheduling a refresh
    */
-  public async updateGameStorageData<C, S, I extends string | number>(
+  public async updateGameStorageData<C, S, I>(
     gameId: string,
     gameData: GameStorageData<C, S, I>,
     refreshDelay?: number,
@@ -220,7 +220,7 @@ export class DB {
     }
   }
 
-  public async getGameStorageData<C, S, I extends string | number>(
+  public async getGameStorageData<C, S, I>(
     gameId: string,
   ): Promise<GameStorageData<C, S, I>> {
     const key = getGameKey(gameId);
@@ -232,7 +232,7 @@ export class DB {
     }
   }
 
-  public watchForGameChanges<C, S, I extends string | number>(
+  public watchForGameChanges<C, S, I>(
     gameId: string,
   ): ReadableStream<GameStorageData<C, S, I>> {
     const key = getGameKey(gameId);

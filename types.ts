@@ -1,3 +1,5 @@
+type AsKey<T> = T extends string | number ? T : never;
+
 type AsJson<T> = T extends string | number | boolean | null ? T
   // deno-lint-ignore ban-types
   : T extends Function ? never
@@ -43,6 +45,8 @@ type AsStructuredClone<T> = T extends
 type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
+// deno-lint-ignore no-explicit-any
+type Key = AsKey<any>;
 
 export type Player<I> = {
   playerId: I;
@@ -110,7 +114,7 @@ export interface Game<
   M extends JSONValue,
   P extends JSONValue,
   O extends JSONValue,
-  I extends string | number,
+  I extends Key,
 > {
   /**
    * Defines the available game modes with their configurations.

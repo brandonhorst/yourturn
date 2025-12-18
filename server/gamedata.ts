@@ -12,7 +12,7 @@ export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
   return await db.getAllActiveGames();
 }
 
-export function getPlayerId<C, S, I extends string | number>(
+export function getPlayerId<C, S, I>(
   gameData: GameStorageData<C, S, I>,
   sessionId: string,
 ): I {
@@ -20,7 +20,7 @@ export function getPlayerId<C, S, I extends string | number>(
   return playerId;
 }
 
-export function getPlayerState<C, S, P, I extends string | number>(
+export function getPlayerState<C, S, P, I>(
   gameData: GameStorageData<C, S, I>,
   playerStateLogic: (s: S, o: PlayerStateObject<C, I>) => P,
   playerId: I,
@@ -37,7 +37,7 @@ export function getPlayerState<C, S, P, I extends string | number>(
   return playerState;
 }
 
-export function getObserverState<C, S, O, I extends string | number>(
+export function getObserverState<C, S, O, I>(
   gameData: GameStorageData<C, S, I>,
   observerStateLogic: (s: S, o: ObserverStateObject<C, I>) => O,
 ): O {
@@ -52,7 +52,7 @@ export function getObserverState<C, S, O, I extends string | number>(
   return observerState;
 }
 
-async function updateGameState<C, S, M, P, O, I extends string | number>(
+async function updateGameState<C, S, M, P, O, I>(
   db: DB,
   game: Game<C, S, M, P, O, I>,
   gameId: string,
@@ -101,7 +101,7 @@ async function updateGameState<C, S, M, P, O, I extends string | number>(
   );
 }
 
-export async function handleMove<C, S, M, P, O, I extends string | number>(
+export async function handleMove<C, S, M, P, O, I>(
   db: DB,
   game: Game<C, S, M, P, O, I>,
   gameId: string,
@@ -126,7 +126,7 @@ export async function handleMove<C, S, M, P, O, I extends string | number>(
   });
 }
 
-export async function handleRefresh<C, S, M, P, O, I extends string | number>(
+export async function handleRefresh<C, S, M, P, O, I>(
   db: DB,
   game: Game<C, S, M, P, O, I>,
   gameId: string,
