@@ -17,9 +17,16 @@ import { PlaySocketStore } from "./server/playsockets.ts";
 import { DB } from "./server/db.ts";
 import { LobbySocketStore } from "./server/lobbysockets.ts";
 
-export async function initializeServer<C, S, M, P, O>(
-  game: Game<C, S, M, P, O>,
-): Promise<Server<C, S, M, P, O>> {
+export async function initializeServer<
+  C,
+  S,
+  M,
+  P,
+  O,
+  I,
+>(
+  game: Game<C, S, M, P, O, I>,
+): Promise<Server<C, S, M, P, O, I>> {
   const kv = await Deno.openKv();
   const db = new DB(kv);
 
@@ -37,8 +44,8 @@ export async function initializeServer<C, S, M, P, O>(
   }
 
   const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
-  const observeSocketStore = new ObserveSocketStore<C, S, O>(db);
-  const playSocketStore = new PlaySocketStore<C, S, P>(db);
+  const observeSocketStore = new ObserveSocketStore<C, S, O, I>(db);
+  const playSocketStore = new PlaySocketStore<C, S, P, I>(db);
 
   return new Server(
     game,
@@ -51,13 +58,13 @@ export async function initializeServer<C, S, M, P, O>(
 
 export type { Server };
 
-class Server<C, S, M, P, O> {
+class Server<C, S, M, P, O, I> {
   constructor(
-    private game: Game<C, S, M, P, O>,
+    private game: Game<C, S, M, P, O, I>,
     private db: DB,
     private lobbySocketStore: LobbySocketStore,
-    private observeSocketStore: ObserveSocketStore<C, S, O>,
-    private playSocketStore: PlaySocketStore<C, S, P>,
+    private observeSocketStore: ObserveSocketStore<C, S, O, I>,
+    private playSocketStore: PlaySocketStore<C, S, P, I>,
   ) {}
 
   async getInitialActiveGames(): Promise<ActiveGame[]> {
@@ -68,7 +75,7 @@ class Server<C, S, M, P, O> {
     gameId: string,
     sessionId: string,
   ): Promise<PlayerProps<P>> {
-    const gameData = await this.db.getGameStorageData<C, S>(gameId);
+    const gameData = await this.db.getGameStorageData<C, S, I>(gameId);
     const playerId = getPlayerId(gameData, sessionId);
     const playerState = getPlayerState(
       gameData,
@@ -81,7 +88,7 @@ class Server<C, S, M, P, O> {
   async getInitialObserverProps(
     gameId: string,
   ): Promise<ObserverProps<O>> {
-    const gameData = await this.db.getGameStorageData<C, S>(gameId);
+    const gameData = await this.db.getGameStorageData<C, S, I>(gameId);
     const observerState = getObserverState(gameData, this.game.observerState);
     return { observerState, isComplete: gameData.isComplete };
   }
@@ -111,7 +118,7 @@ class Server<C, S, M, P, O> {
           }
           const queueConfig = {
             queueId: parsedMessage.queueId,
-            numPlayers: queue.numPlayers,
+            playerIds: queue.playerIds,
             config: queue.config,
           };
           await this.lobbySocketStore.joinQueue(
@@ -175,7 +182,7 @@ class Server<C, S, M, P, O> {
     sessionId: string,
   ) {
     const playerId = getPlayerId(
-      await this.db.getGameStorageData(gameId),
+      await this.db.getGameStorageData<C, S, I>(gameId),
       sessionId,
     );
 

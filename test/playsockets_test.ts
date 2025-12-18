@@ -1,19 +1,26 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import { DB } from "../server/db.ts";
 import { PlaySocketStore } from "../server/playsockets.ts";
-import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
+import { assertSpyCalls, spy } from "@std/testing/mock";
 import type { PlayerStateObject } from "../types.ts";
 
 // Mock game state and player state types for testing
 
 // Player state getter function
-const getPlayerState = (state: number, _o: PlayerStateObject<undefined>) =>
-  state;
+const getPlayerState = (
+  state: number,
+  _o: PlayerStateObject<undefined, number>,
+) => state;
 
 Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const playSocketStore = new PlaySocketStore<undefined, number, number>(db);
+  const playSocketStore = new PlaySocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(db);
 
   // Register a socket
   const socket = { send: spy() };
@@ -34,19 +41,19 @@ Deno.test("registers and unregisters a socket", async () => {
 Deno.test("sends state updates to all player sockets", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  
+
   // Create a game directly with KV
   const gameId = "test-play-game-2";
   const gameKey = ["games", gameId];
   const activeGameKey = ["activegames", gameId];
   const activeGameTriggerKey = ["activegametrigger"];
-  
+
   const sessionTokens = { "session-1": 0, "session-2": 1 };
   const players = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
   ];
-  
+
   // Set up the game data directly
   await kv.atomic()
     .set(activeGameTriggerKey, {})
@@ -57,11 +64,16 @@ Deno.test("sends state updates to all player sockets", async () => {
       sessionTokens,
       players,
       isComplete: false,
-      version: 0
+      version: 0,
     })
     .commit();
-  
-  const playSocketStore = new PlaySocketStore<undefined, number, number>(db);
+
+  const playSocketStore = new PlaySocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(db);
 
   // Create sockets and register them
   const socket1 = { send: spy() };
@@ -108,20 +120,25 @@ Deno.test("sends state updates to all player sockets", async () => {
 Deno.test("only sends updates when state changes", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const playSocketStore = new PlaySocketStore<undefined, number, number>(db);
-  
+  const playSocketStore = new PlaySocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(db);
+
   // Create a game directly with KV
   const gameId = "test-play-game-3";
   const gameKey = ["games", gameId];
   const activeGameKey = ["activegames", gameId];
   const activeGameTriggerKey = ["activegametrigger"];
-  
+
   const sessionTokens = { "session-1": 0, "session-2": 1 };
   const players = [
     { playerId: 0, name: "Player 1" },
     { playerId: 1, name: "Player 2" },
   ];
-  
+
   // Set up the game data directly
   await kv.atomic()
     .set(activeGameTriggerKey, {})
@@ -132,7 +149,7 @@ Deno.test("only sends updates when state changes", async () => {
       sessionTokens,
       players,
       isComplete: false,
-      version: 0
+      version: 0,
     })
     .commit();
 
@@ -149,14 +166,14 @@ Deno.test("only sends updates when state changes", async () => {
     isComplete: false,
     version: 1,
   });
-  
+
   playSocketStore.register(socket, gameId, playerId, getPlayerState);
   // Initialize with the current state to avoid the initial update
   await playSocketStore.initialize(socket, gameId, 1, getPlayerState);
-  
+
   // Reset the spy after initialization
   socket.send = spy();
-  
+
   // Store the same state with a new version number
   await db.updateGameStorageData(gameId, {
     config: undefined,

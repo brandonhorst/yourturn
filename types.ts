@@ -1,3 +1,5 @@
+type AsKey<T> = T extends string | number ? T : never;
+
 type AsJson<T> = T extends string | number | boolean | null ? T
   // deno-lint-ignore ban-types
   : T extends Function ? never
@@ -43,53 +45,55 @@ type AsStructuredClone<T> = T extends
 type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
+// deno-lint-ignore no-explicit-any
+type Key = AsKey<any>;
 
-export type Player = {
-  playerId: number;
+export type Player<I> = {
+  playerId: I;
   name: string;
 };
 
-export type SetupObject<C> = {
+export type SetupObject<C, I> = {
   timestamp: Date;
-  players: Player[];
+  players: Player<I>[];
   config: C;
 };
 
-export type MoveObject<C, M> = {
+export type MoveObject<C, M, I> = {
   config: C;
   move: M;
-  playerId: number;
+  playerId: I;
   timestamp: Date;
-  players: Player[];
+  players: Player<I>[];
 };
 
-export type RefreshObject<C> = {
+export type RefreshObject<C, I> = {
   config: C;
   timestamp: Date;
-  players: Player[];
+  players: Player<I>[];
 };
 
-export type PlayerStateObject<C> = {
+export type PlayerStateObject<C, I> = {
   config: C;
-  playerId: number;
+  playerId: I;
   isComplete: boolean;
-  players: Player[];
+  players: Player<I>[];
   timestamp: Date;
 };
-export type ObserverStateObject<C> = {
+export type ObserverStateObject<C, I> = {
   config: C;
   isComplete: boolean;
-  players: Player[];
+  players: Player<I>[];
   timestamp: Date;
 };
 
-export type IsCompleteObject<C> = {
+export type IsCompleteObject<C, I> = {
   config: C;
-  players: Player[];
+  players: Player<I>[];
 };
 
-export type Mode<C> = {
-  numPlayers: number;
+export type Mode<C, I> = {
+  playerIds: I[];
   matchmaking: "queue";
   config: C;
 };
@@ -102,6 +106,7 @@ export type Mode<C> = {
  * @template M - Move type representing actions players can take (must be JSON serializable)
  * @template P - Player state type representing game state visible to a specific player (must be JSON serializable)
  * @template O - Observer state type representing game state visible to observers (must be JSON serializable)
+ * @template I - ID used to uniquely identify players
  */
 export interface Game<
   C extends StructuredCloneValue,
@@ -109,12 +114,13 @@ export interface Game<
   M extends JSONValue,
   P extends JSONValue,
   O extends JSONValue,
+  I extends Key,
 > {
   /**
    * Defines the available game modes with their configurations.
    * Used for matchmaking and game initialization.
    */
-  modes: { [id: string]: Mode<C> };
+  modes: { [id: string]: Mode<C, I> };
 
   /**
    * Creates the initial game state when a new game is started.
@@ -122,7 +128,7 @@ export interface Game<
    * @param o - Setup object containing configuration, player information, and timestamp
    * @returns Immutable initial game state
    */
-  setup(o: SetupObject<C>): Readonly<S>;
+  setup(o: SetupObject<C, I>): Readonly<S>;
 
   /**
    * Validates whether a move is legitimate based on current game state.
@@ -132,7 +138,7 @@ export interface Game<
    * @param o - Move object containing the move, player ID, configuration, timestamp, and player information
    * @returns True if the move is valid, false otherwise
    */
-  isValidMove(state: Readonly<S>, o: MoveObject<C, M>): boolean;
+  isValidMove(state: Readonly<S>, o: MoveObject<C, M, I>): boolean;
 
   /**
    * Processes a player's move and updates the game state accordingly.
@@ -142,7 +148,7 @@ export interface Game<
    * @param o - Move object containing the move, player ID, configuration, timestamp, and player information
    * @returns Updated immutable game state
    */
-  processMove(state: Readonly<S>, o: MoveObject<C, M>): Readonly<S>;
+  processMove(state: Readonly<S>, o: MoveObject<C, M, I>): Readonly<S>;
 
   /**
    * Determines the timeout in milliseconds for automatic state refreshes. Called
@@ -153,7 +159,10 @@ export interface Game<
    * @param o - Refresh object containing configuration, timestamp, and player information
    * @returns Timeout in milliseconds or undefined to disable automatic refreshes
    */
-  refreshTimeout?(state: Readonly<S>, o: RefreshObject<C>): number | undefined;
+  refreshTimeout?(
+    state: Readonly<S>,
+    o: RefreshObject<C, I>,
+  ): number | undefined;
 
   /**
    * Updates the game state during automatic refreshes.
@@ -164,7 +173,7 @@ export interface Game<
    * @param o - Refresh object containing configuration, timestamp, and player information
    * @returns Updated immutable game state
    */
-  refresh?(state: Readonly<S>, o: RefreshObject<C>): Readonly<S>;
+  refresh?(state: Readonly<S>, o: RefreshObject<C, I>): Readonly<S>;
 
   /**
    * Creates a player-specific view of the game state.
@@ -174,7 +183,7 @@ export interface Game<
    * @param o - Player state object containing player ID, game completion status, configuration, and player information
    * @returns Player-specific state representation
    */
-  playerState(state: Readonly<S>, o: PlayerStateObject<C>): P;
+  playerState(state: Readonly<S>, o: PlayerStateObject<C, I>): P;
 
   /**
    * Creates an observer-specific view of the game state.
@@ -184,7 +193,7 @@ export interface Game<
    * @param o - Observer state object containing game completion status, configuration, and player information
    * @returns Observer-specific state representation
    */
-  observerState(state: Readonly<S>, o: ObserverStateObject<C>): O;
+  observerState(state: Readonly<S>, o: ObserverStateObject<C, I>): O;
 
   /**
    * Determines whether the game has ended.
@@ -194,7 +203,7 @@ export interface Game<
    * @param o - Completion check object containing configuration and player information
    * @returns True if the game is complete, false otherwise
    */
-  isComplete(state: Readonly<S>, o: IsCompleteObject<C>): boolean;
+  isComplete(state: Readonly<S>, o: IsCompleteObject<C, I>): boolean;
 }
 
 export type ActiveGame = {

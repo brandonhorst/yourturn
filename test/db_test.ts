@@ -1,5 +1,5 @@
-import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
-import { FakeTime } from "jsr:@std/testing/time";
+import { assertEquals, assertExists, assertRejects } from "@std/assert";
+import { FakeTime } from "@std/testing/time";
 import { DB } from "../server/db.ts";
 
 // Mock game implementation for testing
@@ -9,7 +9,7 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
 
-  const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
+  const queue = { queueId: "test-queue", playerIds: [0, 1], config: undefined };
   const entryId = "test-entry";
   const entryId2 = "test-entry-2";
 
@@ -43,7 +43,7 @@ Deno.test("Removes from queue", async () => {
 
   const queue = {
     queueId: "test-queue-remove",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId = "test-entry-remove";
@@ -63,7 +63,7 @@ Deno.test("Creates game and retrieves it", async () => {
 
   const queue = {
     queueId: "test-queue-game",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-game-1";
@@ -95,7 +95,7 @@ Deno.test("Updates game data", async () => {
   // Create a game first
   const queue = {
     queueId: "test-queue-update",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-update-1";
@@ -137,7 +137,7 @@ Deno.test("Watches for game changes", async () => {
   // Create a game first
   const queue = {
     queueId: "test-queue-watch",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-watch-1";
@@ -186,7 +186,7 @@ Deno.test("Completes game", async () => {
   // Create a game first
   const queue = {
     queueId: "test-queue-complete",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-complete-1";
@@ -229,7 +229,7 @@ Deno.test("Lists active games", async () => {
   // Create a game
   const queue = {
     queueId: "test-queue-active",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-active-1";
@@ -263,7 +263,7 @@ Deno.test("Watches for active game count changes", async () => {
   // Create a new game to trigger a count change
   const queue = {
     queueId: "test-queue-count",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-count-1";
@@ -305,7 +305,7 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
   const gameKey = ["games", gameId];
   const activeGameKey = ["activegames", gameId];
   const activeGameTriggerKey = ["activegametrigger"];
-  
+
   // Set up the game data directly
   await kv.atomic()
     .set(activeGameTriggerKey, {})
@@ -319,7 +319,7 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
         { playerId: 1, name: "Player 2" },
       ],
       isComplete: false,
-      version: 0
+      version: 0,
     })
     .commit();
 

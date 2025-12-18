@@ -1,8 +1,7 @@
-import { assertEquals, assertExists } from "jsr:@std/assert";
+import { assertEquals, assertExists } from "@std/assert";
 import { DB } from "../server/db.ts";
 import { LobbySocketStore } from "../server/lobbysockets.ts";
-import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
-import type { Player } from "../types.ts";
+import { assertSpyCalls, spy } from "@std/testing/mock";
 
 Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
@@ -41,7 +40,7 @@ Deno.test("joins and leaves a queue", async () => {
   lobbySocketStore.register(socket);
 
   // Join a queue
-  const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
+  const queue = { queueId: "test-queue", playerIds: [0, 1], config: undefined };
   await lobbySocketStore.joinQueue(socket, queue, setupGame);
 
   // Verify the socket has a queue entry associated with it
@@ -78,7 +77,7 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   // Join the same queue with both sockets
   const queue = {
     queueId: "test-queue-assignments",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
 
@@ -97,7 +96,7 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
 
   // Capture the sent messages - order may be different now, so find by type
   let message1, message2;
-  
+
   for (let i = 0; i < socket1.send.calls.length; i++) {
     const msg = JSON.parse(socket1.send.calls[i].args[0]);
     if (msg.type === "GameAssignment") {
@@ -105,7 +104,7 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
       break;
     }
   }
-  
+
   for (let i = 0; i < socket2.send.calls.length; i++) {
     const msg = JSON.parse(socket2.send.calls[i].args[0]);
     if (msg.type === "GameAssignment") {
@@ -153,7 +152,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   // Create a game by having two sockets join a queue
   const queue = {
     queueId: "test-queue-broadcast",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   await Promise.all([
@@ -170,7 +169,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
 
   // Find UpdateActiveGames message
   let message1, message2;
-  
+
   for (let i = 0; i < socket1.send.calls.length; i++) {
     const msg = JSON.parse(socket1.send.calls[i].args[0]);
     if (msg.type === "UpdateActiveGames") {
@@ -178,7 +177,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
       break;
     }
   }
-  
+
   for (let i = 0; i < socket2.send.calls.length; i++) {
     const msg = JSON.parse(socket2.send.calls[i].args[0]);
     if (msg.type === "UpdateActiveGames") {
@@ -229,7 +228,7 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
   // Join the same queue with all three sockets
   const queue = {
     queueId: "test-queue-three-players",
-    numPlayers: 3,
+    playerIds: [0, 1, 2],
     config: undefined,
   };
 
@@ -242,11 +241,11 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
   assertSpyCalls(socket1.send, 1);
   assertSpyCalls(socket2.send, 1);
   assertSpyCalls(socket3.send, 1);
-  
+
   const message1 = JSON.parse(socket1.send.calls[0].args[0]);
   const message2 = JSON.parse(socket2.send.calls[0].args[0]);
   const message3 = JSON.parse(socket3.send.calls[0].args[0]);
-  
+
   assertEquals(message1.type, "QueueJoined");
   assertEquals(message2.type, "QueueJoined");
   assertEquals(message3.type, "QueueJoined");

@@ -2,7 +2,7 @@ import type { DB } from "./db.ts";
 import type { GameStorageData } from "./db.ts";
 import { deepEquals, type Socket } from "./socketutils.ts";
 import type { ObserverStateObject } from "../types.ts";
-import { assert } from "jsr:@std/assert";
+import { assert } from "@std/assert";
 import type { ObserveSocketResponse } from "../common/types.ts";
 import { getObserverState } from "./gamedata.ts";
 
@@ -10,13 +10,13 @@ type ObserveSocket<O> = {
   lastValue: O | undefined;
   socket: Socket;
 };
-type ConnectionData<C, S, O> = {
+type ConnectionData<C, S, O, I> = {
   sockets: ObserveSocket<O>[];
-  changesReader: ReadableStreamDefaultReader<GameStorageData<C, S>>;
+  changesReader: ReadableStreamDefaultReader<GameStorageData<C, S, I>>;
 };
 
-export class ObserveSocketStore<C, S, O> {
-  private connections: Map<string, ConnectionData<C, S, O>> = new Map();
+export class ObserveSocketStore<C, S, O, I> {
+  private connections: Map<string, ConnectionData<C, S, O, I>> = new Map();
   constructor(private db: DB) {}
 
   // Registers a given Socket as an observer of a
@@ -26,7 +26,7 @@ export class ObserveSocketStore<C, S, O> {
   register(
     socket: Socket,
     gameId: string,
-    observerStateLogic: (s: S, o: ObserverStateObject<C>) => O,
+    observerStateLogic: (s: S, o: ObserverStateObject<C, I>) => O,
   ) {
     // If nothing was previously observing this,
     if (!this.hasGame(gameId)) {
@@ -42,13 +42,13 @@ export class ObserveSocketStore<C, S, O> {
     socket: Socket,
     gameId: string,
     observerState: O,
-    observerStateLogic: (s: S, o: ObserverStateObject<C>) => O,
+    observerStateLogic: (s: S, o: ObserverStateObject<C, I>) => O,
   ) {
     const observeSocket =
       this.getSockets(gameId).filter((s) => s.socket === socket)[0];
     observeSocket.lastValue = observerState;
 
-    const gameData = await this.db.getGameStorageData<C, S>(gameId);
+    const gameData = await this.db.getGameStorageData<C, S, I>(gameId);
     const newObserverState = getObserverState(gameData, observerStateLogic);
 
     updateObserverStateIfNecessary(observeSocket, newObserverState);
@@ -65,8 +65,8 @@ export class ObserveSocketStore<C, S, O> {
 
   private async streamToAllSockets(
     gameId: string,
-    getObserverState: (s: S, o: ObserverStateObject<C>) => O,
-    stream: ReadableStreamDefaultReader<GameStorageData<C, S>>,
+    getObserverState: (s: S, o: ObserverStateObject<C, I>) => O,
+    stream: ReadableStreamDefaultReader<GameStorageData<C, S, I>>,
   ) {
     while (true) {
       const data = await stream.read();
@@ -93,12 +93,16 @@ export class ObserveSocketStore<C, S, O> {
 
   private createGame(
     gameId: string,
-    getObserverState: (s: S, o: ObserverStateObject<C>) => O,
+    getObserverState: (s: S, o: ObserverStateObject<C, I>) => O,
   ): void {
-    const changesReader = this.db.watchForGameChanges<C, S>(gameId).getReader();
+    const changesReader = this.db.watchForGameChanges<C, S, I>(gameId)
+      .getReader();
     this.streamToAllSockets(gameId, getObserverState, changesReader);
 
-    const connection: ConnectionData<C, S, O> = { sockets: [], changesReader };
+    const connection: ConnectionData<C, S, O, I> = {
+      sockets: [],
+      changesReader,
+    };
     this.connections.set(gameId, connection);
   }
 
