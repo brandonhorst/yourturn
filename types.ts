@@ -71,7 +71,7 @@ export type RefreshObject<C, I> = {
 
 export type PlayerStateObject<C, I> = {
   config: C;
-  playerId: number;
+  playerId: I;
   isComplete: boolean;
   players: Player<I>[];
   timestamp: Date;

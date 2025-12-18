@@ -5,18 +5,18 @@ import { assert } from "@std/assert";
 import type { PlaySocketResponse } from "../common/types.ts";
 import { getPlayerState } from "./gamedata.ts";
 
-type PlaySocket<P> = {
-  playerId: number;
+type PlaySocket<P, I extends string | number> = {
+  playerId: I;
   lastValue: P | undefined;
   socket: Socket;
 };
-type PlayConnection<C, S, P> = {
-  sockets: PlaySocket<P>[];
-  changesReader: ReadableStreamDefaultReader<GameStorageData<C, S>>;
+type PlayConnection<C, S, P, I extends string | number> = {
+  sockets: PlaySocket<P, I>[];
+  changesReader: ReadableStreamDefaultReader<GameStorageData<C, S, I>>;
 };
 
-export class PlaySocketStore<C, S, P> {
-  private connections: Map<string, PlayConnection<C, S, P>> = new Map();
+export class PlaySocketStore<C, S, P, I extends string | number> {
+  private connections: Map<string, PlayConnection<C, S, P, I>> = new Map();
 
   constructor(private db: DB) {}
 
@@ -27,8 +27,8 @@ export class PlaySocketStore<C, S, P> {
   register(
     socket: Socket,
     gameId: string,
-    playerId: number,
-    playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
+    playerId: I,
+    playerStateLogic: (s: S, o: PlayerStateObject<C, I>) => P,
   ) {
     if (!this.hasGame(gameId)) {
       this.createGame(gameId, playerStateLogic);
@@ -43,13 +43,13 @@ export class PlaySocketStore<C, S, P> {
     socket: Socket,
     gameId: string,
     playerState: P,
-    playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
+    playerStateLogic: (s: S, o: PlayerStateObject<C, I>) => P,
   ) {
     const playSocket =
       this.getSockets(gameId).filter((s) => s.socket === socket)[0];
     playSocket.lastValue = playerState;
 
-    const gameData = await this.db.getGameStorageData<C, S>(gameId);
+    const gameData = await this.db.getGameStorageData<C, S, I>(gameId);
     const newPlayerState = getPlayerState(
       gameData,
       playerStateLogic,
@@ -70,8 +70,8 @@ export class PlaySocketStore<C, S, P> {
 
   private async streamToAllSockets(
     gameId: string,
-    playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
-    stream: ReadableStreamDefaultReader<GameStorageData<C, S>>,
+    playerStateLogic: (s: S, o: PlayerStateObject<C, I>) => P,
+    stream: ReadableStreamDefaultReader<GameStorageData<C, S, I>>,
   ) {
     while (true) {
       const data = await stream.read();
@@ -99,18 +99,22 @@ export class PlaySocketStore<C, S, P> {
 
   private createGame(
     gameId: string,
-    playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
+    playerStateLogic: (s: S, o: PlayerStateObject<C, I>) => P,
   ): void {
-    const changesReader = this.db.watchForGameChanges<C, S>(gameId).getReader();
+    const changesReader = this.db.watchForGameChanges<C, S, I>(gameId)
+      .getReader();
     this.streamToAllSockets(gameId, playerStateLogic, changesReader);
-    const connection: PlayConnection<C, S, P> = { sockets: [], changesReader };
+    const connection: PlayConnection<C, S, P, I> = {
+      sockets: [],
+      changesReader,
+    };
     this.connections.set(gameId, connection);
   }
 
   // This requires connections.get(gameId) to exist, call hasGame or createGame first.
   private addSocket(
     gameId: string,
-    playerId: number,
+    playerId: I,
     socket: Socket,
   ): void {
     const connection = this.connections.get(gameId);
@@ -130,15 +134,15 @@ export class PlaySocketStore<C, S, P> {
     }
   }
 
-  private getSockets(gameId: string): PlaySocket<P>[] {
+  private getSockets(gameId: string): PlaySocket<P, I>[] {
     const connection = this.connections.get(gameId);
     assert(connection != null);
     return connection.sockets;
   }
 }
 
-function updatePlayerStateIfNecessary<P>(
-  playSocket: PlaySocket<P>,
+function updatePlayerStateIfNecessary<P, I extends string | number>(
+  playSocket: PlaySocket<P, I>,
   playerState: P,
 ) {
   if (deepEquals(playSocket.lastValue, playerState)) {
@@ -153,7 +157,9 @@ function updatePlayerStateIfNecessary<P>(
   playSocket.socket.send(JSON.stringify(response));
 }
 
-function markComplete<P>(playSocket: PlaySocket<P>) {
+function markComplete<P, I extends string | number>(
+  playSocket: PlaySocket<P, I>,
+) {
   const response: PlaySocketResponse<P> = {
     type: "MarkComplete",
   };

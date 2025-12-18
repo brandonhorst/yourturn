@@ -1,7 +1,7 @@
 import type { AssignmentStorageData, DB, QueueConfig } from "./db.ts";
 import type { LobbySocketResponse } from "../common/types.ts";
 import type { ActiveGame, SetupObject } from "../types.ts";
-import { ulid } from "jsr:@std/ulid";
+import { ulid } from "@std/ulid";
 import { deepEquals, type Socket } from "./socketutils.ts";
 
 type QueueEntry = {
@@ -87,10 +87,10 @@ export class LobbySocketStore {
   // Creates a new queue entry, assigns it to the given queue in the database,
   // and stores the socket. Watches for assignments, and when an assignment is
   // made, sends it to the socket.
-  public async joinQueue<C, S>(
+  public async joinQueue<C, S, I extends string | number>(
     socket: Socket,
-    queueConfig: QueueConfig<C>,
-    setupGame: (o: SetupObject<C>) => S,
+    queueConfig: QueueConfig<C, I>,
+    setupGame: (o: SetupObject<C, I>) => S,
   ) {
     const entryId = ulid();
 

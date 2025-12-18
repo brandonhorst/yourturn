@@ -7,13 +7,20 @@ import type { PlayerStateObject } from "../types.ts";
 // Mock game state and player state types for testing
 
 // Player state getter function
-const getPlayerState = (state: number, _o: PlayerStateObject<undefined>) =>
-  state;
+const getPlayerState = (
+  state: number,
+  _o: PlayerStateObject<undefined, number>,
+) => state;
 
 Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const playSocketStore = new PlaySocketStore<undefined, number, number>(db);
+  const playSocketStore = new PlaySocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(db);
 
   // Register a socket
   const socket = { send: spy() };
@@ -61,7 +68,12 @@ Deno.test("sends state updates to all player sockets", async () => {
     })
     .commit();
 
-  const playSocketStore = new PlaySocketStore<undefined, number, number>(db);
+  const playSocketStore = new PlaySocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(db);
 
   // Create sockets and register them
   const socket1 = { send: spy() };
@@ -108,7 +120,12 @@ Deno.test("sends state updates to all player sockets", async () => {
 Deno.test("only sends updates when state changes", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const playSocketStore = new PlaySocketStore<undefined, number, number>(db);
+  const playSocketStore = new PlaySocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(db);
 
   // Create a game directly with KV
   const gameId = "test-play-game-3";

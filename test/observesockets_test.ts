@@ -11,7 +11,12 @@ const getObserverState = (state: number) => state;
 Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const observeSocketStore = new ObserveSocketStore<undefined, number, number>(
+  const observeSocketStore = new ObserveSocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(
     db,
   );
 
@@ -60,7 +65,12 @@ Deno.test("sends state updates to all observer sockets", async () => {
     })
     .commit();
 
-  const observeSocketStore = new ObserveSocketStore<undefined, number, number>(
+  const observeSocketStore = new ObserveSocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(
     db,
   );
 
@@ -109,7 +119,12 @@ Deno.test("sends state updates to all observer sockets", async () => {
 Deno.test("only sends updates when state changes", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const observeSocketStore = new ObserveSocketStore<undefined, number, number>(
+  const observeSocketStore = new ObserveSocketStore<
+    undefined,
+    number,
+    number,
+    number
+  >(
     db,
   );
 

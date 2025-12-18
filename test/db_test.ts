@@ -9,7 +9,7 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
 
-  const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
+  const queue = { queueId: "test-queue", playerIds: [0, 1], config: undefined };
   const entryId = "test-entry";
   const entryId2 = "test-entry-2";
 
@@ -43,7 +43,7 @@ Deno.test("Removes from queue", async () => {
 
   const queue = {
     queueId: "test-queue-remove",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId = "test-entry-remove";
@@ -63,7 +63,7 @@ Deno.test("Creates game and retrieves it", async () => {
 
   const queue = {
     queueId: "test-queue-game",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-game-1";
@@ -95,7 +95,7 @@ Deno.test("Updates game data", async () => {
   // Create a game first
   const queue = {
     queueId: "test-queue-update",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-update-1";
@@ -137,7 +137,7 @@ Deno.test("Watches for game changes", async () => {
   // Create a game first
   const queue = {
     queueId: "test-queue-watch",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-watch-1";
@@ -186,7 +186,7 @@ Deno.test("Completes game", async () => {
   // Create a game first
   const queue = {
     queueId: "test-queue-complete",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-complete-1";
@@ -229,7 +229,7 @@ Deno.test("Lists active games", async () => {
   // Create a game
   const queue = {
     queueId: "test-queue-active",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-active-1";
@@ -263,7 +263,7 @@ Deno.test("Watches for active game count changes", async () => {
   // Create a new game to trigger a count change
   const queue = {
     queueId: "test-queue-count",
-    numPlayers: 2,
+    playerIds: [0, 1],
     config: undefined,
   };
   const entryId1 = "test-entry-count-1";
