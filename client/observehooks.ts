@@ -4,22 +4,26 @@ import type {
   ObserveSocketRequest,
   ObserveSocketResponse,
 } from "../common/types.ts";
-import type { ObserverProps } from "../types.ts";
+import type { ObserverProps, ObserveViewProps } from "../types.ts";
 
 // Opens an auto-reconnecting WebSocket to a given Observe URL.
 // Returns an always up-to-date ObserverState. Closes the socket if the game completes.
 export function useObserveSocket<O>(
   socketUrl: string,
   initialObserverProps: ObserverProps<O>,
-): O {
+): ObserveViewProps<O> {
   const [observerState, setObserverState] = useState<O>(
     initialObserverProps.observerState,
+  );
+  const [isComplete, setIsComplete] = useState<boolean>(
+    initialObserverProps.isComplete,
   );
 
   // Handler for socket messages
   function onMessage(response: ObserveSocketResponse<O>, close: () => void) {
     switch (response.type) {
       case "MarkComplete":
+        setIsComplete(true);
         close();
         break;
       case "UpdateObserveState":
@@ -39,5 +43,5 @@ export function useObserveSocket<O>(
     onMessage,
   );
 
-  return observerState;
+  return { observerState, isComplete };
 }

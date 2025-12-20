@@ -13,11 +13,15 @@ export function usePlaySocket<M, P>(
   const [playerState, setPlayerState] = useState<P>(
     initialPlayerProps.playerState,
   );
+  const [isComplete, setIsComplete] = useState<boolean>(
+    initialPlayerProps.isComplete,
+  );
 
   // Handler for socket messages
   function onMessage(response: PlaySocketResponse<P>, close: () => void) {
     switch (response.type) {
       case "MarkComplete":
+        setIsComplete(true);
         close();
         break;
       case "UpdatePlayerState":
@@ -42,5 +46,5 @@ export function usePlaySocket<M, P>(
     send(request);
   }, [send]);
 
-  return { playerState, perform };
+  return { playerState, perform, isComplete };
 }

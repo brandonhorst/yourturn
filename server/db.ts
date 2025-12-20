@@ -194,6 +194,8 @@ export class DB {
     refreshDelay?: number,
   ): Promise<void> {
     const gameKey = getGameKey(gameId);
+    const activeGameTriggerKey = getActiveGameTriggerKey();
+
     const entry = await this.kv.get<GameStorageData<C, S, I>>(gameKey);
     if (entry.value == null) {
       throw new Error(`Appending moves to unknown unstored ${gameId}`);
@@ -205,7 +207,9 @@ export class DB {
 
     if (gameData.isComplete) {
       const activeGameKey = getActiveGameKey(gameId);
-      transaction = transaction.delete(activeGameKey);
+      transaction = transaction
+        .delete(activeGameKey)
+        .set(activeGameTriggerKey, {});
     }
 
     // If refreshDelay is provided, enqueue a refresh as part of the same transaction
@@ -265,8 +269,8 @@ export class DB {
   // Watches for changes to the activeGameTriggerKey, which is an empty key only used
   // to trigger this method.
   public watchForActiveGameListChanges(): ReadableStream<ActiveGame[]> {
-    const key = getActiveGameTriggerKey();
-    const stream = this.kv.watch([key]);
+    const activeGameTriggerKey = getActiveGameTriggerKey();
+    const stream = this.kv.watch([activeGameTriggerKey]);
     return stream.pipeThrough(
       new TransformStream({
         transform: async (_events, controller) => {

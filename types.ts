@@ -223,9 +223,11 @@ export type ObserverProps<O> = {
 export type PlayerViewProps<M, P> = {
   playerState: P;
   perform?: (move: M) => void;
+  isComplete: boolean;
 };
 export type ObserveViewProps<O> = {
   observerState: O;
+  isComplete: boolean;
 };
 
 export type LobbyViewProps = {
