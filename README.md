@@ -47,12 +47,6 @@ players, decks, etc.
 ### `GameState`
 
 ```ts
-export type PlayerId
-```
-
-This represents the ID of a player. It must extend `number | string`.
-
-```ts
 export type GameState
 ```
 
@@ -92,11 +86,11 @@ export const game: {
   isValidMove(
     s: GameState,
     move: Move
-    o: { timestamp: Date; playerId: PlayerId },
+    o: { timestamp: Date; playerId: number },
   ): boolean;
   processMove(
     s: GameState,
-    o: { m: Move, timestamp: Date; playerId: PlayerId },
+    o: { m: Move, timestamp: Date; playerId: number },
   ): void;
   refreshTimeout?(
     s: GameState,
@@ -106,7 +100,7 @@ export const game: {
     s: GameState,
     o: { config: Config; timestamp: Date },
   ): GameState;
-  playerState(s: GameState, o: { playerId: PlayerId; isComplete: boolean }): PlayerState;
+  playerState(s: GameState, o: { playerId: number; isComplete: boolean }): PlayerState;
   observerState(s: GameState, o: { isComplete: boolean }): ObserverState;
   isComplete(s: GameState): boolean;
 };
@@ -146,7 +140,7 @@ are only executed on the server.
 ```ts
 export function PlayerView(props: {
   playerState: PlayerState;
-  playerId: PlayerId;
+  playerId: number;
   perform: (move: Move) => void;
 });
 

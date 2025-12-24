@@ -1,21 +1,21 @@
 import { ulid } from "@std/ulid";
 import type { ActiveGame, Player, SetupObject } from "../types.ts";
 
-export type QueueConfig<C, I> = {
+export type QueueConfig<C> = {
   queueId: string;
-  playerIds: I[];
+  numPlayers: number;
   config: C;
 };
 
-type SessionTokens<I> = {
-  [x: string]: I;
+type SessionTokens = {
+  [x: string]: number;
 };
 
-export type GameStorageData<C, S, I> = {
+export type GameStorageData<C, S> = {
   config: C;
   gameState: S;
-  sessionTokens: SessionTokens<I>;
-  players: Player<I>[];
+  sessionTokens: SessionTokens;
+  players: Player[];
   isComplete: boolean;
   version: number;
 };
@@ -62,10 +62,10 @@ export class DB {
     this.kv = kv;
   }
 
-  public async addToQueue<C, S, I>(
-    queueConfig: QueueConfig<C, I>,
+  public async addToQueue<C, S>(
+    queueConfig: QueueConfig<C>,
     entryId: string,
-    setupGame: (setupObject: SetupObject<C, I>) => S,
+    setupGame: (setupObject: SetupObject<C>) => S,
   ): Promise<void> {
     await repeatUntilSuccess(async () => {
       const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
@@ -92,9 +92,9 @@ export class DB {
     });
   }
 
-  private async maybeGraduateFromQueue<C, S, I>(
-    queueConfig: QueueConfig<C, I>,
-    setupGame: (o: SetupObject<C, I>) => S,
+  private async maybeGraduateFromQueue<C, S>(
+    queueConfig: QueueConfig<C>,
+    setupGame: (o: SetupObject<C>) => S,
   ): Promise<void> {
     const gameId = ulid();
     const queuePrefix = getQueuePrefix(queueConfig.queueId);
@@ -106,26 +106,26 @@ export class DB {
       // Get desired queue entries, if they exist
       const queueEntries = await Array.fromAsync(this.kv.list<string>(
         { prefix: queuePrefix },
-        { limit: queueConfig.playerIds.length },
+        { limit: queueConfig.numPlayers },
       ));
 
       // If the queue doesn't have enough entrants, stop
-      if (queueEntries.length < queueConfig.playerIds.length) {
+      if (queueEntries.length < queueConfig.numPlayers) {
         return { ok: true };
       }
 
       // Initialize Game Storage Data
-      const sessionTokens: { [sessionId: string]: I } = {};
-      const players: Player<I>[] = [];
+      const sessionTokens: { [sessionId: string]: number } = {};
+      const players: Player[] = [];
 
-      for (const playerId of queueConfig.playerIds) {
-        sessionTokens[ulid()] = playerId;
-        players.push({ playerId, name: `Player ${playerId}` });
+      for (let i = 0; i < queueConfig.numPlayers; i++) {
+        sessionTokens[ulid()] = i;
+        players[i] = { playerId: i, name: `Player ${i + 1}` };
       }
       const timestamp = new Date();
       const setupObject = { timestamp, players, config: queueConfig.config };
       const gameState = setupGame(setupObject);
-      const gameStorageData: GameStorageData<C, S, I> = {
+      const gameStorageData: GameStorageData<C, S> = {
         config: queueConfig.config,
         gameState,
         sessionTokens,
@@ -188,15 +188,15 @@ export class DB {
    * @param gameData The updated game data
    * @param refreshDelay Optional delay in milliseconds for scheduling a refresh
    */
-  public async updateGameStorageData<C, S, I>(
+  public async updateGameStorageData<C, S>(
     gameId: string,
-    gameData: GameStorageData<C, S, I>,
+    gameData: GameStorageData<C, S>,
     refreshDelay?: number,
   ): Promise<void> {
     const gameKey = getGameKey(gameId);
     const activeGameTriggerKey = getActiveGameTriggerKey();
 
-    const entry = await this.kv.get<GameStorageData<C, S, I>>(gameKey);
+    const entry = await this.kv.get<GameStorageData<C, S>>(gameKey);
     if (entry.value == null) {
       throw new Error(`Appending moves to unknown unstored ${gameId}`);
     }
@@ -224,11 +224,11 @@ export class DB {
     }
   }
 
-  public async getGameStorageData<C, S, I>(
+  public async getGameStorageData<C, S>(
     gameId: string,
-  ): Promise<GameStorageData<C, S, I>> {
+  ): Promise<GameStorageData<C, S>> {
     const key = getGameKey(gameId);
-    const entry = await this.kv.get<GameStorageData<C, S, I>>(key);
+    const entry = await this.kv.get<GameStorageData<C, S>>(key);
     if (entry.value == null) {
       throw new Error(`Game ${gameId} not found`);
     } else {
@@ -236,15 +236,15 @@ export class DB {
     }
   }
 
-  public watchForGameChanges<C, S, I>(
+  public watchForGameChanges<C, S>(
     gameId: string,
-  ): ReadableStream<GameStorageData<C, S, I>> {
+  ): ReadableStream<GameStorageData<C, S>> {
     const key = getGameKey(gameId);
     const stream = this.kv.watch([key]);
     return stream.pipeThrough(
       new TransformStream({
         transform(events, controller) {
-          const data = events[0].value as GameStorageData<C, S, I> | null;
+          const data = events[0].value as GameStorageData<C, S> | null;
           if (data != null) {
             controller.enqueue(data);
           }

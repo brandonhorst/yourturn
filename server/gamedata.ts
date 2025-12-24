@@ -12,21 +12,21 @@ export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
   return await db.getAllActiveGames();
 }
 
-export function getPlayerId<C, S, I>(
-  gameData: GameStorageData<C, S, I>,
+export function getPlayerId<C, S>(
+  gameData: GameStorageData<C, S>,
   sessionId: string,
-): I {
+): number {
   const playerId = gameData.sessionTokens[sessionId];
   return playerId;
 }
 
-export function getPlayerState<C, S, P, I>(
-  gameData: GameStorageData<C, S, I>,
-  playerStateLogic: (s: S, o: PlayerStateObject<C, I>) => P,
-  playerId: I,
+export function getPlayerState<C, S, P>(
+  gameData: GameStorageData<C, S>,
+  playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
+  playerId: number,
 ): P {
   const state = gameData.gameState;
-  const playerStateObject: PlayerStateObject<C, I> = {
+  const playerStateObject: PlayerStateObject<C> = {
     config: gameData.config,
     playerId,
     isComplete: gameData.isComplete,
@@ -37,12 +37,12 @@ export function getPlayerState<C, S, P, I>(
   return playerState;
 }
 
-export function getObserverState<C, S, O, I>(
-  gameData: GameStorageData<C, S, I>,
-  observerStateLogic: (s: S, o: ObserverStateObject<C, I>) => O,
+export function getObserverState<C, S, O>(
+  gameData: GameStorageData<C, S>,
+  observerStateLogic: (s: S, o: ObserverStateObject<C>) => O,
 ): O {
   const state = gameData.gameState;
-  const observerStateObject: ObserverStateObject<C, I> = {
+  const observerStateObject: ObserverStateObject<C> = {
     isComplete: gameData.isComplete,
     players: gameData.players,
     config: gameData.config,
@@ -52,13 +52,13 @@ export function getObserverState<C, S, O, I>(
   return observerState;
 }
 
-async function updateGameState<C, S, M, P, O, I>(
+async function updateGameState<C, S, M, P, O>(
   db: DB,
-  game: Game<C, S, M, P, O, I>,
+  game: Game<C, S, M, P, O>,
   gameId: string,
-  computeNewState: (gameData: GameStorageData<C, S, I>) => S | undefined,
+  computeNewState: (gameData: GameStorageData<C, S>) => S | undefined,
 ) {
-  const gameData = await db.getGameStorageData<C, S, I>(gameId);
+  const gameData = await db.getGameStorageData<C, S>(gameId);
   if (gameData.isComplete) {
     return;
   }
@@ -68,7 +68,7 @@ async function updateGameState<C, S, M, P, O, I>(
     return;
   }
 
-  const isCompleteObject: IsCompleteObject<C, I> = {
+  const isCompleteObject: IsCompleteObject<C> = {
     players: gameData.players,
     config: gameData.config,
   };
@@ -84,7 +84,7 @@ async function updateGameState<C, S, M, P, O, I>(
   // Calculate refresh timeout if game has a refreshTimeout function
   let refreshDelay: number | undefined;
   if (game.refreshTimeout && !isComplete) {
-    const refreshObject: RefreshObject<C, I> = {
+    const refreshObject: RefreshObject<C> = {
       timestamp: new Date(),
       players: gameData.players,
       config: gameData.config,
@@ -101,11 +101,11 @@ async function updateGameState<C, S, M, P, O, I>(
   );
 }
 
-export async function handleMove<C, S, M, P, O, I>(
+export async function handleMove<C, S, M, P, O>(
   db: DB,
-  game: Game<C, S, M, P, O, I>,
+  game: Game<C, S, M, P, O>,
   gameId: string,
-  playerId: I,
+  playerId: number,
   move: M,
 ) {
   await updateGameState(db, game, gameId, (gameData) => {
@@ -126,9 +126,9 @@ export async function handleMove<C, S, M, P, O, I>(
   });
 }
 
-export async function handleRefresh<C, S, M, P, O, I>(
+export async function handleRefresh<C, S, M, P, O>(
   db: DB,
-  game: Game<C, S, M, P, O, I>,
+  game: Game<C, S, M, P, O>,
   gameId: string,
 ) {
   await updateGameState(db, game, gameId, (gameData) => {
@@ -139,7 +139,7 @@ export async function handleRefresh<C, S, M, P, O, I>(
       return state;
     }
 
-    const refreshData: RefreshObject<C, I> = {
+    const refreshData: RefreshObject<C> = {
       timestamp: new Date(),
       players: gameData.players,
       config: gameData.config,

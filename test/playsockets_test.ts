@@ -9,7 +9,7 @@ import type { PlayerStateObject } from "../types.ts";
 // Player state getter function
 const getPlayerState = (
   state: number,
-  _o: PlayerStateObject<undefined, number>,
+  _o: PlayerStateObject<undefined>,
 ) => state;
 
 Deno.test("registers and unregisters a socket", async () => {
@@ -17,7 +17,6 @@ Deno.test("registers and unregisters a socket", async () => {
   const db = new DB(kv);
   const playSocketStore = new PlaySocketStore<
     undefined,
-    number,
     number,
     number
   >(db);
@@ -71,7 +70,6 @@ Deno.test("sends state updates to all player sockets", async () => {
   const playSocketStore = new PlaySocketStore<
     undefined,
     number,
-    number,
     number
   >(db);
 
@@ -122,7 +120,6 @@ Deno.test("only sends updates when state changes", async () => {
   const db = new DB(kv);
   const playSocketStore = new PlaySocketStore<
     undefined,
-    number,
     number,
     number
   >(db);

@@ -40,7 +40,7 @@ Deno.test("joins and leaves a queue", async () => {
   lobbySocketStore.register(socket);
 
   // Join a queue
-  const queue = { queueId: "test-queue", playerIds: [0, 1], config: undefined };
+  const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
   await lobbySocketStore.joinQueue(socket, queue, setupGame);
 
   // Verify the socket has a queue entry associated with it
@@ -77,7 +77,7 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   // Join the same queue with both sockets
   const queue = {
     queueId: "test-queue-assignments",
-    playerIds: [0, 1],
+    numPlayers: 2,
     config: undefined,
   };
 
@@ -152,7 +152,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   // Create a game by having two sockets join a queue
   const queue = {
     queueId: "test-queue-broadcast",
-    playerIds: [0, 1],
+    numPlayers: 2,
     config: undefined,
   };
   await Promise.all([
@@ -228,7 +228,7 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
   // Join the same queue with all three sockets
   const queue = {
     queueId: "test-queue-three-players",
-    playerIds: [0, 1, 2],
+    numPlayers: 3,
     config: undefined,
   };
 
