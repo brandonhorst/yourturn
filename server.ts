@@ -76,6 +76,7 @@ class Server<C, S, M, P, O> {
       playerId,
     );
     return {
+      playerId,
       playerState,
       isComplete: gameData.isComplete,
       players: gameData.players,

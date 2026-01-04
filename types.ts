@@ -205,6 +205,7 @@ export type ActiveGame = {
 };
 
 export type PlayerProps<P> = {
+  playerId: number;
   playerState: P;
   isComplete: boolean;
   players: Player[];
@@ -216,17 +217,11 @@ export type ObserverProps<O> = {
   players: Player[];
 };
 
-export type PlayerViewProps<M, P> = {
-  playerState: P;
+export type PlayerViewProps<M, P> = PlayerProps<P> & {
   perform?: (move: M) => void;
-  isComplete: boolean;
-  players: Player[];
 };
-export type ObserveViewProps<O> = {
-  observerState: O;
-  isComplete: boolean;
-  players: Player[];
-};
+
+export type ObserveViewProps<O> = ObserverProps<O>;
 
 export type LobbyViewProps = {
   activeGames: ActiveGame[];
