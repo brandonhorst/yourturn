@@ -207,21 +207,25 @@ export type ActiveGame = {
 export type PlayerProps<P> = {
   playerState: P;
   isComplete: boolean;
+  players: Player[];
 };
 
 export type ObserverProps<O> = {
   observerState: O;
   isComplete: boolean;
+  players: Player[];
 };
 
 export type PlayerViewProps<M, P> = {
   playerState: P;
   perform?: (move: M) => void;
   isComplete: boolean;
+  players: Player[];
 };
 export type ObserveViewProps<O> = {
   observerState: O;
   isComplete: boolean;
+  players: Player[];
 };
 
 export type LobbyViewProps = {

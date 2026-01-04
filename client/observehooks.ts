@@ -18,6 +18,7 @@ export function useObserveSocket<O>(
   const [isComplete, setIsComplete] = useState<boolean>(
     initialObserverProps.isComplete,
   );
+  const players = initialObserverProps.players;
 
   // Handler for socket messages
   function onMessage(response: ObserveSocketResponse<O>, close: () => void) {
@@ -43,5 +44,5 @@ export function useObserveSocket<O>(
     onMessage,
   );
 
-  return { observerState, isComplete };
+  return { observerState, isComplete, players };
 }

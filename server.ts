@@ -75,7 +75,11 @@ class Server<C, S, M, P, O> {
       this.game.playerState,
       playerId,
     );
-    return { playerState, isComplete: gameData.isComplete };
+    return {
+      playerState,
+      isComplete: gameData.isComplete,
+      players: gameData.players,
+    };
   }
 
   async getInitialObserverProps(
@@ -83,7 +87,11 @@ class Server<C, S, M, P, O> {
   ): Promise<ObserverProps<O>> {
     const gameData = await this.db.getGameStorageData<C, S>(gameId);
     const observerState = getObserverState(gameData, this.game.observerState);
-    return { observerState, isComplete: gameData.isComplete };
+    return {
+      observerState,
+      isComplete: gameData.isComplete,
+      players: gameData.players,
+    };
   }
 
   configureLobbySocket(socket: WebSocket) {
