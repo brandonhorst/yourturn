@@ -71,7 +71,9 @@ Client-side hooks are organized by functionality:
 
 ### Game Interface
 
-Games must implement the `Game<C, S, M, P, O>` interface defined in `types.ts`:
+Games must implement the
+`Game<Config, GameState, Move, PlayerState, ObserverState>` interface defined in
+`types.ts`:
 
 - `C` - Configuration type (structured clone compatible)
 - `S` - Game state type (structured clone compatible)

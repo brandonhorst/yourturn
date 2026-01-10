@@ -97,24 +97,24 @@ export type Mode<C> = {
 /**
  * Core interface for implementing turn-based multiplayer games.
  *
- * @template C - Configuration type that defines game setup parameters (must be compatible with structured clone algorithm)
- * @template S - Game state type representing the complete state of the game (must be compatible with structured clone algorithm)
- * @template M - Move type representing actions players can take (must be JSON serializable)
- * @template P - Player state type representing game state visible to a specific player (must be JSON serializable)
- * @template O - Observer state type representing game state visible to observers (must be JSON serializable)
+ * @template Config - Configuration type that defines game setup parameters (must be compatible with structured clone algorithm)
+ * @template GameState - Game state type representing the complete state of the game (must be compatible with structured clone algorithm)
+ * @template Move - Move type representing actions players can take (must be JSON serializable)
+ * @template PlayerState - Player state type representing game state visible to a specific player (must be JSON serializable)
+ * @template ObserverState - Observer state type representing game state visible to observers (must be JSON serializable)
  */
 export interface Game<
-  C extends StructuredCloneValue,
-  S extends StructuredCloneValue,
-  M extends JSONValue,
-  P extends JSONValue,
-  O extends JSONValue,
+  Config extends StructuredCloneValue,
+  GameState extends StructuredCloneValue,
+  Move extends JSONValue,
+  PlayerState extends JSONValue,
+  ObserverState extends JSONValue,
 > {
   /**
    * Defines the available game modes with their configurations.
    * Used for matchmaking and game initialization.
    */
-  modes: { [id: string]: Mode<C> };
+  modes: { [id: string]: Mode<Config> };
 
   /**
    * Creates the initial game state when a new game is started.
@@ -122,7 +122,7 @@ export interface Game<
    * @param o - Setup object containing configuration, player information, and timestamp
    * @returns Immutable initial game state
    */
-  setup(o: SetupObject<C>): Readonly<S>;
+  setup(o: SetupObject<Config>): Readonly<GameState>;
 
   /**
    * Validates whether a move is legitimate based on current game state.
@@ -132,7 +132,10 @@ export interface Game<
    * @param o - Move object containing the move, player ID, configuration, timestamp, and player information
    * @returns True if the move is valid, false otherwise
    */
-  isValidMove(state: Readonly<S>, o: MoveObject<C, M>): boolean;
+  isValidMove(
+    state: Readonly<GameState>,
+    o: MoveObject<Config, Move>,
+  ): boolean;
 
   /**
    * Processes a player's move and updates the game state accordingly.
@@ -142,7 +145,10 @@ export interface Game<
    * @param o - Move object containing the move, player ID, configuration, timestamp, and player information
    * @returns Updated immutable game state
    */
-  processMove(state: Readonly<S>, o: MoveObject<C, M>): Readonly<S>;
+  processMove(
+    state: Readonly<GameState>,
+    o: MoveObject<Config, Move>,
+  ): Readonly<GameState>;
 
   /**
    * Determines the timeout in milliseconds for automatic state refreshes. Called
@@ -154,8 +160,8 @@ export interface Game<
    * @returns Timeout in milliseconds or undefined to disable automatic refreshes
    */
   refreshTimeout?(
-    state: Readonly<S>,
-    o: RefreshObject<C>,
+    state: Readonly<GameState>,
+    o: RefreshObject<Config>,
   ): number | undefined;
 
   /**
@@ -167,7 +173,10 @@ export interface Game<
    * @param o - Refresh object containing configuration, timestamp, and player information
    * @returns Updated immutable game state
    */
-  refresh?(state: Readonly<S>, o: RefreshObject<C>): Readonly<S>;
+  refresh?(
+    state: Readonly<GameState>,
+    o: RefreshObject<Config>,
+  ): Readonly<GameState>;
 
   /**
    * Creates a player-specific view of the game state.
@@ -177,7 +186,10 @@ export interface Game<
    * @param o - Player state object containing player ID, game completion status, configuration, and player information
    * @returns Player-specific state representation
    */
-  playerState(state: Readonly<S>, o: PlayerStateObject<C>): P;
+  playerState(
+    state: Readonly<GameState>,
+    o: PlayerStateObject<Config>,
+  ): PlayerState;
 
   /**
    * Creates an observer-specific view of the game state.
@@ -187,7 +199,10 @@ export interface Game<
    * @param o - Observer state object containing game completion status, configuration, and player information
    * @returns Observer-specific state representation
    */
-  observerState(state: Readonly<S>, o: ObserverStateObject<C>): O;
+  observerState(
+    state: Readonly<GameState>,
+    o: ObserverStateObject<Config>,
+  ): ObserverState;
 
   /**
    * Determines whether the game has ended.
@@ -197,7 +212,10 @@ export interface Game<
    * @param o - Completion check object containing configuration and player information
    * @returns True if the game is complete, false otherwise
    */
-  isComplete(state: Readonly<S>, o: IsCompleteObject<C>): boolean;
+  isComplete(
+    state: Readonly<GameState>,
+    o: IsCompleteObject<Config>,
+  ): boolean;
 }
 
 export type ActiveGame = {
