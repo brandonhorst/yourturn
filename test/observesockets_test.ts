@@ -5,6 +5,11 @@ import { assertSpyCalls, spy } from "@std/testing/mock";
 
 // Mock game state and observer state types for testing
 
+type TestPlayer = {
+  playerId: number;
+  name: string;
+};
+
 // Observer state getter function
 const getObserverState = (state: number) => state;
 
@@ -14,6 +19,7 @@ Deno.test("registers and unregisters a socket", async () => {
   const observeSocketStore = new ObserveSocketStore<
     undefined,
     number,
+    TestPlayer,
     number
   >(
     db,
@@ -67,6 +73,7 @@ Deno.test("sends state updates to all observer sockets", async () => {
   const observeSocketStore = new ObserveSocketStore<
     undefined,
     number,
+    TestPlayer,
     number
   >(
     db,
@@ -120,6 +127,7 @@ Deno.test("only sends updates when state changes", async () => {
   const observeSocketStore = new ObserveSocketStore<
     undefined,
     number,
+    TestPlayer,
     number
   >(
     db,

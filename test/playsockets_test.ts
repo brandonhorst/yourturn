@@ -6,10 +6,15 @@ import type { PlayerStateObject } from "../types.ts";
 
 // Mock game state and player state types for testing
 
+type TestPlayer = {
+  playerId: number;
+  name: string;
+};
+
 // Player state getter function
 const getPlayerState = (
   state: number,
-  _o: PlayerStateObject<undefined>,
+  _o: PlayerStateObject<undefined, TestPlayer>,
 ) => state;
 
 Deno.test("registers and unregisters a socket", async () => {
@@ -18,6 +23,7 @@ Deno.test("registers and unregisters a socket", async () => {
   const playSocketStore = new PlaySocketStore<
     undefined,
     number,
+    TestPlayer,
     number
   >(db);
 
@@ -70,6 +76,7 @@ Deno.test("sends state updates to all player sockets", async () => {
   const playSocketStore = new PlaySocketStore<
     undefined,
     number,
+    TestPlayer,
     number
   >(db);
 
@@ -121,6 +128,7 @@ Deno.test("only sends updates when state changes", async () => {
   const playSocketStore = new PlaySocketStore<
     undefined,
     number,
+    TestPlayer,
     number
   >(db);
 

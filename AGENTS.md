@@ -72,13 +72,14 @@ Client-side hooks are organized by functionality:
 ### Game Interface
 
 Games must implement the
-`Game<Config, GameState, Move, PlayerState, ObserverState>` interface defined in
-`types.ts`:
+`Game<Config, GameState, Move, Player, PlayerState, ObserverState>` interface
+defined in `types.ts`:
 
 - `C` - Configuration type (structured clone compatible)
 - `S` - Game state type (structured clone compatible)
 - `M` - Move type (JSON serializable)
-- `P` - Player state type (JSON serializable)
+- `P` - Player metadata type (JSON serializable)
+- `PS` - Player state type (JSON serializable)
 - `O` - Observer state type (JSON serializable)
 
 Key methods:

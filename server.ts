@@ -21,11 +21,14 @@ export async function initializeServer<
   Config,
   GameState,
   Move,
+  Player,
   PlayerState,
   ObserverState,
 >(
-  game: Game<Config, GameState, Move, PlayerState, ObserverState>,
-): Promise<Server<Config, GameState, Move, PlayerState, ObserverState>> {
+  game: Game<Config, GameState, Move, Player, PlayerState, ObserverState>,
+): Promise<
+  Server<Config, GameState, Move, Player, PlayerState, ObserverState>
+> {
   const kv = await Deno.openKv();
   const db = new DB(kv);
 
@@ -46,11 +49,15 @@ export async function initializeServer<
   const observeSocketStore = new ObserveSocketStore<
     Config,
     GameState,
+    Player,
     ObserverState
   >(db);
-  const playSocketStore = new PlaySocketStore<Config, GameState, PlayerState>(
-    db,
-  );
+  const playSocketStore = new PlaySocketStore<
+    Config,
+    GameState,
+    Player,
+    PlayerState
+  >(db);
 
   return new Server(
     game,
@@ -63,17 +70,37 @@ export async function initializeServer<
 
 export type { Server };
 
-class Server<Config, GameState, Move, PlayerState, ObserverState> {
+class Server<
+  Config,
+  GameState,
+  Move,
+  Player,
+  PlayerState,
+  ObserverState,
+> {
   constructor(
-    private game: Game<Config, GameState, Move, PlayerState, ObserverState>,
+    private game: Game<
+      Config,
+      GameState,
+      Move,
+      Player,
+      PlayerState,
+      ObserverState
+    >,
     private db: DB,
     private lobbySocketStore: LobbySocketStore,
     private observeSocketStore: ObserveSocketStore<
       Config,
       GameState,
+      Player,
       ObserverState
     >,
-    private playSocketStore: PlaySocketStore<Config, GameState, PlayerState>,
+    private playSocketStore: PlaySocketStore<
+      Config,
+      GameState,
+      Player,
+      PlayerState
+    >,
   ) {}
 
   async getInitialActiveGames(): Promise<ActiveGame[]> {
@@ -83,10 +110,12 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
   async getInitialPlayerProps(
     gameId: string,
     sessionId: string,
-  ): Promise<PlayerProps<PlayerState>> {
-    const gameData = await this.db.getGameStorageData<Config, GameState>(
-      gameId,
-    );
+  ): Promise<PlayerProps<PlayerState, Player>> {
+    const gameData = await this.db.getGameStorageData<
+      Config,
+      GameState,
+      Player
+    >(gameId);
     const playerId = getPlayerId(gameData, sessionId);
     const playerState = getPlayerState(
       gameData,
@@ -103,10 +132,12 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
 
   async getInitialObserverProps(
     gameId: string,
-  ): Promise<ObserverProps<ObserverState>> {
-    const gameData = await this.db.getGameStorageData<Config, GameState>(
-      gameId,
-    );
+  ): Promise<ObserverProps<ObserverState, Player>> {
+    const gameData = await this.db.getGameStorageData<
+      Config,
+      GameState,
+      Player
+    >(gameId);
     const observerState = getObserverState(gameData, this.game.observerState);
     return {
       observerState,
@@ -206,7 +237,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     sessionId: string,
   ) {
     const playerId = getPlayerId(
-      await this.db.getGameStorageData<Config, GameState>(gameId),
+      await this.db.getGameStorageData<Config, GameState, Player>(gameId),
       sessionId,
     );
 

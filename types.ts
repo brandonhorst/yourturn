@@ -44,54 +44,49 @@ type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
 
-export type Player = {
-  playerId: number;
-  name: string;
-};
-
-export type SetupObject<C> = {
+export type SetupObject<Config, Player> = {
   timestamp: Date;
   players: Player[];
-  config: C;
+  config: Config;
 };
 
-export type MoveObject<C, M> = {
-  config: C;
+export type MoveObject<Config, M, Player> = {
+  config: Config;
   move: M;
   playerId: number;
   timestamp: Date;
   players: Player[];
 };
 
-export type RefreshObject<C> = {
-  config: C;
+export type RefreshObject<Config, Player> = {
+  config: Config;
   timestamp: Date;
   players: Player[];
 };
 
-export type PlayerStateObject<C> = {
-  config: C;
+export type PlayerStateObject<Config, Player> = {
+  config: Config;
   playerId: number;
   isComplete: boolean;
   players: Player[];
   timestamp: Date;
 };
-export type ObserverStateObject<C> = {
-  config: C;
+export type ObserverStateObject<Config, Player> = {
+  config: Config;
   isComplete: boolean;
   players: Player[];
   timestamp: Date;
 };
 
-export type IsCompleteObject<C> = {
-  config: C;
+export type IsCompleteObject<Config, Player> = {
+  config: Config;
   players: Player[];
 };
 
-export type Mode<C> = {
+export type Mode<Config> = {
   numPlayers: number;
   matchmaking: "queue";
-  config: C;
+  config: Config;
 };
 
 /**
@@ -100,6 +95,7 @@ export type Mode<C> = {
  * @template Config - Configuration type that defines game setup parameters (must be compatible with structured clone algorithm)
  * @template GameState - Game state type representing the complete state of the game (must be compatible with structured clone algorithm)
  * @template Move - Move type representing actions players can take (must be JSON serializable)
+ * @template Player - Player metadata type (must be JSON serializable)
  * @template PlayerState - Player state type representing game state visible to a specific player (must be JSON serializable)
  * @template ObserverState - Observer state type representing game state visible to observers (must be JSON serializable)
  */
@@ -107,6 +103,7 @@ export interface Game<
   Config extends StructuredCloneValue,
   GameState extends StructuredCloneValue,
   Move extends JSONValue,
+  Player extends JSONValue,
   PlayerState extends JSONValue,
   ObserverState extends JSONValue,
 > {
@@ -122,7 +119,7 @@ export interface Game<
    * @param o - Setup object containing configuration, player information, and timestamp
    * @returns Immutable initial game state
    */
-  setup(o: SetupObject<Config>): Readonly<GameState>;
+  setup(o: SetupObject<Config, Player>): Readonly<GameState>;
 
   /**
    * Validates whether a move is legitimate based on current game state.
@@ -134,7 +131,7 @@ export interface Game<
    */
   isValidMove(
     state: Readonly<GameState>,
-    o: MoveObject<Config, Move>,
+    o: MoveObject<Config, Move, Player>,
   ): boolean;
 
   /**
@@ -147,7 +144,7 @@ export interface Game<
    */
   processMove(
     state: Readonly<GameState>,
-    o: MoveObject<Config, Move>,
+    o: MoveObject<Config, Move, Player>,
   ): Readonly<GameState>;
 
   /**
@@ -161,7 +158,7 @@ export interface Game<
    */
   refreshTimeout?(
     state: Readonly<GameState>,
-    o: RefreshObject<Config>,
+    o: RefreshObject<Config, Player>,
   ): number | undefined;
 
   /**
@@ -175,7 +172,7 @@ export interface Game<
    */
   refresh?(
     state: Readonly<GameState>,
-    o: RefreshObject<Config>,
+    o: RefreshObject<Config, Player>,
   ): Readonly<GameState>;
 
   /**
@@ -188,7 +185,7 @@ export interface Game<
    */
   playerState(
     state: Readonly<GameState>,
-    o: PlayerStateObject<Config>,
+    o: PlayerStateObject<Config, Player>,
   ): PlayerState;
 
   /**
@@ -201,7 +198,7 @@ export interface Game<
    */
   observerState(
     state: Readonly<GameState>,
-    o: ObserverStateObject<Config>,
+    o: ObserverStateObject<Config, Player>,
   ): ObserverState;
 
   /**
@@ -214,7 +211,7 @@ export interface Game<
    */
   isComplete(
     state: Readonly<GameState>,
-    o: IsCompleteObject<Config>,
+    o: IsCompleteObject<Config, Player>,
   ): boolean;
 }
 
@@ -222,24 +219,29 @@ export type ActiveGame = {
   gameId: string;
 };
 
-export type PlayerProps<P> = {
+export type PlayerProps<P, Player> = {
   playerId: number;
   playerState: P;
   isComplete: boolean;
   players: Player[];
 };
 
-export type ObserverProps<O> = {
+export type ObserverProps<O, Player> = {
   observerState: O;
   isComplete: boolean;
   players: Player[];
 };
 
-export type PlayerViewProps<M, P> = PlayerProps<P> & {
-  perform?: (move: M) => void;
-};
+export type PlayerViewProps<M, P, Player> =
+  & PlayerProps<P, Player>
+  & {
+    perform?: (move: M) => void;
+  };
 
-export type ObserveViewProps<O> = ObserverProps<O>;
+export type ObserveViewProps<O, Player> = ObserverProps<
+  O,
+  Player
+>;
 
 export type LobbyViewProps = {
   activeGames: ActiveGame[];

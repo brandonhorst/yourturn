@@ -10,13 +10,18 @@ type PlaySocket<P> = {
   lastValue: P | undefined;
   socket: Socket;
 };
-type PlayConnection<C, S, P> = {
-  sockets: PlaySocket<P>[];
-  changesReader: ReadableStreamDefaultReader<GameStorageData<C, S>>;
+type PlayConnection<Config, GameState, Player, PlayerState> = {
+  sockets: PlaySocket<PlayerState>[];
+  changesReader: ReadableStreamDefaultReader<
+    GameStorageData<Config, GameState, Player>
+  >;
 };
 
-export class PlaySocketStore<C, S, P> {
-  private connections: Map<string, PlayConnection<C, S, P>> = new Map();
+export class PlaySocketStore<Config, GameState, Player, PlayerState> {
+  private connections: Map<
+    string,
+    PlayConnection<Config, GameState, Player, PlayerState>
+  > = new Map();
 
   constructor(private db: DB) {}
 
@@ -28,7 +33,10 @@ export class PlaySocketStore<C, S, P> {
     socket: Socket,
     gameId: string,
     playerId: number,
-    playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
+    playerStateLogic: (
+      s: GameState,
+      o: PlayerStateObject<Config, Player>,
+    ) => PlayerState,
   ) {
     if (!this.hasGame(gameId)) {
       this.createGame(gameId, playerStateLogic);
@@ -42,14 +50,21 @@ export class PlaySocketStore<C, S, P> {
   async initialize(
     socket: Socket,
     gameId: string,
-    playerState: P,
-    playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
+    playerState: PlayerState,
+    playerStateLogic: (
+      s: GameState,
+      o: PlayerStateObject<Config, Player>,
+    ) => PlayerState,
   ) {
     const playSocket =
       this.getSockets(gameId).filter((s) => s.socket === socket)[0];
     playSocket.lastValue = playerState;
 
-    const gameData = await this.db.getGameStorageData<C, S>(gameId);
+    const gameData = await this.db.getGameStorageData<
+      Config,
+      GameState,
+      Player
+    >(gameId);
     const newPlayerState = getPlayerState(
       gameData,
       playerStateLogic,
@@ -70,8 +85,13 @@ export class PlaySocketStore<C, S, P> {
 
   private async streamToAllSockets(
     gameId: string,
-    playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
-    stream: ReadableStreamDefaultReader<GameStorageData<C, S>>,
+    playerStateLogic: (
+      s: GameState,
+      o: PlayerStateObject<Config, Player>,
+    ) => PlayerState,
+    stream: ReadableStreamDefaultReader<
+      GameStorageData<Config, GameState, Player>
+    >,
   ) {
     while (true) {
       const data = await stream.read();
@@ -99,12 +119,19 @@ export class PlaySocketStore<C, S, P> {
 
   private createGame(
     gameId: string,
-    playerStateLogic: (s: S, o: PlayerStateObject<C>) => P,
+    playerStateLogic: (
+      s: GameState,
+      o: PlayerStateObject<Config, Player>,
+    ) => PlayerState,
   ): void {
-    const changesReader = this.db.watchForGameChanges<C, S>(gameId)
+    const changesReader = this.db.watchForGameChanges<
+      Config,
+      GameState,
+      Player
+    >(gameId)
       .getReader();
     this.streamToAllSockets(gameId, playerStateLogic, changesReader);
-    const connection: PlayConnection<C, S, P> = {
+    const connection: PlayConnection<Config, GameState, Player, PlayerState> = {
       sockets: [],
       changesReader,
     };
@@ -134,7 +161,7 @@ export class PlaySocketStore<C, S, P> {
     }
   }
 
-  private getSockets(gameId: string): PlaySocket<P>[] {
+  private getSockets(gameId: string): PlaySocket<PlayerState>[] {
     const connection = this.connections.get(gameId);
     assert(connection != null);
     return connection.sockets;

@@ -6,10 +6,10 @@ import type { PlayerProps, PlayerViewProps } from "../types.ts";
 // Opens an auto-reconnecting WebSocket to a given Play URL.
 // Returns an always up-to-date PlayerState,
 // and a function to perform a move. Closes the socket if the game completes.
-export function usePlaySocket<M, P>(
+export function usePlaySocket<M, P, Player>(
   socketUrl: string,
-  initialPlayerProps: PlayerProps<P>,
-): PlayerViewProps<M, P> {
+  initialPlayerProps: PlayerProps<P, Player>,
+): PlayerViewProps<M, P, Player> {
   const [playerState, setPlayerState] = useState<P>(
     initialPlayerProps.playerState,
   );

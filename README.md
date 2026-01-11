@@ -64,6 +64,15 @@ Any JSON-serializable object. This represents any action that any player takes.
 This can be thought of as the edges of the game's state machine's graph. Often,
 typescript "Union Types" are a good way to implement this.
 
+### `Player`
+
+```ts
+export type Player
+```
+
+A JSON-serializable object describing a player. It is provided alongside game
+setup, moves, refreshes, and view props.
+
 ### `PlayerState` and `ObserverState`
 
 ```ts
