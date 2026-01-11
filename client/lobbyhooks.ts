@@ -6,12 +6,14 @@ import type {
 } from "../common/types.ts";
 import type { ActiveGame } from "../types.ts";
 
-export function useLobbySocket({ socketUrl, initialActiveGames, navigate }: {
-  socketUrl: string;
-  initialActiveGames: ActiveGame[];
-  navigate: (gameId: string, sessionId: string) => void;
-}): {
-  activeGames: ActiveGame[];
+export function useLobbySocket<Config, Player>(
+  { socketUrl, initialActiveGames, navigate }: {
+    socketUrl: string;
+    initialActiveGames: ActiveGame<Config, Player>[];
+    navigate: (gameId: string, sessionId: string) => void;
+  },
+): {
+  activeGames: ActiveGame<Config, Player>[];
   joinQueue: (queueId: string) => void;
   isQueued: boolean;
   leaveQueue: () => void;
@@ -19,7 +21,7 @@ export function useLobbySocket({ socketUrl, initialActiveGames, navigate }: {
   const [activeGames, setActiveGames] = useState(initialActiveGames);
   const [isQueued, setIsQueued] = useState(false);
 
-  function onUpdate(response: LobbySocketResponse) {
+  function onUpdate(response: LobbySocketResponse<Config, Player>) {
     switch (response.type) {
       case "QueueJoined":
         setIsQueued(true);
@@ -40,7 +42,10 @@ export function useLobbySocket({ socketUrl, initialActiveGames, navigate }: {
     setIsQueued(false);
   }
 
-  const send = useSocket<LobbySocketRequest, LobbySocketResponse>(
+  const send = useSocket<
+    LobbySocketRequest<Config, Player>,
+    LobbySocketResponse<Config, Player>
+  >(
     true,
     () => new WebSocket(socketUrl),
     { type: "Initialize", activeGames },

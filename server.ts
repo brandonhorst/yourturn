@@ -32,8 +32,8 @@ export async function initializeServer<
   const kv = await Deno.openKv();
   const db = new DB(kv);
 
-  const activeGamesStream: ReadableStream<ActiveGame[]> = db
-    .watchForActiveGameListChanges();
+  const activeGamesStream: ReadableStream<ActiveGame<Config, Player>[]> = db
+    .watchForActiveGameListChanges<Config, Player>();
 
   // Start the refresh listener if the game implements the refresh mechanism
   if (game.refresh != null) {
@@ -45,7 +45,10 @@ export async function initializeServer<
     })();
   }
 
-  const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
+  const lobbySocketStore = new LobbySocketStore<Config, Player>(
+    db,
+    activeGamesStream,
+  );
   const observeSocketStore = new ObserveSocketStore<
     Config,
     GameState,
@@ -88,7 +91,7 @@ class Server<
       ObserverState
     >,
     private db: DB,
-    private lobbySocketStore: LobbySocketStore,
+    private lobbySocketStore: LobbySocketStore<Config, Player>,
     private observeSocketStore: ObserveSocketStore<
       Config,
       GameState,
@@ -103,8 +106,8 @@ class Server<
     >,
   ) {}
 
-  async getInitialActiveGames(): Promise<ActiveGame[]> {
-    return await fetchActiveGames(this.db);
+  async getInitialActiveGames(): Promise<ActiveGame<Config, Player>[]> {
+    return await fetchActiveGames<Config, Player>(this.db);
   }
 
   async getInitialPlayerProps(
@@ -155,7 +158,9 @@ class Server<
     const handleLobbySocketMessage = async (event: MessageEvent) => {
       const message = event.data;
       console.log("Lobby Socket Message", message);
-      const parsedMessage: LobbySocketRequest = JSON.parse(message);
+      const parsedMessage: LobbySocketRequest<Config, Player> = JSON.parse(
+        message,
+      );
       switch (parsedMessage.type) {
         case "Initialize":
           this.lobbySocketStore.initialize(socket, parsedMessage.activeGames);

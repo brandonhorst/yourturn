@@ -10,12 +10,12 @@ type QueueEntry = {
   assignmentsReader: ReadableStreamDefaultReader;
 };
 
-type ConnectionData = {
+type ConnectionData<Config, Player> = {
   queueEntry?: Readonly<QueueEntry>;
-  lastValue: ActiveGame[];
+  lastValue: ActiveGame<Config, Player>[];
 };
 
-async function streamToSocket(
+async function streamToSocket<Config, Player>(
   stream: ReadableStreamDefaultReader<AssignmentStorageData>,
   socket: Socket,
 ) {
@@ -25,7 +25,7 @@ async function streamToSocket(
       break;
     }
 
-    const message: LobbySocketResponse = {
+    const message: LobbySocketResponse<Config, Player> = {
       type: "GameAssignment",
       sessionId: data.value.sessionId,
       gameId: data.value.gameId,
@@ -34,13 +34,13 @@ async function streamToSocket(
   }
 }
 
-export class LobbySocketStore {
-  private sockets: Map<Socket, ConnectionData> = new Map();
-  private lastActiveGames: ActiveGame[] = [];
+export class LobbySocketStore<Config, Player> {
+  private sockets: Map<Socket, ConnectionData<Config, Player>> = new Map();
+  private lastActiveGames: ActiveGame<Config, Player>[] = [];
 
   constructor(
     private db: DB,
-    activeGamesStream: ReadableStream<ActiveGame[]>,
+    activeGamesStream: ReadableStream<ActiveGame<Config, Player>[]>,
   ) {
     this.streamToAllSocketAndStore(activeGamesStream);
   }
@@ -48,7 +48,7 @@ export class LobbySocketStore {
     this.sockets.set(socket, { lastValue: [] });
   }
 
-  initialize(socket: Socket, activeGames: ActiveGame[]) {
+  initialize(socket: Socket, activeGames: ActiveGame<Config, Player>[]) {
     const connectionData = this.sockets.get(socket);
     if (connectionData == null) {
       return;
@@ -65,11 +65,11 @@ export class LobbySocketStore {
 
   // Subscribe to the activeGamesStream and send to all registered sockets
   private streamToAllSocketAndStore(
-    activeGamesStream: ReadableStream<ActiveGame[]>,
+    activeGamesStream: ReadableStream<ActiveGame<Config, Player>[]>,
   ) {
     activeGamesStream.pipeTo(
       new WritableStream({
-        write: (activeGames: ActiveGame[]) => {
+        write: (activeGames: ActiveGame<Config, Player>[]) => {
           this.lastActiveGames = activeGames;
 
           for (const socket of this.allSockets()) {
@@ -87,7 +87,7 @@ export class LobbySocketStore {
   // Creates a new queue entry, assigns it to the given queue in the database,
   // and stores the socket. Watches for assignments, and when an assignment is
   // made, sends it to the socket.
-  public async joinQueue<Config, GameState, Player>(
+  public async joinQueue<GameState>(
     socket: Socket,
     queueConfig: QueueConfig<Config>,
     setupGame: (o: SetupObject<Config, Player>) => GameState,
@@ -95,9 +95,11 @@ export class LobbySocketStore {
     const entryId = ulid();
 
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
-    streamToSocket(assignmentsReader, socket);
+    streamToSocket<Config, Player>(assignmentsReader, socket);
 
-    const message: LobbySocketResponse = { type: "QueueJoined" };
+    const message: LobbySocketResponse<Config, Player> = {
+      type: "QueueJoined",
+    };
     socket.send(JSON.stringify(message));
 
     await this.db.addToQueue(queueConfig, entryId, setupGame);
@@ -126,7 +128,7 @@ export class LobbySocketStore {
     await this.db.removeFromQueue(queueEntry.queueId, queueEntry.entryId);
     delete connectionData?.queueEntry;
 
-    const message: LobbySocketResponse = { type: "QueueLeft" };
+    const message: LobbySocketResponse<Config, Player> = { type: "QueueLeft" };
     socket.send(JSON.stringify(message));
   }
 
@@ -135,16 +137,16 @@ export class LobbySocketStore {
   }
 }
 
-function updateActiveGamesIfNecessary(
+function updateActiveGamesIfNecessary<Config, Player>(
   socket: Socket,
-  connectionData: ConnectionData,
-  activeGames: ActiveGame[],
+  connectionData: ConnectionData<Config, Player>,
+  activeGames: ActiveGame<Config, Player>[],
 ) {
   if (deepEquals(connectionData.lastValue, activeGames)) {
     return;
   }
 
-  const response: LobbySocketResponse = {
+  const response: LobbySocketResponse<Config, Player> = {
     type: "UpdateActiveGames",
     activeGames,
   };

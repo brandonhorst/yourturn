@@ -306,18 +306,24 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
   const activeGameKey = ["activegames", gameId];
   const activeGameTriggerKey = ["activegametrigger"];
 
+  const players = [
+    { playerId: 0, name: "Player 1" },
+    { playerId: 1, name: "Player 2" },
+  ];
+
   // Set up the game data directly
   await kv.atomic()
     .set(activeGameTriggerKey, {})
-    .set(activeGameKey, {})
+    .set(activeGameKey, {
+      gameId,
+      config: undefined,
+      players,
+    })
     .set(gameKey, {
       config: undefined,
       gameState: { timestamp: new Date() },
       sessionTokens: { "session-1": 0, "session-2": 1 },
-      players: [
-        { playerId: 0, name: "Player 1" },
-        { playerId: 1, name: "Player 2" },
-      ],
+      players,
       isComplete: false,
       version: 0,
     })

@@ -1,14 +1,14 @@
 import type { ActiveGame } from "../types.ts";
 
-export type LobbySocketRequest =
-  | { type: "Initialize"; activeGames: ActiveGame[] }
+export type LobbySocketRequest<Config, Player> =
+  | { type: "Initialize"; activeGames: ActiveGame<Config, Player>[] }
   | { type: "JoinQueue"; queueId: string }
   | { type: "LeaveQueue" };
 
-export type LobbySocketResponse =
+export type LobbySocketResponse<Config, Player> =
   | { type: "QueueJoined" }
   | { type: "QueueLeft" }
-  | { type: "UpdateActiveGames"; activeGames: ActiveGame[] }
+  | { type: "UpdateActiveGames"; activeGames: ActiveGame<Config, Player>[] }
   | { type: "GameAssignment"; gameId: string; sessionId: string };
 
 export type PlaySocketRequest<Move, PlayerState> =

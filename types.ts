@@ -215,8 +215,10 @@ export interface Game<
   ): boolean;
 }
 
-export type ActiveGame = {
+export type ActiveGame<Config, Player> = {
   gameId: string;
+  config: Config;
+  players: Player[];
 };
 
 export type PlayerProps<PlayerState, Player> = {
@@ -243,8 +245,8 @@ export type ObserveViewProps<ObserverState, Player> = ObserverProps<
   Player
 >;
 
-export type LobbyViewProps = {
-  activeGames: ActiveGame[];
+export type LobbyViewProps<Config, Player> = {
+  activeGames: ActiveGame<Config, Player>[];
   joinQueue: (queueId: string) => void;
   isQueued: boolean;
   leaveQueue: () => void;

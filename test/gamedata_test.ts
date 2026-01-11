@@ -148,7 +148,11 @@ Deno.test("fetchActiveGames returns active games from the database", async () =>
     };
 
     // Set up active game keys
-    await kv.set(getActiveGameKey(gameId), {});
+    await kv.set(getActiveGameKey(gameId), {
+      gameId,
+      config: undefined,
+      players,
+    });
     await kv.set(getGameKey(gameId), gameData);
   }
 
@@ -185,7 +189,11 @@ Deno.test("getPlayerState returns correct player state", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   for (const token in sessionTokens) {
@@ -232,7 +240,11 @@ Deno.test("getPlayerState handles completed games", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
@@ -274,7 +286,11 @@ Deno.test("getObserverState returns correct observer state", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), initialGameData);
 
   const gameData = await db.getGameStorageData<TestConfig, TestState, TestPlayer>(
@@ -310,7 +326,11 @@ Deno.test("getObserverState handles completed games", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
@@ -357,7 +377,11 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   const playerId = 0;
@@ -408,7 +432,11 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   const playerId = 0;
@@ -449,7 +477,11 @@ Deno.test("handleMove rejects invalid moves", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   const initialGameData = await db.getGameStorageData<TestConfig, TestState, TestPlayer>(
@@ -500,7 +532,11 @@ Deno.test("handleMove doesn't update completed games", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
@@ -562,7 +598,11 @@ Deno.test("handleRefresh updates game state", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   await handleRefresh(db, testGame, gameId);
@@ -611,7 +651,11 @@ Deno.test("handleRefresh properly marks game as complete when threshold reached"
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   await handleRefresh(db, testGame, gameId);
@@ -650,7 +694,11 @@ Deno.test("handleRefresh doesn't update completed games", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
@@ -712,7 +760,11 @@ Deno.test("handleMove schedules refresh with refreshTimeout", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   const playerId = 0;
@@ -760,7 +812,11 @@ Deno.test("handleMove doesn't schedule refresh when refreshTimeout returns undef
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   const playerId = 0;
@@ -801,7 +857,11 @@ Deno.test("handleRefresh schedules refresh with refreshTimeout", async () => {
   };
 
   // Set up active game key and game data
-  await kv.set(getActiveGameKey(gameId), {});
+  await kv.set(getActiveGameKey(gameId), {
+    gameId,
+    config: undefined,
+    players,
+  });
   await kv.set(getGameKey(gameId), gameData);
 
   await handleRefresh(db, testGame, gameId);

@@ -133,12 +133,17 @@ export class DB {
         isComplete: false,
         version: 0,
       };
+      const activeGameEntry: ActiveGame<Config, Player> = {
+        gameId,
+        config: queueConfig.config,
+        players,
+      };
 
       // Create a transaction that will update the ActiveGameCount, add an activeGameKey, and write the Storage Data
       const transaction = this.kv.atomic()
         .set(activeGameTriggerKey, {})
         .check({ key: activeGameKey, versionstamp: null })
-        .set(activeGameKey, {})
+        .set(activeGameKey, activeGameEntry)
         .check({ key: gameKey, versionstamp: null })
         .set(gameKey, gameStorageData);
 
@@ -259,14 +264,28 @@ export class DB {
     );
   }
 
-  public async getAllActiveGames(): Promise<ActiveGame[]> {
+  public async getAllActiveGames<Config, Player>(): Promise<
+    ActiveGame<Config, Player>[]
+  > {
     const key = getActiveGamePrefix();
-    const iter = this.kv.list<string>({ prefix: key });
-    const response: ActiveGame[] = [];
+    const iter = this.kv.list<ActiveGame<Config, Player>>({ prefix: key });
+    const response: ActiveGame<Config, Player>[] = [];
 
     for await (const res of iter) {
       const gameId = res.key[res.key.length - 1] as string;
-      response.push({ gameId });
+      const activeGame = res.value as ActiveGame<Config, Player> | null;
+      if (activeGame && Array.isArray(activeGame.players)) {
+        response.push(activeGame);
+        continue;
+      }
+      const gameData = await this.getGameStorageData<Config, unknown, Player>(
+        gameId,
+      );
+      response.push({
+        gameId,
+        config: gameData.config,
+        players: gameData.players,
+      });
     }
 
     return response;
@@ -274,13 +293,15 @@ export class DB {
 
   // Watches for changes to the activeGameTriggerKey, which is an empty key only used
   // to trigger this method.
-  public watchForActiveGameListChanges(): ReadableStream<ActiveGame[]> {
+  public watchForActiveGameListChanges<Config, Player>(): ReadableStream<
+    ActiveGame<Config, Player>[]
+  > {
     const activeGameTriggerKey = getActiveGameTriggerKey();
     const stream = this.kv.watch([activeGameTriggerKey]);
     return stream.pipeThrough(
       new TransformStream({
         transform: async (_events, controller) => {
-          const allGames = await this.getAllActiveGames();
+          const allGames = await this.getAllActiveGames<Config, Player>();
           controller.enqueue(allGames);
         },
       }),

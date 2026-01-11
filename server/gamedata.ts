@@ -8,8 +8,10 @@ import type {
   RefreshObject,
 } from "../types.ts";
 
-export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
-  return await db.getAllActiveGames();
+export async function fetchActiveGames<Config, Player>(
+  db: DB,
+): Promise<ActiveGame<Config, Player>[]> {
+  return await db.getAllActiveGames<Config, Player>();
 }
 
 export function getPlayerId<Config, GameState, Player>(

@@ -59,7 +59,11 @@ Deno.test("sends state updates to all observer sockets", async () => {
   // Set up the game data directly
   await kv.atomic()
     .set(activeGameTriggerKey, {})
-    .set(activeGameKey, {})
+    .set(activeGameKey, {
+      gameId,
+      config: undefined,
+      players,
+    })
     .set(gameKey, {
       config: undefined,
       gameState: 1,
@@ -148,7 +152,11 @@ Deno.test("only sends updates when state changes", async () => {
   // Set up the game data directly
   await kv.atomic()
     .set(activeGameTriggerKey, {})
-    .set(activeGameKey, {})
+    .set(activeGameKey, {
+      gameId,
+      config: undefined,
+      players,
+    })
     .set(gameKey, {
       config: undefined,
       gameState: 1,
