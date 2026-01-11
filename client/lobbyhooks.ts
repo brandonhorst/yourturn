@@ -14,7 +14,7 @@ export function useLobbySocket<Config, Player>(
   },
 ): {
   activeGames: ActiveGame<Config, Player>[];
-  joinQueue: (queueId: string) => void;
+  joinQueue: (queueId: string, player: Player) => void;
   isQueued: boolean;
   leaveQueue: () => void;
 } {
@@ -54,8 +54,8 @@ export function useLobbySocket<Config, Player>(
   );
 
   const joinQueue = useCallback(
-    (queueId: string) => {
-      send({ type: "JoinQueue", queueId });
+    (queueId: string, player: Player) => {
+      send({ type: "JoinQueue", queueId, player });
     },
     [send],
   );

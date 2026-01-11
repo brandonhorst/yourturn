@@ -247,7 +247,7 @@ export type ObserveViewProps<ObserverState, Player> = ObserverProps<
 
 export type LobbyViewProps<Config, Player> = {
   activeGames: ActiveGame<Config, Player>[];
-  joinQueue: (queueId: string) => void;
+  joinQueue: (queueId: string, player: Player) => void;
   isQueued: boolean;
   leaveQueue: () => void;
 };

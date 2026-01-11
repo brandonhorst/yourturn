@@ -2,7 +2,7 @@ import type { ActiveGame } from "../types.ts";
 
 export type LobbySocketRequest<Config, Player> =
   | { type: "Initialize"; activeGames: ActiveGame<Config, Player>[] }
-  | { type: "JoinQueue"; queueId: string }
+  | { type: "JoinQueue"; queueId: string; player: Player }
   | { type: "LeaveQueue" };
 
 export type LobbySocketResponse<Config, Player> =

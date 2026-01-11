@@ -7,6 +7,11 @@ export type QueueConfig<Config> = {
   config: Config;
 };
 
+type QueueEntryValue<Player> = {
+  timestamp: Date;
+  player: Player;
+};
+
 type SessionTokens = {
   [x: string]: number;
 };
@@ -66,13 +71,14 @@ export class DB {
     queueConfig: QueueConfig<Config>,
     entryId: string,
     setupGame: (setupObject: SetupObject<Config, Player>) => GameState,
+    player: Player,
   ): Promise<void> {
     await repeatUntilSuccess(async () => {
       const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
       return await this.kv
         .atomic()
         .check({ key: entryKey, versionstamp: null })
-        .set(entryKey, { timestamp: new Date() })
+        .set(entryKey, { timestamp: new Date(), player })
         .commit();
     });
 
@@ -104,10 +110,12 @@ export class DB {
 
     await repeatUntilSuccess(async () => {
       // Get desired queue entries, if they exist
-      const queueEntries = await Array.fromAsync(this.kv.list<string>(
-        { prefix: queuePrefix },
-        { limit: queueConfig.numPlayers },
-      ));
+      const queueEntries = await Array.fromAsync(
+        this.kv.list<QueueEntryValue<Player>>(
+          { prefix: queuePrefix },
+          { limit: queueConfig.numPlayers },
+        ),
+      );
 
       // If the queue doesn't have enough entrants, stop
       if (queueEntries.length < queueConfig.numPlayers) {
@@ -120,7 +128,7 @@ export class DB {
 
       for (let i = 0; i < queueConfig.numPlayers; i++) {
         sessionTokens[ulid()] = i;
-        players[i] = { playerId: i, name: `Player ${i + 1}` } as Player;
+        players[i] = queueEntries[i].value.player;
       }
       const timestamp = new Date();
       const setupObject = { timestamp, players, config: queueConfig.config };

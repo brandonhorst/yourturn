@@ -3,6 +3,8 @@ import { DB } from "../server/db.ts";
 import { LobbySocketStore } from "../server/lobbysockets.ts";
 import { assertSpyCalls, spy } from "@std/testing/mock";
 
+const defaultPlayer = { name: "Player" };
+
 Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
@@ -41,7 +43,7 @@ Deno.test("joins and leaves a queue", async () => {
 
   // Join a queue
   const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
-  await lobbySocketStore.joinQueue(socket, queue, setupGame);
+  await lobbySocketStore.joinQueue(socket, queue, setupGame, defaultPlayer);
 
   // Verify the socket has a queue entry associated with it
   // We can't directly access the private fields, but we can test functionality
@@ -50,7 +52,7 @@ Deno.test("joins and leaves a queue", async () => {
   await lobbySocketStore.leaveQueue(socket);
 
   // Verify we can join again (which would fail if not properly removed)
-  await lobbySocketStore.joinQueue(socket, queue, setupGame);
+  await lobbySocketStore.joinQueue(socket, queue, setupGame, defaultPlayer);
 
   // Clean up
   await lobbySocketStore.leaveQueue(socket);
@@ -83,8 +85,8 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
 
   // Use Promise.all to join both queues concurrently
   await Promise.all([
-    lobbySocketStore.joinQueue(socket1, queue, setupGame),
-    lobbySocketStore.joinQueue(socket2, queue, setupGame),
+    lobbySocketStore.joinQueue(socket1, queue, setupGame, defaultPlayer),
+    lobbySocketStore.joinQueue(socket2, queue, setupGame, defaultPlayer),
   ]);
 
   // Wait to make sure the watches are sent
@@ -156,8 +158,8 @@ Deno.test("active games are broadcasted to all sockets", async () => {
     config: undefined,
   };
   await Promise.all([
-    lobbySocketStore.joinQueue(socket1, queue, setupGame),
-    lobbySocketStore.joinQueue(socket2, queue, setupGame),
+    lobbySocketStore.joinQueue(socket1, queue, setupGame, defaultPlayer),
+    lobbySocketStore.joinQueue(socket2, queue, setupGame, defaultPlayer),
   ]);
 
   // Wait to make sure the watches are sent
@@ -233,9 +235,9 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
   };
 
   // Join queues
-  await lobbySocketStore.joinQueue(socket1, queue, setupGame);
-  await lobbySocketStore.joinQueue(socket2, queue, setupGame);
-  await lobbySocketStore.joinQueue(socket3, queue, setupGame);
+  await lobbySocketStore.joinQueue(socket1, queue, setupGame, defaultPlayer);
+  await lobbySocketStore.joinQueue(socket2, queue, setupGame, defaultPlayer);
+  await lobbySocketStore.joinQueue(socket3, queue, setupGame, defaultPlayer);
 
   // Verify QueueJoined messages were sent to all sockets
   assertSpyCalls(socket1.send, 1);

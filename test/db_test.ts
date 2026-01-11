@@ -4,6 +4,7 @@ import { DB } from "../server/db.ts";
 
 // Mock game implementation for testing
 const setupGame = () => 1;
+const defaultPlayer = { name: "Player" };
 
 Deno.test("Adds to queue, graduates, and assigns", async () => {
   const kv = await Deno.openKv(":memory:");
@@ -15,8 +16,8 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
 
   const assignmentStream = db.watchForAssignments(entryId);
   const assignmentStream2 = db.watchForAssignments(entryId2);
-  await db.addToQueue(queue, entryId, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId, setupGame, defaultPlayer);
+  await db.addToQueue(queue, entryId2, setupGame, defaultPlayer);
 
   // Check for assignment after queue graduation
   const reader = assignmentStream.getReader();
@@ -48,11 +49,11 @@ Deno.test("Removes from queue", async () => {
   };
   const entryId = "test-entry-remove";
 
-  await db.addToQueue(queue, entryId, setupGame);
+  await db.addToQueue(queue, entryId, setupGame, defaultPlayer);
   await db.removeFromQueue(queue.queueId, entryId);
 
   // Verify the entry is removed (this will implicitly check through the next test succeeding)
-  await db.addToQueue(queue, entryId, setupGame);
+  await db.addToQueue(queue, entryId, setupGame, defaultPlayer);
 
   kv.close();
 });
@@ -70,8 +71,8 @@ Deno.test("Creates game and retrieves it", async () => {
   const entryId2 = "test-entry-game-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, setupGame, defaultPlayer);
+  await db.addToQueue(queue, entryId2, setupGame, defaultPlayer);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -102,8 +103,8 @@ Deno.test("Updates game data", async () => {
   const entryId2 = "test-entry-update-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, setupGame, defaultPlayer);
+  await db.addToQueue(queue, entryId2, setupGame, defaultPlayer);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -144,8 +145,8 @@ Deno.test("Watches for game changes", async () => {
   const entryId2 = "test-entry-watch-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, setupGame, defaultPlayer);
+  await db.addToQueue(queue, entryId2, setupGame, defaultPlayer);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -193,8 +194,8 @@ Deno.test("Completes game", async () => {
   const entryId2 = "test-entry-complete-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, setupGame, defaultPlayer);
+  await db.addToQueue(queue, entryId2, setupGame, defaultPlayer);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -236,8 +237,8 @@ Deno.test("Lists active games", async () => {
   const entryId2 = "test-entry-active-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, setupGame, defaultPlayer);
+  await db.addToQueue(queue, entryId2, setupGame, defaultPlayer);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -269,8 +270,8 @@ Deno.test("Watches for active game count changes", async () => {
   const entryId1 = "test-entry-count-1";
   const entryId2 = "test-entry-count-2";
 
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, setupGame, defaultPlayer);
+  await db.addToQueue(queue, entryId2, setupGame, defaultPlayer);
 
   const result = await reader.read();
   await reader.cancel();

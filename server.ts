@@ -183,6 +183,7 @@ class Server<
             socket,
             queueConfig,
             this.game.setup,
+            parsedMessage.player,
           );
           break;
         }

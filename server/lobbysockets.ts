@@ -91,6 +91,7 @@ export class LobbySocketStore<Config, Player> {
     socket: Socket,
     queueConfig: QueueConfig<Config>,
     setupGame: (o: SetupObject<Config, Player>) => GameState,
+    player: Player,
   ) {
     const entryId = ulid();
 
@@ -102,7 +103,7 @@ export class LobbySocketStore<Config, Player> {
     };
     socket.send(JSON.stringify(message));
 
-    await this.db.addToQueue(queueConfig, entryId, setupGame);
+    await this.db.addToQueue(queueConfig, entryId, setupGame, player);
 
     const connectionData = this.sockets.get(socket);
     if (connectionData) {
