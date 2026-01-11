@@ -5,9 +5,9 @@ import { assert } from "@std/assert";
 import type { PlaySocketResponse } from "../common/types.ts";
 import { getPlayerState } from "./gamedata.ts";
 
-type PlaySocket<P> = {
+type PlaySocket<PlayerState> = {
   playerId: number;
-  lastValue: P | undefined;
+  lastValue: PlayerState | undefined;
   socket: Socket;
 };
 type PlayConnection<Config, GameState, Player, PlayerState> = {
@@ -168,15 +168,15 @@ export class PlaySocketStore<Config, GameState, Player, PlayerState> {
   }
 }
 
-function updatePlayerStateIfNecessary<P>(
-  playSocket: PlaySocket<P>,
-  playerState: P,
+function updatePlayerStateIfNecessary<PlayerState>(
+  playSocket: PlaySocket<PlayerState>,
+  playerState: PlayerState,
 ) {
   if (deepEquals(playSocket.lastValue, playerState)) {
     return;
   }
 
-  const response: PlaySocketResponse<P> = {
+  const response: PlaySocketResponse<PlayerState> = {
     type: "UpdatePlayerState",
     playerState,
   };
@@ -184,10 +184,10 @@ function updatePlayerStateIfNecessary<P>(
   playSocket.socket.send(JSON.stringify(response));
 }
 
-function markComplete<P>(
-  playSocket: PlaySocket<P>,
+function markComplete<PlayerState>(
+  playSocket: PlaySocket<PlayerState>,
 ) {
-  const response: PlaySocketResponse<P> = {
+  const response: PlaySocketResponse<PlayerState> = {
     type: "MarkComplete",
   };
   playSocket.socket.send(JSON.stringify(response));

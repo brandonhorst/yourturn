@@ -50,9 +50,9 @@ export type SetupObject<Config, Player> = {
   config: Config;
 };
 
-export type MoveObject<Config, M, Player> = {
+export type MoveObject<Config, Move, Player> = {
   config: Config;
-  move: M;
+  move: Move;
   playerId: number;
   timestamp: Date;
   players: Player[];
@@ -219,27 +219,27 @@ export type ActiveGame = {
   gameId: string;
 };
 
-export type PlayerProps<P, Player> = {
+export type PlayerProps<PlayerState, Player> = {
   playerId: number;
-  playerState: P;
+  playerState: PlayerState;
   isComplete: boolean;
   players: Player[];
 };
 
-export type ObserverProps<O, Player> = {
-  observerState: O;
+export type ObserverProps<ObserverState, Player> = {
+  observerState: ObserverState;
   isComplete: boolean;
   players: Player[];
 };
 
-export type PlayerViewProps<M, P, Player> =
-  & PlayerProps<P, Player>
+export type PlayerViewProps<Move, PlayerState, Player> =
+  & PlayerProps<PlayerState, Player>
   & {
-    perform?: (move: M) => void;
+    perform?: (move: Move) => void;
   };
 
-export type ObserveViewProps<O, Player> = ObserverProps<
-  O,
+export type ObserveViewProps<ObserverState, Player> = ObserverProps<
+  ObserverState,
   Player
 >;
 

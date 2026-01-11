@@ -6,8 +6,8 @@ import { assert } from "@std/assert";
 import type { ObserveSocketResponse } from "../common/types.ts";
 import { getObserverState } from "./gamedata.ts";
 
-type ObserveSocket<O> = {
-  lastValue: O | undefined;
+type ObserveSocket<ObserverState> = {
+  lastValue: ObserverState | undefined;
   socket: Socket;
 };
 type ConnectionData<Config, GameState, Player, ObserverState> = {
@@ -161,15 +161,15 @@ export class ObserveSocketStore<Config, GameState, Player, ObserverState> {
   }
 }
 
-function updateObserverStateIfNecessary<O>(
-  observeSocket: ObserveSocket<O>,
-  observerState: O,
+function updateObserverStateIfNecessary<ObserverState>(
+  observeSocket: ObserveSocket<ObserverState>,
+  observerState: ObserverState,
 ) {
   if (deepEquals(observeSocket.lastValue, observerState)) {
     return;
   }
 
-  const response: ObserveSocketResponse<O> = {
+  const response: ObserveSocketResponse<ObserverState> = {
     type: "UpdateObserveState",
     observerState,
   };
@@ -177,8 +177,10 @@ function updateObserverStateIfNecessary<O>(
   observeSocket.socket.send(JSON.stringify(response));
 }
 
-function markComplete<P>(playSocket: ObserveSocket<P>) {
-  const response: ObserveSocketResponse<P> = {
+function markComplete<ObserverState>(
+  playSocket: ObserveSocket<ObserverState>,
+) {
+  const response: ObserveSocketResponse<ObserverState> = {
     type: "MarkComplete",
   };
   playSocket.socket.send(JSON.stringify(response));

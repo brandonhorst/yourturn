@@ -11,19 +11,19 @@ export type LobbySocketResponse =
   | { type: "UpdateActiveGames"; activeGames: ActiveGame[] }
   | { type: "GameAssignment"; gameId: string; sessionId: string };
 
-export type PlaySocketRequest<M, P> =
-  | { type: "Initialize"; currentPlayerState: P }
-  | { type: "Move"; move: M };
+export type PlaySocketRequest<Move, PlayerState> =
+  | { type: "Initialize"; currentPlayerState: PlayerState }
+  | { type: "Move"; move: Move };
 
-export type PlaySocketResponse<P> =
-  | { type: "UpdatePlayerState"; playerState: P }
+export type PlaySocketResponse<PlayerState> =
+  | { type: "UpdatePlayerState"; playerState: PlayerState }
   | { type: "MarkComplete" };
 
-export type ObserveSocketRequest<O> = {
+export type ObserveSocketRequest<ObserverState> = {
   type: "Initialize";
-  currentObserverState: O;
+  currentObserverState: ObserverState;
 };
 
-export type ObserveSocketResponse<O> =
-  | { type: "UpdateObserveState"; observerState: O }
+export type ObserveSocketResponse<ObserverState> =
+  | { type: "UpdateObserveState"; observerState: ObserverState }
   | { type: "MarkComplete" };

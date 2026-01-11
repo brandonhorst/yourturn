@@ -6,11 +6,11 @@ import type { PlayerProps, PlayerViewProps } from "../types.ts";
 // Opens an auto-reconnecting WebSocket to a given Play URL.
 // Returns an always up-to-date PlayerState,
 // and a function to perform a move. Closes the socket if the game completes.
-export function usePlaySocket<M, P, Player>(
+export function usePlaySocket<Move, PlayerState, Player>(
   socketUrl: string,
-  initialPlayerProps: PlayerProps<P, Player>,
-): PlayerViewProps<M, P, Player> {
-  const [playerState, setPlayerState] = useState<P>(
+  initialPlayerProps: PlayerProps<PlayerState, Player>,
+): PlayerViewProps<Move, PlayerState, Player> {
+  const [playerState, setPlayerState] = useState<PlayerState>(
     initialPlayerProps.playerState,
   );
   const [isComplete, setIsComplete] = useState<boolean>(
@@ -20,7 +20,10 @@ export function usePlaySocket<M, P, Player>(
   const players = initialPlayerProps.players;
 
   // Handler for socket messages
-  function onMessage(response: PlaySocketResponse<P>, close: () => void) {
+  function onMessage(
+    response: PlaySocketResponse<PlayerState>,
+    close: () => void,
+  ) {
     switch (response.type) {
       case "MarkComplete":
         setIsComplete(true);
@@ -34,8 +37,8 @@ export function usePlaySocket<M, P, Player>(
 
   // Open the socket
   const send = useSocket<
-    PlaySocketRequest<M, P>,
-    PlaySocketResponse<P>
+    PlaySocketRequest<Move, PlayerState>,
+    PlaySocketResponse<PlayerState>
   >(
     !initialPlayerProps.isComplete,
     () => new WebSocket(socketUrl),
@@ -43,8 +46,11 @@ export function usePlaySocket<M, P, Player>(
     onMessage,
   );
 
-  const perform = useCallback((move: M) => {
-    const request: PlaySocketRequest<M, P> = { type: "Move", move };
+  const perform = useCallback((move: Move) => {
+    const request: PlaySocketRequest<Move, PlayerState> = {
+      type: "Move",
+      move,
+    };
     send(request);
   }, [send]);
 
