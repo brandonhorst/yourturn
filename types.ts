@@ -44,14 +44,13 @@ type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
 
-export type Player = {
-  playerId: number;
-  name: string;
+export type User = {
+  username: string;
 };
 
 export type SetupObject<Config> = {
   timestamp: Date;
-  players: Player[];
+  players: User[];
   config: Config;
 };
 
@@ -60,32 +59,32 @@ export type MoveObject<Config, Move> = {
   move: Move;
   playerId: number;
   timestamp: Date;
-  players: Player[];
+  players: User[];
 };
 
 export type RefreshObject<Config> = {
   config: Config;
   timestamp: Date;
-  players: Player[];
+  players: User[];
 };
 
 export type PlayerStateObject<Config> = {
   config: Config;
   playerId: number;
   isComplete: boolean;
-  players: Player[];
+  players: User[];
   timestamp: Date;
 };
 export type ObserverStateObject<Config> = {
   config: Config;
   isComplete: boolean;
-  players: Player[];
+  players: User[];
   timestamp: Date;
 };
 
 export type IsCompleteObject<Config> = {
   config: Config;
-  players: Player[];
+  players: User[];
 };
 
 export type Mode<Config> = {
@@ -220,13 +219,13 @@ export type PlayerProps<PlayerState> = {
   playerId: number;
   playerState: PlayerState;
   isComplete: boolean;
-  players: Player[];
+  players: User[];
 };
 
 export type ObserverProps<ObserverState> = {
   observerState: ObserverState;
   isComplete: boolean;
-  players: Player[];
+  players: User[];
 };
 
 export type PlayerViewProps<Move, PlayerState> = PlayerProps<PlayerState> & {

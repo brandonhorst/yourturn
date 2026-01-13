@@ -1,5 +1,5 @@
 import { ulid } from "@std/ulid";
-import type { ActiveGame, Player, SetupObject } from "../types.ts";
+import type { ActiveGame, SetupObject, User } from "../types.ts";
 
 export type QueueConfig<Config> = {
   queueId: string;
@@ -15,7 +15,7 @@ export type GameStorageData<Config, GameState> = {
   config: Config;
   gameState: GameState;
   sessionTokens: SessionTokens;
-  players: Player[];
+  players: User[];
   isComplete: boolean;
   version: number;
 };
@@ -116,11 +116,11 @@ export class DB {
 
       // Initialize Game Storage Data
       const sessionTokens: { [sessionId: string]: number } = {};
-      const players: Player[] = [];
+      const players: User[] = [];
 
       for (let i = 0; i < queueConfig.numPlayers; i++) {
         sessionTokens[ulid()] = i;
-        players[i] = { playerId: i, name: `Player ${i + 1}` };
+        players[i] = { username: `Player ${i + 1}` };
       }
       const timestamp = new Date();
       const setupObject = { timestamp, players, config: queueConfig.config };

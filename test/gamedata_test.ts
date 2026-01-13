@@ -9,7 +9,7 @@ import {
   handleMove,
   handleRefresh,
 } from "../server/gamedata.ts";
-import type { Game, Player } from "../types.ts";
+import type { Game, User } from "../types.ts";
 import type { GameStorageData } from "../server/db.ts";
 import { ulid } from "@std/ulid";
 
@@ -126,9 +126,9 @@ Deno.test("fetchActiveGames returns active games from the database", async () =>
 
   // Create game storage data
   for (const gameId of [id1, id2, id3]) {
-    const players: Player[] = [
-      { playerId: 0, name: "Player 1" },
-      { playerId: 1, name: "Player 2" },
+    const players: User[] = [
+      { username: "Player 1" },
+      { username: "Player 2" },
     ];
 
     const gameData: GameStorageData<TestConfig, TestState> = {
@@ -163,9 +163,9 @@ Deno.test("getPlayerState returns correct player state", async () => {
   sessionTokens[ulid()] = 0;
   sessionTokens[ulid()] = 1;
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
@@ -210,9 +210,9 @@ Deno.test("getPlayerState handles completed games", async () => {
   sessionTokens[ulid()] = 0;
   sessionTokens[ulid()] = 1;
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const initialGameData: GameStorageData<TestConfig, TestState> = {
@@ -252,9 +252,9 @@ Deno.test("getObserverState returns correct observer state", async () => {
 
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const initialGameData: GameStorageData<TestConfig, TestState> = {
@@ -288,9 +288,9 @@ Deno.test("getObserverState handles completed games", async () => {
   // Create a completed game
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const initialGameData: GameStorageData<TestConfig, TestState> = {
@@ -338,9 +338,9 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
   // Create a game with initial value 1
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
@@ -384,9 +384,9 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
   // Create a game with value 4 (one increment away from being complete)
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
@@ -436,9 +436,9 @@ Deno.test("handleMove rejects invalid moves", async () => {
 
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
@@ -493,9 +493,9 @@ Deno.test("handleMove doesn't update completed games", async () => {
   // Create a completed game
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const initialGameData: GameStorageData<TestConfig, TestState> = {
@@ -561,9 +561,9 @@ Deno.test("handleRefresh updates game state", async () => {
   // Create a game with initial value 1
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
@@ -605,9 +605,9 @@ Deno.test("handleRefresh properly marks game as complete when threshold reached"
   // Create a game with value 4 (one refresh away from being complete)
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
@@ -655,9 +655,9 @@ Deno.test("handleRefresh doesn't update completed games", async () => {
   // Create a completed game
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const initialGameData: GameStorageData<TestConfig, TestState> = {
@@ -723,9 +723,9 @@ Deno.test("handleMove schedules refresh with refreshTimeout", async () => {
   // Create a game with initial value 1 (below the refreshTimeout threshold of 3)
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
@@ -764,9 +764,9 @@ Deno.test("handleMove doesn't schedule refresh when refreshTimeout returns undef
 
   // Create a game with initial value 3 (at the refreshTimeout threshold, returns undefined)
   const gameId = ulid();
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
@@ -812,9 +812,9 @@ Deno.test("handleRefresh schedules refresh with refreshTimeout", async () => {
   // Create a game with initial value 1 (below the refreshTimeout threshold of 3)
   const gameId = ulid();
 
-  const players: Player[] = [
-    { playerId: 0, name: "Player 1" },
-    { playerId: 1, name: "Player 2" },
+  const players: User[] = [
+    { username: "Player 1" },
+    { username: "Player 2" },
   ];
 
   const gameData: GameStorageData<TestConfig, TestState> = {
