@@ -120,7 +120,7 @@ export class DB {
 
       for (let i = 0; i < queueConfig.numPlayers; i++) {
         sessionTokens[ulid()] = i;
-        players[i] = { username: `Player ${i + 1}` };
+        players[i] = { username: `Player ${i + 1}`, isGuest: true };
       }
       const timestamp = new Date();
       const setupObject = { timestamp, players, config: queueConfig.config };

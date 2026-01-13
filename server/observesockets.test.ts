@@ -46,8 +46,8 @@ Deno.test("sends state updates to all observer sockets", async () => {
 
   const sessionTokens = { "session-1": 0, "session-2": 1 };
   const players = [
-    { username: "Player 1" },
-    { username: "Player 2" },
+    { username: "Player 1", isGuest: false },
+    { username: "Player 2", isGuest: false },
   ];
 
   // Set up the game data directly
@@ -133,8 +133,8 @@ Deno.test("only sends updates when state changes", async () => {
 
   const sessionTokens = { "session-1": 0, "session-2": 1 };
   const players = [
-    { username: "Player 1" },
-    { username: "Player 2" },
+    { username: "Player 1", isGuest: false },
+    { username: "Player 2", isGuest: false },
   ];
 
   // Set up the game data directly

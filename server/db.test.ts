@@ -315,8 +315,8 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
       gameState: { timestamp: new Date() },
       sessionTokens: { "session-1": 0, "session-2": 1 },
       players: [
-        { username: "Player 1" },
-        { username: "Player 2" },
+        { username: "Player 1", isGuest: false },
+        { username: "Player 2", isGuest: false },
       ],
       isComplete: false,
       version: 0,

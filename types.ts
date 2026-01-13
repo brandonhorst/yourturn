@@ -46,6 +46,7 @@ type StructuredCloneValue = AsStructuredClone<any>;
 
 export type User = {
   username: string;
+  isGuest: boolean;
 };
 
 export type SetupObject<Config> = {
