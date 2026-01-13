@@ -215,6 +215,10 @@ export type ActiveGame = {
   gameId: string;
 };
 
+export type LobbyProps = {
+  activeGames: ActiveGame[];
+};
+
 export type PlayerProps<PlayerState> = {
   playerId: number;
   playerState: PlayerState;

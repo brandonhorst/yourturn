@@ -4,19 +4,14 @@ import type {
   LobbySocketRequest,
   LobbySocketResponse,
 } from "../common/types.ts";
-import type { ActiveGame } from "../types.ts";
+import type { LobbyProps, LobbyViewProps } from "../types.ts";
 
-export function useLobbySocket({ socketUrl, initialActiveGames, navigate }: {
+export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
   socketUrl: string;
-  initialActiveGames: ActiveGame[];
+  initialLobbyProps: LobbyProps;
   navigate: (gameId: string, sessionId: string) => void;
-}): {
-  activeGames: ActiveGame[];
-  joinQueue: (queueId: string) => void;
-  isQueued: boolean;
-  leaveQueue: () => void;
-} {
-  const [activeGames, setActiveGames] = useState(initialActiveGames);
+}): LobbyViewProps {
+  const [activeGames, setActiveGames] = useState(initialLobbyProps.activeGames);
   const [isQueued, setIsQueued] = useState(false);
 
   function onUpdate(response: LobbySocketResponse) {
