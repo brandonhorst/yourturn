@@ -239,8 +239,7 @@ export type PlayerViewProps<Move, PlayerState> = PlayerProps<PlayerState> & {
 
 export type ObserveViewProps<ObserverState> = ObserverProps<ObserverState>;
 
-export type LobbyViewProps = {
-  activeGames: ActiveGame[];
+export type LobbyViewProps = LobbyProps & {
   joinQueue: (queueId: string) => void;
   isQueued: boolean;
   leaveQueue: () => void;

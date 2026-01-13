@@ -82,10 +82,6 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     private playSocketStore: PlaySocketStore<Config, GameState, PlayerState>,
   ) {}
 
-  async getInitialActiveGames(): Promise<ActiveGame[]> {
-    return await fetchActiveGames(this.db);
-  }
-
   async getInitialLobbyProps(): Promise<LobbyProps> {
     const activeGames = await fetchActiveGames(this.db);
     return { activeGames };
