@@ -20,7 +20,10 @@ export function usePlaySocket<Move, PlayerState>(
   const players = initialPlayerProps.players;
 
   // Handler for socket messages
-  function onMessage(response: PlaySocketResponse<PlayerState>, close: () => void) {
+  function onMessage(
+    response: PlaySocketResponse<PlayerState>,
+    close: () => void,
+  ) {
     switch (response.type) {
       case "MarkComplete":
         setIsComplete(true);
@@ -44,7 +47,10 @@ export function usePlaySocket<Move, PlayerState>(
   );
 
   const perform = useCallback((move: Move) => {
-    const request: PlaySocketRequest<Move, PlayerState> = { type: "Move", move };
+    const request: PlaySocketRequest<Move, PlayerState> = {
+      type: "Move",
+      move,
+    };
     send(request);
   }, [send]);
 

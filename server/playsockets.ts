@@ -12,11 +12,16 @@ type PlaySocket<PlayerState> = {
 };
 type PlayConnection<Config, GameState, PlayerState> = {
   sockets: PlaySocket<PlayerState>[];
-  changesReader: ReadableStreamDefaultReader<GameStorageData<Config, GameState>>;
+  changesReader: ReadableStreamDefaultReader<
+    GameStorageData<Config, GameState>
+  >;
 };
 
 export class PlaySocketStore<Config, GameState, PlayerState> {
-  private connections: Map<string, PlayConnection<Config, GameState, PlayerState>> = new Map();
+  private connections: Map<
+    string,
+    PlayConnection<Config, GameState, PlayerState>
+  > = new Map();
 
   constructor(private db: DB) {}
 
@@ -28,7 +33,10 @@ export class PlaySocketStore<Config, GameState, PlayerState> {
     socket: Socket,
     gameId: string,
     playerId: number,
-    playerStateLogic: (s: GameState, o: PlayerStateObject<Config>) => PlayerState,
+    playerStateLogic: (
+      s: GameState,
+      o: PlayerStateObject<Config>,
+    ) => PlayerState,
   ) {
     if (!this.hasGame(gameId)) {
       this.createGame(gameId, playerStateLogic);
@@ -43,13 +51,18 @@ export class PlaySocketStore<Config, GameState, PlayerState> {
     socket: Socket,
     gameId: string,
     playerState: PlayerState,
-    playerStateLogic: (s: GameState, o: PlayerStateObject<Config>) => PlayerState,
+    playerStateLogic: (
+      s: GameState,
+      o: PlayerStateObject<Config>,
+    ) => PlayerState,
   ) {
     const playSocket =
       this.getSockets(gameId).filter((s) => s.socket === socket)[0];
     playSocket.lastValue = playerState;
 
-    const gameData = await this.db.getGameStorageData<Config, GameState>(gameId);
+    const gameData = await this.db.getGameStorageData<Config, GameState>(
+      gameId,
+    );
     const newPlayerState = getPlayerState(
       gameData,
       playerStateLogic,
@@ -70,7 +83,10 @@ export class PlaySocketStore<Config, GameState, PlayerState> {
 
   private async streamToAllSockets(
     gameId: string,
-    playerStateLogic: (s: GameState, o: PlayerStateObject<Config>) => PlayerState,
+    playerStateLogic: (
+      s: GameState,
+      o: PlayerStateObject<Config>,
+    ) => PlayerState,
     stream: ReadableStreamDefaultReader<GameStorageData<Config, GameState>>,
   ) {
     while (true) {
@@ -99,7 +115,10 @@ export class PlaySocketStore<Config, GameState, PlayerState> {
 
   private createGame(
     gameId: string,
-    playerStateLogic: (s: GameState, o: PlayerStateObject<Config>) => PlayerState,
+    playerStateLogic: (
+      s: GameState,
+      o: PlayerStateObject<Config>,
+    ) => PlayerState,
   ): void {
     const changesReader = this.db.watchForGameChanges<Config, GameState>(gameId)
       .getReader();

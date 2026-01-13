@@ -39,7 +39,10 @@ export function getPlayerState<Config, GameState, PlayerState>(
 
 export function getObserverState<Config, GameState, ObserverState>(
   gameData: GameStorageData<Config, GameState>,
-  observerStateLogic: (s: GameState, o: ObserverStateObject<Config>) => ObserverState,
+  observerStateLogic: (
+    s: GameState,
+    o: ObserverStateObject<Config>,
+  ) => ObserverState,
 ): ObserverState {
   const state = gameData.gameState;
   const observerStateObject: ObserverStateObject<Config> = {
@@ -52,11 +55,19 @@ export function getObserverState<Config, GameState, ObserverState>(
   return observerState;
 }
 
-async function updateGameState<Config, GameState, Move, PlayerState, ObserverState>(
+async function updateGameState<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  ObserverState,
+>(
   db: DB,
   game: Game<Config, GameState, Move, PlayerState, ObserverState>,
   gameId: string,
-  computeNewState: (gameData: GameStorageData<Config, GameState>) => GameState | undefined,
+  computeNewState: (
+    gameData: GameStorageData<Config, GameState>,
+  ) => GameState | undefined,
 ) {
   const gameData = await db.getGameStorageData<Config, GameState>(gameId);
   if (gameData.isComplete) {
@@ -101,7 +112,13 @@ async function updateGameState<Config, GameState, Move, PlayerState, ObserverSta
   );
 }
 
-export async function handleMove<Config, GameState, Move, PlayerState, ObserverState>(
+export async function handleMove<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  ObserverState,
+>(
   db: DB,
   game: Game<Config, GameState, Move, PlayerState, ObserverState>,
   gameId: string,
@@ -126,7 +143,13 @@ export async function handleMove<Config, GameState, Move, PlayerState, ObserverS
   });
 }
 
-export async function handleRefresh<Config, GameState, Move, PlayerState, ObserverState>(
+export async function handleRefresh<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  ObserverState,
+>(
   db: DB,
   game: Game<Config, GameState, Move, PlayerState, ObserverState>,
   gameId: string,

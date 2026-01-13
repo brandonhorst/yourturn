@@ -12,11 +12,16 @@ type ObserveSocket<ObserverState> = {
 };
 type ConnectionData<Config, GameState, ObserverState> = {
   sockets: ObserveSocket<ObserverState>[];
-  changesReader: ReadableStreamDefaultReader<GameStorageData<Config, GameState>>;
+  changesReader: ReadableStreamDefaultReader<
+    GameStorageData<Config, GameState>
+  >;
 };
 
 export class ObserveSocketStore<Config, GameState, ObserverState> {
-  private connections: Map<string, ConnectionData<Config, GameState, ObserverState>> = new Map();
+  private connections: Map<
+    string,
+    ConnectionData<Config, GameState, ObserverState>
+  > = new Map();
   constructor(private db: DB) {}
 
   // Registers a given Socket as an observer of a
@@ -26,7 +31,10 @@ export class ObserveSocketStore<Config, GameState, ObserverState> {
   register(
     socket: Socket,
     gameId: string,
-    observerStateLogic: (s: GameState, o: ObserverStateObject<Config>) => ObserverState,
+    observerStateLogic: (
+      s: GameState,
+      o: ObserverStateObject<Config>,
+    ) => ObserverState,
   ) {
     // If nothing was previously observing this,
     if (!this.hasGame(gameId)) {
@@ -42,13 +50,18 @@ export class ObserveSocketStore<Config, GameState, ObserverState> {
     socket: Socket,
     gameId: string,
     observerState: ObserverState,
-    observerStateLogic: (s: GameState, o: ObserverStateObject<Config>) => ObserverState,
+    observerStateLogic: (
+      s: GameState,
+      o: ObserverStateObject<Config>,
+    ) => ObserverState,
   ) {
     const observeSocket =
       this.getSockets(gameId).filter((s) => s.socket === socket)[0];
     observeSocket.lastValue = observerState;
 
-    const gameData = await this.db.getGameStorageData<Config, GameState>(gameId);
+    const gameData = await this.db.getGameStorageData<Config, GameState>(
+      gameId,
+    );
     const newObserverState = getObserverState(gameData, observerStateLogic);
 
     updateObserverStateIfNecessary(observeSocket, newObserverState);
@@ -65,7 +78,10 @@ export class ObserveSocketStore<Config, GameState, ObserverState> {
 
   private async streamToAllSockets(
     gameId: string,
-    getObserverState: (s: GameState, o: ObserverStateObject<Config>) => ObserverState,
+    getObserverState: (
+      s: GameState,
+      o: ObserverStateObject<Config>,
+    ) => ObserverState,
     stream: ReadableStreamDefaultReader<GameStorageData<Config, GameState>>,
   ) {
     while (true) {
@@ -93,7 +109,10 @@ export class ObserveSocketStore<Config, GameState, ObserverState> {
 
   private createGame(
     gameId: string,
-    getObserverState: (s: GameState, o: ObserverStateObject<Config>) => ObserverState,
+    getObserverState: (
+      s: GameState,
+      o: ObserverStateObject<Config>,
+    ) => ObserverState,
   ): void {
     const changesReader = this.db.watchForGameChanges<Config, GameState>(gameId)
       .getReader();

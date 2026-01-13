@@ -21,7 +21,10 @@ export function useObserveSocket<ObserverState>(
   const players = initialObserverProps.players;
 
   // Handler for socket messages
-  function onMessage(response: ObserveSocketResponse<ObserverState>, close: () => void) {
+  function onMessage(
+    response: ObserveSocketResponse<ObserverState>,
+    close: () => void,
+  ) {
     switch (response.type) {
       case "MarkComplete":
         setIsComplete(true);

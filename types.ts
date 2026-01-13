@@ -142,7 +142,10 @@ export interface Game<
    * @param o - Move object containing the move, player ID, configuration, timestamp, and player information
    * @returns Updated immutable game state
    */
-  processMove(state: Readonly<GameState>, o: MoveObject<Config, Move>): Readonly<GameState>;
+  processMove(
+    state: Readonly<GameState>,
+    o: MoveObject<Config, Move>,
+  ): Readonly<GameState>;
 
   /**
    * Determines the timeout in milliseconds for automatic state refreshes. Called
@@ -167,7 +170,10 @@ export interface Game<
    * @param o - Refresh object containing configuration, timestamp, and player information
    * @returns Updated immutable game state
    */
-  refresh?(state: Readonly<GameState>, o: RefreshObject<Config>): Readonly<GameState>;
+  refresh?(
+    state: Readonly<GameState>,
+    o: RefreshObject<Config>,
+  ): Readonly<GameState>;
 
   /**
    * Creates a player-specific view of the game state.
@@ -177,7 +183,10 @@ export interface Game<
    * @param o - Player state object containing player ID, game completion status, configuration, and player information
    * @returns Player-specific state representation
    */
-  playerState(state: Readonly<GameState>, o: PlayerStateObject<Config>): PlayerState;
+  playerState(
+    state: Readonly<GameState>,
+    o: PlayerStateObject<Config>,
+  ): PlayerState;
 
   /**
    * Creates an observer-specific view of the game state.
@@ -187,7 +196,10 @@ export interface Game<
    * @param o - Observer state object containing game completion status, configuration, and player information
    * @returns Observer-specific state representation
    */
-  observerState(state: Readonly<GameState>, o: ObserverStateObject<Config>): ObserverState;
+  observerState(
+    state: Readonly<GameState>,
+    o: ObserverStateObject<Config>,
+  ): ObserverState;
 
   /**
    * Determines whether the game has ended.

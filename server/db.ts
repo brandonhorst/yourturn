@@ -196,7 +196,9 @@ export class DB {
     const gameKey = getGameKey(gameId);
     const activeGameTriggerKey = getActiveGameTriggerKey();
 
-    const entry = await this.kv.get<GameStorageData<Config, GameState>>(gameKey);
+    const entry = await this.kv.get<GameStorageData<Config, GameState>>(
+      gameKey,
+    );
     if (entry.value == null) {
       throw new Error(`Appending moves to unknown unstored ${gameId}`);
     }
@@ -244,7 +246,9 @@ export class DB {
     return stream.pipeThrough(
       new TransformStream({
         transform(events, controller) {
-          const data = events[0].value as GameStorageData<Config, GameState> | null;
+          const data = events[0].value as
+            | GameStorageData<Config, GameState>
+            | null;
           if (data != null) {
             controller.enqueue(data);
           }
