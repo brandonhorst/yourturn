@@ -1,19 +1,19 @@
 import { ulid } from "@std/ulid";
 import type { ActiveGame, Player, SetupObject } from "../types.ts";
 
-export type QueueConfig<C> = {
+export type QueueConfig<Config> = {
   queueId: string;
   numPlayers: number;
-  config: C;
+  config: Config;
 };
 
 type SessionTokens = {
   [x: string]: number;
 };
 
-export type GameStorageData<C, S> = {
-  config: C;
-  gameState: S;
+export type GameStorageData<Config, GameState> = {
+  config: Config;
+  gameState: GameState;
   sessionTokens: SessionTokens;
   players: Player[];
   isComplete: boolean;
@@ -62,10 +62,10 @@ export class DB {
     this.kv = kv;
   }
 
-  public async addToQueue<C, S>(
-    queueConfig: QueueConfig<C>,
+  public async addToQueue<Config, GameState>(
+    queueConfig: QueueConfig<Config>,
     entryId: string,
-    setupGame: (setupObject: SetupObject<C>) => S,
+    setupGame: (setupObject: SetupObject<Config>) => GameState,
   ): Promise<void> {
     await repeatUntilSuccess(async () => {
       const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
@@ -92,9 +92,9 @@ export class DB {
     });
   }
 
-  private async maybeGraduateFromQueue<C, S>(
-    queueConfig: QueueConfig<C>,
-    setupGame: (o: SetupObject<C>) => S,
+  private async maybeGraduateFromQueue<Config, GameState>(
+    queueConfig: QueueConfig<Config>,
+    setupGame: (o: SetupObject<Config>) => GameState,
   ): Promise<void> {
     const gameId = ulid();
     const queuePrefix = getQueuePrefix(queueConfig.queueId);
@@ -125,7 +125,7 @@ export class DB {
       const timestamp = new Date();
       const setupObject = { timestamp, players, config: queueConfig.config };
       const gameState = setupGame(setupObject);
-      const gameStorageData: GameStorageData<C, S> = {
+      const gameStorageData: GameStorageData<Config, GameState> = {
         config: queueConfig.config,
         gameState,
         sessionTokens,
@@ -188,15 +188,15 @@ export class DB {
    * @param gameData The updated game data
    * @param refreshDelay Optional delay in milliseconds for scheduling a refresh
    */
-  public async updateGameStorageData<C, S>(
+  public async updateGameStorageData<Config, GameState>(
     gameId: string,
-    gameData: GameStorageData<C, S>,
+    gameData: GameStorageData<Config, GameState>,
     refreshDelay?: number,
   ): Promise<void> {
     const gameKey = getGameKey(gameId);
     const activeGameTriggerKey = getActiveGameTriggerKey();
 
-    const entry = await this.kv.get<GameStorageData<C, S>>(gameKey);
+    const entry = await this.kv.get<GameStorageData<Config, GameState>>(gameKey);
     if (entry.value == null) {
       throw new Error(`Appending moves to unknown unstored ${gameId}`);
     }
@@ -224,11 +224,11 @@ export class DB {
     }
   }
 
-  public async getGameStorageData<C, S>(
+  public async getGameStorageData<Config, GameState>(
     gameId: string,
-  ): Promise<GameStorageData<C, S>> {
+  ): Promise<GameStorageData<Config, GameState>> {
     const key = getGameKey(gameId);
-    const entry = await this.kv.get<GameStorageData<C, S>>(key);
+    const entry = await this.kv.get<GameStorageData<Config, GameState>>(key);
     if (entry.value == null) {
       throw new Error(`Game ${gameId} not found`);
     } else {
@@ -236,15 +236,15 @@ export class DB {
     }
   }
 
-  public watchForGameChanges<C, S>(
+  public watchForGameChanges<Config, GameState>(
     gameId: string,
-  ): ReadableStream<GameStorageData<C, S>> {
+  ): ReadableStream<GameStorageData<Config, GameState>> {
     const key = getGameKey(gameId);
     const stream = this.kv.watch([key]);
     return stream.pipeThrough(
       new TransformStream({
         transform(events, controller) {
-          const data = events[0].value as GameStorageData<C, S> | null;
+          const data = events[0].value as GameStorageData<Config, GameState> | null;
           if (data != null) {
             controller.enqueue(data);
           }

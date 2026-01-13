@@ -87,10 +87,10 @@ export class LobbySocketStore {
   // Creates a new queue entry, assigns it to the given queue in the database,
   // and stores the socket. Watches for assignments, and when an assignment is
   // made, sends it to the socket.
-  public async joinQueue<C, S>(
+  public async joinQueue<Config, GameState>(
     socket: Socket,
-    queueConfig: QueueConfig<C>,
-    setupGame: (o: SetupObject<C>) => S,
+    queueConfig: QueueConfig<Config>,
+    setupGame: (o: SetupObject<Config>) => GameState,
   ) {
     const entryId = ulid();
 
