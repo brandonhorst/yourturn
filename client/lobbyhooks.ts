@@ -12,6 +12,7 @@ export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
   navigate: (gameId: string, sessionId: string) => void;
 }): LobbyViewProps {
   const [activeGames, setActiveGames] = useState(initialLobbyProps.activeGames);
+  const [user, setUser] = useState(initialLobbyProps.user);
   const [isQueued, setIsQueued] = useState(false);
 
   function onUpdate(response: LobbySocketResponse) {
@@ -27,6 +28,9 @@ export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
         break;
       case "GameAssignment":
         navigate(response.gameId, response.sessionId);
+        break;
+      case "UserUpdated":
+        setUser(response.user);
         break;
     }
   }
@@ -54,5 +58,9 @@ export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
     send({ type: "LeaveQueue" });
   }, [send]);
 
-  return { activeGames, joinQueue, isQueued, leaveQueue };
+  const updateUsername = useCallback((username: string) => {
+    send({ type: "UpdateUsername", username });
+  }, [send]);
+
+  return { activeGames, user, joinQueue, isQueued, leaveQueue, updateUsername };
 }

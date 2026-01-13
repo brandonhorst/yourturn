@@ -1,6 +1,6 @@
 import type { AssignmentStorageData, DB, QueueConfig } from "./db.ts";
 import type { LobbySocketResponse } from "../common/types.ts";
-import type { ActiveGame, SetupObject } from "../types.ts";
+import type { ActiveGame, SetupObject, User } from "../types.ts";
 import { ulid } from "@std/ulid";
 import { deepEquals, type Socket } from "./socketutils.ts";
 
@@ -90,6 +90,7 @@ export class LobbySocketStore {
   public async joinQueue<Config, GameState>(
     socket: Socket,
     queueConfig: QueueConfig<Config>,
+    user: User,
     setupGame: (o: SetupObject<Config>) => GameState,
   ) {
     const entryId = ulid();
@@ -100,7 +101,7 @@ export class LobbySocketStore {
     const message: LobbySocketResponse = { type: "QueueJoined" };
     socket.send(JSON.stringify(message));
 
-    await this.db.addToQueue(queueConfig, entryId, setupGame);
+    await this.db.addToQueue(queueConfig, entryId, user, setupGame);
 
     const connectionData = this.sockets.get(socket);
     if (connectionData) {

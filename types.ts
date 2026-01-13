@@ -49,6 +49,11 @@ export type User = {
   isGuest: boolean;
 };
 
+export type TokenData = {
+  userId: string;
+  expiration: Date;
+};
+
 export type SetupObject<Config> = {
   timestamp: Date;
   players: User[];
@@ -218,6 +223,7 @@ export type ActiveGame = {
 
 export type LobbyProps = {
   activeGames: ActiveGame[];
+  user: User;
 };
 
 export type PlayerProps<PlayerState> = {
@@ -243,4 +249,5 @@ export type LobbyViewProps = LobbyProps & {
   joinQueue: (queueId: string) => void;
   isQueued: boolean;
   leaveQueue: () => void;
+  updateUsername: (username: string) => void;
 };

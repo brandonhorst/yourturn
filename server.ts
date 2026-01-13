@@ -4,9 +4,12 @@ import type {
   LobbyProps,
   ObserverProps,
   PlayerProps,
+  User,
 } from "./types.ts";
+import { getCookies, setCookie } from "@std/http/cookie";
 import type {
   LobbySocketRequest,
+  LobbySocketResponse,
   ObserveSocketRequest,
   PlaySocketRequest,
 } from "./common/types.ts";
@@ -22,6 +25,10 @@ import { ObserveSocketStore } from "./server/observesockets.ts";
 import { PlaySocketStore } from "./server/playsockets.ts";
 import { DB } from "./server/db.ts";
 import { LobbySocketStore } from "./server/lobbysockets.ts";
+import { ulid } from "@std/ulid";
+
+const tokenCookieName = "yourturn_token";
+const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
 
 export async function initializeServer<
   Config,
@@ -82,9 +89,42 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     private playSocketStore: PlaySocketStore<Config, GameState, PlayerState>,
   ) {}
 
-  async getInitialLobbyProps(): Promise<LobbyProps> {
+  async getInitialLobbyProps(
+    request: Request,
+    responseHeaders: Headers,
+  ): Promise<LobbyProps> {
     const activeGames = await fetchActiveGames(this.db);
-    return { activeGames };
+    const cookies = getCookies(request.headers);
+    const token = cookies[tokenCookieName];
+    let user: User | null = null;
+
+    if (token != null) {
+      const tokenData = await this.db.getToken(token);
+      if (tokenData != null && tokenData.expiration > new Date()) {
+        user = await this.db.getUser(tokenData.userId);
+      }
+    }
+
+    if (user == null) {
+      user = await createGuestUser(this.db);
+      const userId = ulid();
+      const newToken = crypto.randomUUID();
+      const expiration = new Date(Date.now() + tokenTtlMs);
+
+      await this.db.storeUser(userId, user);
+      await this.db.storeToken(newToken, { userId, expiration });
+
+      setCookie(responseHeaders, {
+        name: tokenCookieName,
+        value: newToken,
+        httpOnly: true,
+        sameSite: "Lax",
+        path: "/",
+        expires: expiration,
+      });
+    }
+
+    return { activeGames, user };
   }
 
   async getInitialPlayerProps(
@@ -122,7 +162,26 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     };
   }
 
-  configureLobbySocket(socket: WebSocket) {
+  async configureLobbySocket(socket: WebSocket, request: Request) {
+    const cookies = getCookies(request.headers);
+    const token = cookies[tokenCookieName];
+    if (token == null) {
+      throw new Error("Missing lobby auth token");
+    }
+
+    const tokenData = await this.db.getToken(token);
+    if (tokenData == null || tokenData.expiration <= new Date()) {
+      throw new Error("Invalid lobby auth token");
+    }
+
+    const storedUser = await this.db.getUser(tokenData.userId);
+    if (storedUser == null) {
+      throw new Error("Unknown lobby user");
+    }
+
+    let user = storedUser;
+    const userId = tokenData.userId;
+
     const handleLobbySocketOpen = () => {
       console.log("lobby socket opened");
       this.lobbySocketStore.register(socket);
@@ -153,6 +212,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
           await this.lobbySocketStore.joinQueue(
             socket,
             queueConfig,
+            user,
             this.game.setup,
           );
           break;
@@ -160,6 +220,28 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
         case "LeaveQueue":
           await this.lobbySocketStore.leaveQueue(socket);
           break;
+        case "UpdateUsername": {
+          const newUsername = parsedMessage.username;
+          if (newUsername === user.username) {
+            break;
+          }
+          const existingUser = await this.db.getUserByUsername(newUsername);
+          if (existingUser != null) {
+            break;
+          }
+
+          const updatedUser: User = { ...user, username: newUsername };
+          await this.db.storeUser(userId, updatedUser, user.username);
+          user = updatedUser;
+
+          socket.send(JSON.stringify(
+            {
+              type: "UserUpdated",
+              user,
+            } satisfies LobbySocketResponse,
+          ));
+          break;
+        }
       }
     };
 
@@ -253,4 +335,20 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     socket.addEventListener("message", handlePlaySocketMessage);
     socket.addEventListener("close", handlePlaySocketClose);
   }
+}
+
+async function createGuestUser(db: DB): Promise<User> {
+  for (let attempt = 0; attempt < 10000; attempt++) {
+    const suffix = Math.floor(Math.random() * 10000).toString().padStart(
+      4,
+      "0",
+    );
+    const username = `guest-${suffix}`;
+    const existingUser = await db.getUserByUsername(username);
+    if (existingUser == null) {
+      return { username, isGuest: true };
+    }
+  }
+
+  throw new Error("Failed to create a unique guest username");
 }

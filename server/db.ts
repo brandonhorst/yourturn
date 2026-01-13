@@ -1,5 +1,5 @@
 import { ulid } from "@std/ulid";
-import type { ActiveGame, SetupObject, User } from "../types.ts";
+import type { ActiveGame, SetupObject, TokenData, User } from "../types.ts";
 
 export type QueueConfig<Config> = {
   queueId: string;
@@ -9,6 +9,11 @@ export type QueueConfig<Config> = {
 
 type SessionTokens = {
   [x: string]: number;
+};
+
+type QueueEntryValue = {
+  timestamp: Date;
+  user: User;
 };
 
 export type GameStorageData<Config, GameState> = {
@@ -54,6 +59,15 @@ function getActiveGameKey(gameId: string) {
 function getGameKey(gameId: string) {
   return ["games", gameId];
 }
+function getUserKey(userId: string) {
+  return ["users", userId];
+}
+function getUserByUsernameKey(username: string) {
+  return ["usersByUsername", username];
+}
+function getTokenKey(token: string) {
+  return ["tokens", token];
+}
 
 export class DB {
   private kv: Deno.Kv;
@@ -65,6 +79,7 @@ export class DB {
   public async addToQueue<Config, GameState>(
     queueConfig: QueueConfig<Config>,
     entryId: string,
+    user: User,
     setupGame: (setupObject: SetupObject<Config>) => GameState,
   ): Promise<void> {
     await repeatUntilSuccess(async () => {
@@ -72,7 +87,7 @@ export class DB {
       return await this.kv
         .atomic()
         .check({ key: entryKey, versionstamp: null })
-        .set(entryKey, { timestamp: new Date() })
+        .set(entryKey, { timestamp: new Date(), user })
         .commit();
     });
 
@@ -104,7 +119,7 @@ export class DB {
 
     await repeatUntilSuccess(async () => {
       // Get desired queue entries, if they exist
-      const queueEntries = await Array.fromAsync(this.kv.list<string>(
+      const queueEntries = await Array.fromAsync(this.kv.list<QueueEntryValue>(
         { prefix: queuePrefix },
         { limit: queueConfig.numPlayers },
       ));
@@ -120,7 +135,7 @@ export class DB {
 
       for (let i = 0; i < queueConfig.numPlayers; i++) {
         sessionTokens[ulid()] = i;
-        players[i] = { username: `Player ${i + 1}`, isGuest: true };
+        players[i] = queueEntries[i].value.user;
       }
       const timestamp = new Date();
       const setupObject = { timestamp, players, config: queueConfig.config };
@@ -301,5 +316,48 @@ export class DB {
     });
 
     return stream;
+  }
+
+  public async storeUser(
+    userId: string,
+    user: User,
+    previousUsername?: string,
+  ): Promise<void> {
+    let transaction = this.kv.atomic()
+      .set(getUserKey(userId), user)
+      .set(getUserByUsernameKey(user.username), user);
+
+    if (previousUsername != null && previousUsername !== user.username) {
+      transaction = transaction.delete(getUserByUsernameKey(previousUsername));
+    }
+
+    const res = await transaction.commit();
+    if (!res.ok) {
+      throw new Error(`Failed to store user ${userId}`);
+    }
+  }
+
+  public async getUser(userId: string): Promise<User | null> {
+    const entry = await this.kv.get<User>(getUserKey(userId));
+    return entry.value ?? null;
+  }
+
+  public async getUserByUsername(username: string): Promise<User | null> {
+    const entry = await this.kv.get<User>(getUserByUsernameKey(username));
+    return entry.value ?? null;
+  }
+
+  public async storeToken(token: string, tokenData: TokenData): Promise<void> {
+    const res = await this.kv.atomic()
+      .set(getTokenKey(token), tokenData)
+      .commit();
+    if (!res.ok) {
+      throw new Error(`Failed to store token`);
+    }
+  }
+
+  public async getToken(token: string): Promise<TokenData | null> {
+    const entry = await this.kv.get<TokenData>(getTokenKey(token));
+    return entry.value ?? null;
   }
 }

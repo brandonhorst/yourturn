@@ -1,15 +1,17 @@
-import type { ActiveGame } from "../types.ts";
+import type { ActiveGame, User } from "../types.ts";
 
 export type LobbySocketRequest =
   | { type: "Initialize"; activeGames: ActiveGame[] }
   | { type: "JoinQueue"; queueId: string }
-  | { type: "LeaveQueue" };
+  | { type: "LeaveQueue" }
+  | { type: "UpdateUsername"; username: string };
 
 export type LobbySocketResponse =
   | { type: "QueueJoined" }
   | { type: "QueueLeft" }
   | { type: "UpdateActiveGames"; activeGames: ActiveGame[] }
-  | { type: "GameAssignment"; gameId: string; sessionId: string };
+  | { type: "GameAssignment"; gameId: string; sessionId: string }
+  | { type: "UserUpdated"; user: User };
 
 export type PlaySocketRequest<Move, PlayerState> =
   | { type: "Initialize"; currentPlayerState: PlayerState }
