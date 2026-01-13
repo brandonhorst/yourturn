@@ -34,8 +34,10 @@ deno task test
 To run a specific test file:
 
 ```sh
-deno test test/db_test.ts
+deno test server/db.test.ts
 ```
+
+Tests are co-located with the code they cover and use the `.test.ts` suffix.
 
 ## Architecture
 

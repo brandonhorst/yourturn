@@ -1,6 +1,6 @@
 import { assertEquals, assertExists, assertRejects } from "@std/assert";
 import { FakeTime } from "@std/testing/time";
-import { DB } from "../server/db.ts";
+import { DB } from "./db.ts";
 
 // Mock game implementation for testing
 const setupGame = () => 1;

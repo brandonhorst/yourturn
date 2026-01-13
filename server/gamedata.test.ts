@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { assertSpyCalls, spy } from "@std/testing/mock";
-import { DB } from "../server/db.ts";
+import { DB } from "./db.ts";
 import {
   fetchActiveGames,
   getObserverState,
@@ -8,9 +8,9 @@ import {
   getPlayerState,
   handleMove,
   handleRefresh,
-} from "../server/gamedata.ts";
+} from "./gamedata.ts";
 import type { Game, User } from "../types.ts";
-import type { GameStorageData } from "../server/db.ts";
+import type { GameStorageData } from "./db.ts";
 import { ulid } from "@std/ulid";
 
 // Helper functions for test use only

@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { DB } from "../server/db.ts";
-import { ObserveSocketStore } from "../server/observesockets.ts";
+import { DB } from "./db.ts";
+import { ObserveSocketStore } from "./observesockets.ts";
 import { assertSpyCalls, spy } from "@std/testing/mock";
 
 // Mock game state and observer state types for testing

@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "@std/assert";
-import { DB } from "../server/db.ts";
-import { LobbySocketStore } from "../server/lobbysockets.ts";
+import { DB } from "./db.ts";
+import { LobbySocketStore } from "./lobbysockets.ts";
 import { assertSpyCalls, spy } from "@std/testing/mock";
 
 Deno.test("registers and unregisters a socket", async () => {

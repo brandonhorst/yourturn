@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { DB } from "../server/db.ts";
-import { PlaySocketStore } from "../server/playsockets.ts";
+import { DB } from "./db.ts";
+import { PlaySocketStore } from "./playsockets.ts";
 import { assertSpyCalls, spy } from "@std/testing/mock";
 import type { PlayerStateObject } from "../types.ts";
 

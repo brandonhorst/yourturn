@@ -1,7 +1,7 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { assertSpyCalls, spy } from "@std/testing/mock";
 import { FakeTime } from "@std/testing/time";
-import { useSocket } from "../client/hookutils.ts";
+import { useSocket } from "./hookutils.ts";
 import { renderHook } from "@testing-library/preact";
 import { DOMParser } from "linkedom";
 

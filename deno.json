@@ -16,7 +16,7 @@
     "linkedom": "npm:linkedom@0.18.12"
   },
   "tasks": {
-    "test": "deno test --allow-env"
+    "test": "deno test --allow-env **/*.test.ts"
   },
   "unstable": ["kv"],
   "compilerOptions": {
