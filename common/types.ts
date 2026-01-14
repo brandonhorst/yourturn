@@ -13,19 +13,12 @@ export type LobbySocketResponse =
   | { type: "GameAssignment"; gameId: string }
   | { type: "UserUpdated"; user: User };
 
-export type PlaySocketRequest<Move, PlayerState> =
-  | { type: "Initialize"; currentPlayerState: PlayerState }
+export type GameSocketRequest<Move, PlayerState, ObserverState> =
+  | { type: "InitializePlayer"; currentPlayerState: PlayerState }
+  | { type: "InitializeObserver"; currentObserverState: ObserverState }
   | { type: "Move"; move: Move };
 
-export type PlaySocketResponse<PlayerState> =
-  | { type: "UpdatePlayerState"; playerState: PlayerState }
-  | { type: "MarkComplete" };
-
-export type ObserveSocketRequest<ObserverState> = {
-  type: "Initialize";
-  currentObserverState: ObserverState;
-};
-
-export type ObserveSocketResponse<ObserverState> =
-  | { type: "UpdateObserveState"; observerState: ObserverState }
+export type GameSocketResponse<PlayerState, ObserverState> =
+  | { type: "UpdateGameState"; mode: "player"; playerState: PlayerState }
+  | { type: "UpdateGameState"; mode: "observer"; observerState: ObserverState }
   | { type: "MarkComplete" };

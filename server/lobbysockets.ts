@@ -2,7 +2,7 @@ import type { AssignmentStorageData, DB, QueueConfig } from "./db.ts";
 import type { LobbySocketResponse } from "../common/types.ts";
 import type { ActiveGame, SetupObject, User } from "../types.ts";
 import { ulid } from "@std/ulid";
-import { deepEquals, type Socket } from "./socketutils.ts";
+import { jsonEquals, type Socket } from "./socketutils.ts";
 
 type QueueEntry = {
   queueId: string;
@@ -141,7 +141,7 @@ function updateActiveGamesIfNecessary(
   connectionData: ConnectionData,
   activeGames: ActiveGame[],
 ) {
-  if (deepEquals(connectionData.lastValue, activeGames)) {
+  if (jsonEquals(connectionData.lastValue, activeGames)) {
     return;
   }
 

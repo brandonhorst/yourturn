@@ -40,7 +40,7 @@ type AsStructuredClone<T> = T extends
   : never;
 
 // deno-lint-ignore no-explicit-any
-type JSONValue = AsJson<any>;
+export type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
 

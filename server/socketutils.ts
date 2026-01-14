@@ -1,20 +1,13 @@
+import type { JSONValue } from "../types.ts";
+
 export interface Socket {
   send: (data: string) => void;
 }
 
 // Returns true if the two JSON-style objects are equal
-// TODO this is bad - I should compare the JSON strings instead
-export function deepEquals<T>(a: T, b: T): boolean {
-  if (a === b) {
-    return true;
-  }
-
-  const bothAreObjects = a && b && typeof a === "object" &&
-    typeof b === "object";
-
-  return Boolean(
-    bothAreObjects &&
-      Object.keys(a).length === Object.keys(b).length &&
-      Object.entries(a).every(([k, v]) => deepEquals(v, b[k as keyof T])),
-  );
+export function jsonEquals(
+  a: JSONValue | undefined,
+  b: JSONValue | undefined,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }

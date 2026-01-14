@@ -59,16 +59,14 @@ The server-side code is organized around WebSocket handling:
 - `server/gamedata.ts` - Core game state management and move processing
 - Socket handlers:
   - `server/lobbysockets.ts` - Matchmaking and lobby functionality
-  - `server/playsockets.ts` - Active game play WebSocket handling
-  - `server/observesockets.ts` - Observer WebSocket handling
+  - `server/gamesockets.ts` - Player and observer WebSocket handling
 
 ### Client Architecture
 
 Client-side hooks are organized by functionality:
 
 - `client/lobbyhooks.ts` - Lobby and matchmaking state management
-- `client/playhooks.ts` - Active game play state management
-- `client/observehooks.ts` - Game observation state management
+- `client/gamehooks.ts` - Game play and observation state management
 - `client/hookutils.ts` - Shared utilities for WebSocket management
 
 ### Game Interface
