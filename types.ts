@@ -227,6 +227,7 @@ export type LobbyProps = {
 };
 
 export type PlayerProps<PlayerState> = {
+  mode: "player";
   playerId: number;
   playerState: PlayerState;
   isComplete: boolean;
@@ -234,6 +235,7 @@ export type PlayerProps<PlayerState> = {
 };
 
 export type ObserverProps<ObserverState> = {
+  mode: "observer";
   observerState: ObserverState;
   isComplete: boolean;
   players: User[];

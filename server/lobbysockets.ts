@@ -27,7 +27,6 @@ async function streamToSocket(
 
     const message: LobbySocketResponse = {
       type: "GameAssignment",
-      sessionId: data.value.sessionId,
       gameId: data.value.gameId,
     };
     socket.send(JSON.stringify(message));
@@ -90,6 +89,7 @@ export class LobbySocketStore {
   public async joinQueue<Config, GameState>(
     socket: Socket,
     queueConfig: QueueConfig<Config>,
+    userId: string,
     user: User,
     setupGame: (o: SetupObject<Config>) => GameState,
   ) {
@@ -101,7 +101,7 @@ export class LobbySocketStore {
     const message: LobbySocketResponse = { type: "QueueJoined" };
     socket.send(JSON.stringify(message));
 
-    await this.db.addToQueue(queueConfig, entryId, user, setupGame);
+    await this.db.addToQueue(queueConfig, entryId, userId, user, setupGame);
 
     const connectionData = this.sockets.get(socket);
     if (connectionData) {

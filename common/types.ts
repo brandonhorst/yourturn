@@ -10,7 +10,7 @@ export type LobbySocketResponse =
   | { type: "QueueJoined" }
   | { type: "QueueLeft" }
   | { type: "UpdateActiveGames"; activeGames: ActiveGame[] }
-  | { type: "GameAssignment"; gameId: string; sessionId: string }
+  | { type: "GameAssignment"; gameId: string }
   | { type: "UserUpdated"; user: User };
 
 export type PlaySocketRequest<Move, PlayerState> =

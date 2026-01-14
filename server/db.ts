@@ -7,19 +7,16 @@ export type QueueConfig<Config> = {
   config: Config;
 };
 
-type SessionTokens = {
-  [x: string]: number;
-};
-
 type QueueEntryValue = {
   timestamp: Date;
+  userId: string;
   user: User;
 };
 
 export type GameStorageData<Config, GameState> = {
   config: Config;
   gameState: GameState;
-  sessionTokens: SessionTokens;
+  playerUserIds: string[];
   players: User[];
   isComplete: boolean;
   version: number;
@@ -27,7 +24,6 @@ export type GameStorageData<Config, GameState> = {
 
 export type AssignmentStorageData = {
   gameId: string;
-  sessionId: string;
 };
 
 async function repeatUntilSuccess(fn: () => Promise<{ ok: boolean }>) {
@@ -79,6 +75,7 @@ export class DB {
   public async addToQueue<Config, GameState>(
     queueConfig: QueueConfig<Config>,
     entryId: string,
+    userId: string,
     user: User,
     setupGame: (setupObject: SetupObject<Config>) => GameState,
   ): Promise<void> {
@@ -87,7 +84,7 @@ export class DB {
       return await this.kv
         .atomic()
         .check({ key: entryKey, versionstamp: null })
-        .set(entryKey, { timestamp: new Date(), user })
+        .set(entryKey, { timestamp: new Date(), userId, user })
         .commit();
     });
 
@@ -130,11 +127,11 @@ export class DB {
       }
 
       // Initialize Game Storage Data
-      const sessionTokens: { [sessionId: string]: number } = {};
+      const playerUserIds: string[] = [];
       const players: User[] = [];
 
       for (let i = 0; i < queueConfig.numPlayers; i++) {
-        sessionTokens[ulid()] = i;
+        playerUserIds[i] = queueEntries[i].value.userId;
         players[i] = queueEntries[i].value.user;
       }
       const timestamp = new Date();
@@ -143,7 +140,7 @@ export class DB {
       const gameStorageData: GameStorageData<Config, GameState> = {
         config: queueConfig.config,
         gameState,
-        sessionTokens,
+        playerUserIds,
         players,
         isComplete: false,
         version: 0,
@@ -164,7 +161,6 @@ export class DB {
         const assignmentKey = getAssignmentKey(entryId);
         const assignmentValue: AssignmentStorageData = {
           gameId,
-          sessionId: Object.keys(sessionTokens)[playerId],
         };
 
         // Delete their queue entry, and add an assignment

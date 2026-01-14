@@ -121,39 +121,42 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     return { props: { activeGames, user }, token: lobbyToken };
   }
 
-  async getInitialPlayerProps(
+  async getInitialGameProps(
     gameId: string,
-    sessionId: string,
-  ): Promise<PlayerProps<PlayerState>> {
+    token: string | null,
+  ): Promise<PlayerProps<PlayerState> | ObserverProps<ObserverState>> {
     const gameData = await this.db.getGameStorageData<Config, GameState>(
       gameId,
     );
-    const playerId = getPlayerId(gameData, sessionId);
-    const playerState = getPlayerState(
-      gameData,
-      this.game.playerState,
-      playerId,
-    );
-    return {
-      playerId,
-      playerState,
-      isComplete: gameData.isComplete,
-      players: gameData.players,
-    };
-  }
 
-  async getInitialObserverProps(
-    gameId: string,
-  ): Promise<ObserverProps<ObserverState>> {
-    const gameData = await this.db.getGameStorageData<Config, GameState>(
-      gameId,
-    );
-    const observerState = getObserverState(gameData, this.game.observerState);
-    return {
-      observerState,
-      isComplete: gameData.isComplete,
-      players: gameData.players,
-    };
+    let playerId: number | undefined;
+    const userId = await this.getUserIdFromToken(token);
+    if (userId != null) {
+      playerId = getPlayerId(gameData, userId);
+    }
+
+    if (playerId != null) {
+      const playerState = getPlayerState(
+        gameData,
+        this.game.playerState,
+        playerId,
+      );
+      return {
+        mode: "player",
+        playerId,
+        playerState,
+        isComplete: gameData.isComplete,
+        players: gameData.players,
+      };
+    } else {
+      const observerState = getObserverState(gameData, this.game.observerState);
+      return {
+        mode: "observer",
+        observerState,
+        isComplete: gameData.isComplete,
+        players: gameData.players,
+      };
+    }
   }
 
   async configureLobbySocket(socket: WebSocket, token: string) {
@@ -204,6 +207,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
           await this.lobbySocketStore.joinQueue(
             socket,
             queueConfig,
+            userId,
             user,
             this.game.setup,
           );
@@ -247,10 +251,62 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     socket.addEventListener("close", handleLobbySocketClose);
   }
 
-  configureObserveSocket(
+  async configureGameSocket(
     socket: WebSocket,
     gameId: string,
+    token: string | undefined,
   ) {
+    const userId = await this.getUserIdFromToken(token);
+    const gameData = await this.db.getGameStorageData<Config, GameState>(
+      gameId,
+    );
+    const playerId = userId == null ? undefined : getPlayerId(gameData, userId);
+
+    if (playerId != null) {
+      const handlePlaySocketOpen = () => {
+        this.playSocketStore.register(
+          socket,
+          gameId,
+          playerId,
+          this.game.playerState,
+        );
+      };
+
+      const handlePlaySocketMessage = async (event: MessageEvent) => {
+        const request: PlaySocketRequest<Move, PlayerState> = JSON.parse(
+          event.data,
+        );
+        switch (request.type) {
+          case "Initialize":
+            await this.playSocketStore.initialize(
+              socket,
+              gameId,
+              request.currentPlayerState,
+              this.game.playerState,
+            );
+            break;
+          case "Move":
+            await handleMove(
+              this.db,
+              this.game,
+              gameId,
+              playerId,
+              request.move,
+            );
+            break;
+        }
+      };
+
+      const handlePlaySocketClose = () => {
+        this.playSocketStore.unregister(socket, gameId);
+      };
+
+      socket.addEventListener("open", handlePlaySocketOpen);
+      socket.addEventListener("message", handlePlaySocketMessage);
+      socket.addEventListener("close", handlePlaySocketClose);
+      return;
+    }
+
     const handleObserveSocketOpen = () => {
       console.log("observe socket opened");
       this.observeSocketStore.register(socket, gameId, this.game.observerState);
@@ -281,51 +337,17 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     socket.addEventListener("close", handleObserveSocketClose);
   }
 
-  async configurePlaySocket(
-    socket: WebSocket,
-    gameId: string,
-    sessionId: string,
-  ) {
-    const playerId = getPlayerId(
-      await this.db.getGameStorageData<Config, GameState>(gameId),
-      sessionId,
-    );
-
-    const handlePlaySocketOpen = () => {
-      this.playSocketStore.register(
-        socket,
-        gameId,
-        playerId,
-        this.game.playerState,
-      );
-    };
-
-    const handlePlaySocketMessage = async (event: MessageEvent) => {
-      const request: PlaySocketRequest<Move, PlayerState> = JSON.parse(
-        event.data,
-      );
-      switch (request.type) {
-        case "Initialize":
-          await this.playSocketStore.initialize(
-            socket,
-            gameId,
-            request.currentPlayerState,
-            this.game.playerState,
-          );
-          break;
-        case "Move":
-          await handleMove(this.db, this.game, gameId, playerId, request.move);
-          break;
-      }
-    };
-
-    const handlePlaySocketClose = () => {
-      this.playSocketStore.unregister(socket, gameId);
-    };
-
-    socket.addEventListener("open", handlePlaySocketOpen);
-    socket.addEventListener("message", handlePlaySocketMessage);
-    socket.addEventListener("close", handlePlaySocketClose);
+  private async getUserIdFromToken(
+    token: string | null,
+  ): Promise<string | null> {
+    if (token == null || token === "") {
+      return null;
+    }
+    const tokenData = await this.db.getToken(token);
+    if (tokenData == null || tokenData.expiration <= new Date()) {
+      return null;
+    }
+    return tokenData.userId;
   }
 }
 

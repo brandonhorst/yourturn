@@ -14,9 +14,12 @@ export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
 
 export function getPlayerId<Config, GameState>(
   gameData: GameStorageData<Config, GameState>,
-  sessionId: string,
-): number {
-  const playerId = gameData.sessionTokens[sessionId];
+  userId: string,
+): number | undefined {
+  const playerId = gameData.playerUserIds.indexOf(userId);
+  if (playerId === -1) {
+    return undefined;
+  }
   return playerId;
 }
 

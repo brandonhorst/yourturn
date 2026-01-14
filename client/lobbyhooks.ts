@@ -9,7 +9,7 @@ import type { LobbyProps, LobbyViewProps } from "../types.ts";
 export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
   socketUrl: string;
   initialLobbyProps: LobbyProps;
-  navigate: (gameId: string, sessionId: string) => void;
+  navigate: (gameId: string) => void;
 }): LobbyViewProps {
   const [activeGames, setActiveGames] = useState(initialLobbyProps.activeGames);
   const [user, setUser] = useState(initialLobbyProps.user);
@@ -27,7 +27,7 @@ export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
         setActiveGames(response.activeGames);
         break;
       case "GameAssignment":
-        navigate(response.gameId, response.sessionId);
+        navigate(response.gameId);
         break;
       case "UserUpdated":
         setUser(response.user);

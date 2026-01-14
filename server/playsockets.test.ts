@@ -47,7 +47,7 @@ Deno.test("sends state updates to all player sockets", async () => {
   const activeGameKey = ["activegames", gameId];
   const activeGameTriggerKey = ["activegametrigger"];
 
-  const sessionTokens = { "session-1": 0, "session-2": 1 };
+  const playerUserIds = ["user-1", "user-2"];
   const players = [
     { username: "Player 1", isGuest: false },
     { username: "Player 2", isGuest: false },
@@ -60,7 +60,7 @@ Deno.test("sends state updates to all player sockets", async () => {
     .set(gameKey, {
       config: undefined,
       gameState: 1,
-      sessionTokens,
+      playerUserIds,
       players,
       isComplete: false,
       version: 0,
@@ -85,7 +85,7 @@ Deno.test("sends state updates to all player sockets", async () => {
   await db.updateGameStorageData(gameId, {
     config: undefined,
     gameState: 1,
-    sessionTokens,
+    playerUserIds,
     players,
     isComplete: false,
     version: 1,
@@ -130,7 +130,7 @@ Deno.test("only sends updates when state changes", async () => {
   const activeGameKey = ["activegames", gameId];
   const activeGameTriggerKey = ["activegametrigger"];
 
-  const sessionTokens = { "session-1": 0, "session-2": 1 };
+  const playerUserIds = ["user-1", "user-2"];
   const players = [
     { username: "Player 1", isGuest: false },
     { username: "Player 2", isGuest: false },
@@ -143,7 +143,7 @@ Deno.test("only sends updates when state changes", async () => {
     .set(gameKey, {
       config: undefined,
       gameState: 1,
-      sessionTokens,
+      playerUserIds,
       players,
       isComplete: false,
       version: 0,
@@ -158,7 +158,7 @@ Deno.test("only sends updates when state changes", async () => {
   await db.updateGameStorageData(gameId, {
     config: undefined,
     gameState: 1,
-    sessionTokens,
+    playerUserIds,
     players,
     isComplete: false,
     version: 1,
@@ -175,7 +175,7 @@ Deno.test("only sends updates when state changes", async () => {
   await db.updateGameStorageData(gameId, {
     config: undefined,
     gameState: 1,
-    sessionTokens,
+    playerUserIds,
     players,
     isComplete: false,
     version: 2,
