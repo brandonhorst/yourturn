@@ -1,20 +1,7 @@
 import { useCallback, useState } from "preact/hooks";
 import { useSocket } from "../client/hookutils.ts";
 import type { GameSocketRequest, GameSocketResponse } from "../common/types.ts";
-import type {
-  ObserverProps,
-  ObserveViewProps,
-  PlayerProps,
-  PlayerViewProps,
-} from "../types.ts";
-
-type GameProps<PlayerState, ObserverState> =
-  | PlayerProps<PlayerState>
-  | ObserverProps<ObserverState>;
-
-type GameViewProps<Move, PlayerState, ObserverState> =
-  | PlayerViewProps<Move, PlayerState>
-  | ObserveViewProps<ObserverState>;
+import type { GameProps, GameViewProps } from "../types.ts";
 
 // Opens an auto-reconnecting WebSocket to a given Game URL.
 // Returns an always up-to-date view of the game and optionally a move handler.

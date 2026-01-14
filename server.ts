@@ -1,11 +1,4 @@
-import type {
-  ActiveGame,
-  Game,
-  LobbyProps,
-  ObserverProps,
-  PlayerProps,
-  User,
-} from "./types.ts";
+import type { ActiveGame, Game, GameProps, LobbyProps, User } from "./types.ts";
 import type {
   GameSocketRequest,
   LobbySocketRequest,
@@ -119,7 +112,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
   async getInitialGameProps(
     gameId: string,
     token: string | undefined,
-  ): Promise<PlayerProps<PlayerState> | ObserverProps<ObserverState>> {
+  ): Promise<GameProps<PlayerState, ObserverState>> {
     const gameData = await this.db.getGameStorageData<Config, GameState>(
       gameId,
     );

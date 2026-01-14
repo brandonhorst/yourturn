@@ -226,26 +226,34 @@ export type LobbyProps = {
   user: User;
 };
 
-export type PlayerProps<PlayerState> = {
+type PlayerProps<PlayerState> = {
   mode: "player";
+  isComplete: boolean;
+  players: User[];
   playerId: number;
   playerState: PlayerState;
-  isComplete: boolean;
-  players: User[];
 };
 
-export type ObserverProps<ObserverState> = {
+type ObserverProps<ObserverState> = {
   mode: "observer";
-  observerState: ObserverState;
   isComplete: boolean;
   players: User[];
+  observerState: ObserverState;
 };
 
-export type PlayerViewProps<Move, PlayerState> = PlayerProps<PlayerState> & {
+export type GameProps<PlayerState, ObserverState> =
+  | PlayerProps<PlayerState>
+  | ObserverProps<ObserverState>;
+
+type PlayerViewProps<Move, PlayerState> = PlayerProps<PlayerState> & {
   perform?: (move: Move) => void;
 };
 
-export type ObserveViewProps<ObserverState> = ObserverProps<ObserverState>;
+type ObserveViewProps<ObserverState> = ObserverProps<ObserverState>;
+
+export type GameViewProps<Move, PlayerState, ObserverState> =
+  | PlayerViewProps<Move, PlayerState>
+  | ObserveViewProps<ObserverState>;
 
 export type LobbyViewProps = LobbyProps & {
   joinQueue: (queueId: string) => void;
