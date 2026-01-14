@@ -6,7 +6,6 @@ import type {
   PlayerProps,
   User,
 } from "./types.ts";
-import { getCookies, setCookie } from "@std/http/cookie";
 import type {
   LobbySocketRequest,
   LobbySocketResponse,
@@ -27,7 +26,6 @@ import { DB } from "./server/db.ts";
 import { LobbySocketStore } from "./server/lobbysockets.ts";
 import { ulid } from "@std/ulid";
 
-const tokenCookieName = "yourturn_token";
 const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
 
 export async function initializeServer<
@@ -90,13 +88,11 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
   ) {}
 
   async getInitialLobbyProps(
-    request: Request,
-    responseHeaders: Headers,
-  ): Promise<LobbyProps> {
+    token: string | null,
+  ): Promise<{ props: LobbyProps; token: string }> {
     const activeGames = await fetchActiveGames(this.db);
-    const cookies = getCookies(request.headers);
-    const token = cookies[tokenCookieName];
     let user: User | null = null;
+    let lobbyToken = token;
 
     if (token != null) {
       const tokenData = await this.db.getToken(token);
@@ -108,23 +104,21 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     if (user == null) {
       user = await createGuestUser(this.db);
       const userId = ulid();
-      const newToken = crypto.randomUUID();
+      lobbyToken = crypto.randomUUID();
       const expiration = new Date(Date.now() + tokenTtlMs);
 
       await this.db.storeUser(userId, user);
-      await this.db.storeToken(newToken, { userId, expiration });
-
-      setCookie(responseHeaders, {
-        name: tokenCookieName,
-        value: newToken,
-        httpOnly: true,
-        sameSite: "Lax",
-        path: "/",
-        expires: expiration,
-      });
+      await this.db.storeToken(lobbyToken, { userId, expiration });
     }
 
-    return { activeGames, user };
+    if (lobbyToken == null) {
+      throw new Error("Missing lobby auth token");
+    }
+    if (user == null) {
+      throw new Error("Missing lobby user");
+    }
+
+    return { props: { activeGames, user }, token: lobbyToken };
   }
 
   async getInitialPlayerProps(
@@ -162,10 +156,8 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     };
   }
 
-  async configureLobbySocket(socket: WebSocket, request: Request) {
-    const cookies = getCookies(request.headers);
-    const token = cookies[tokenCookieName];
-    if (token == null) {
+  async configureLobbySocket(socket: WebSocket, token: string) {
+    if (token === "") {
       throw new Error("Missing lobby auth token");
     }
 
