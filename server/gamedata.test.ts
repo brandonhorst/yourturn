@@ -47,13 +47,16 @@ type TestPublicState = {
   moves: number;
 };
 
+type TestOutcome = "done";
+
 // Game implementation for tests
 const testGame: Game<
   TestConfig,
   TestState,
   TestMove,
   TestPlayerState,
-  TestPublicState
+  TestPublicState,
+  TestOutcome
 > = {
   modes: {
     queue: { numPlayers: 2, matchmaking: "queue", config: undefined },
@@ -96,10 +99,11 @@ const testGame: Game<
     return undefined; // No timeout for values >= 3
   },
 
-  playerState: (state, o): TestPlayerState => {
+  playerState: (state): TestPlayerState => {
+    const isDone = state.value >= 5 || state.value <= -5;
     return {
       playerValue: state.value,
-      canMove: !o.isComplete,
+      canMove: !isDone,
     };
   },
 
@@ -110,8 +114,8 @@ const testGame: Game<
     };
   },
 
-  isComplete: (state): boolean => {
-    return state.value >= 5 || state.value <= -5;
+  outcome: (state): TestOutcome | undefined => {
+    return state.value >= 5 || state.value <= -5 ? "done" : undefined;
   },
 };
 
@@ -131,12 +135,12 @@ Deno.test("fetchActiveGames returns active games from the database", async () =>
       { username: "Player 2", isGuest: false },
     ];
 
-    const gameData: GameStorageData<TestConfig, TestState> = {
+    const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
       config: undefined,
       gameState: { value: 0, moveHistory: [] },
       playerUserIds: [],
       players,
-      isComplete: false,
+      outcome: undefined,
       version: 0,
     };
 
@@ -166,12 +170,12 @@ Deno.test("getPlayerState returns correct player state", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds,
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -180,7 +184,11 @@ Deno.test("getPlayerState returns correct player state", async () => {
   await kv.set(getGameKey(gameId), gameData);
 
   for (const userId of playerUserIds) {
-    const gameData = await db.getGameStorageData<TestConfig, TestState>(
+    const gameData = await db.getGameStorageData<
+      TestConfig,
+      TestState,
+      TestOutcome
+    >(
       gameId,
     );
     const playerId = getPlayerId(gameData, userId);
@@ -214,12 +222,12 @@ Deno.test("getPlayerState handles completed games", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const initialGameData: GameStorageData<TestConfig, TestState> = {
+  const initialGameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
-    gameState: { value: 1, moveHistory: ["Player 0: increment"] },
+    gameState: { value: 5, moveHistory: ["Player 0: increment"] },
     playerUserIds,
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -228,10 +236,14 @@ Deno.test("getPlayerState handles completed games", async () => {
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
-  const gameData = await db.getGameStorageData<TestConfig, TestState>(
+  const gameData = await db.getGameStorageData<
+    TestConfig,
+    TestState,
+    TestOutcome
+  >(
     gameId,
   );
-  gameData.isComplete = true;
+  gameData.outcome = "done";
   gameData.version += 1;
   await db.updateGameStorageData(gameId, gameData);
 
@@ -259,12 +271,12 @@ Deno.test("getPublicState returns correct public state", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const initialGameData: GameStorageData<TestConfig, TestState> = {
+  const initialGameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -272,7 +284,11 @@ Deno.test("getPublicState returns correct public state", async () => {
   await kv.set(getActiveGameKey(gameId), {});
   await kv.set(getGameKey(gameId), initialGameData);
 
-  const gameData = await db.getGameStorageData<TestConfig, TestState>(
+  const gameData = await db.getGameStorageData<
+    TestConfig,
+    TestState,
+    TestOutcome
+  >(
     gameId,
   );
   const publicState = getPublicState(gameData, testGame.publicState);
@@ -295,12 +311,12 @@ Deno.test("getPublicState handles completed games", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const initialGameData: GameStorageData<TestConfig, TestState> = {
+  const initialGameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -309,16 +325,21 @@ Deno.test("getPublicState handles completed games", async () => {
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
-  const gameData = await db.getGameStorageData<TestConfig, TestState>(
+  const gameData = await db.getGameStorageData<
+    TestConfig,
+    TestState,
+    TestOutcome
+  >(
     gameId,
   );
-  gameData.isComplete = true;
+  gameData.outcome = "done";
   gameData.version += 1;
   await db.updateGameStorageData(gameId, gameData);
 
   const updatedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
@@ -345,12 +366,12 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -366,14 +387,15 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
   // Get the updated game state
   const updatedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
 
   assertEquals(updatedGameData.gameState.value, 2);
   assertEquals(updatedGameData.gameState.moveHistory.length, 2);
-  assertEquals(updatedGameData.isComplete, false);
+  assertEquals(updatedGameData.outcome, undefined);
   assertEquals(updatedGameData.version, 1); // Version should be incremented to 1 after the first move
 
   kv.close();
@@ -391,7 +413,7 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: {
       value: 4,
@@ -404,7 +426,7 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
     },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -420,13 +442,14 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
   // Get the updated game state
   const updatedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
 
   assertEquals(updatedGameData.gameState.value, 5);
-  assertEquals(updatedGameData.isComplete, true);
+  assertEquals(updatedGameData.outcome, "done");
   assertEquals(updatedGameData.version, 1); // Version should be incremented to 1 after the move
 
   kv.close();
@@ -443,12 +466,12 @@ Deno.test("handleMove rejects invalid moves", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -458,7 +481,8 @@ Deno.test("handleMove rejects invalid moves", async () => {
 
   const initialGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
@@ -471,7 +495,8 @@ Deno.test("handleMove rejects invalid moves", async () => {
   // Get the game state and verify it hasn't changed
   const updatedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
@@ -500,12 +525,12 @@ Deno.test("handleMove doesn't update completed games", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const initialGameData: GameStorageData<TestConfig, TestState> = {
+  const initialGameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -514,17 +539,22 @@ Deno.test("handleMove doesn't update completed games", async () => {
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
-  const gameData = await db.getGameStorageData<TestConfig, TestState>(
+  const gameData = await db.getGameStorageData<
+    TestConfig,
+    TestState,
+    TestOutcome
+  >(
     gameId,
   );
-  gameData.isComplete = true;
+  gameData.outcome = "done";
   gameData.version += 1;
   await db.updateGameStorageData(gameId, gameData);
 
   // Store initial state
   const completedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
@@ -537,7 +567,8 @@ Deno.test("handleMove doesn't update completed games", async () => {
   // Get the updated game state
   const updatedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
@@ -551,7 +582,7 @@ Deno.test("handleMove doesn't update completed games", async () => {
     updatedGameData.gameState.moveHistory.length,
     completedGameData.gameState.moveHistory.length,
   );
-  assertEquals(updatedGameData.isComplete, true);
+  assertEquals(updatedGameData.outcome, "done");
 
   kv.close();
 });
@@ -568,12 +599,12 @@ Deno.test("handleRefresh updates game state", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -586,7 +617,8 @@ Deno.test("handleRefresh updates game state", async () => {
   // Get the updated game state
   const updatedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
@@ -594,7 +626,7 @@ Deno.test("handleRefresh updates game state", async () => {
   assertEquals(updatedGameData.gameState.value, 2);
   assertEquals(updatedGameData.gameState.moveHistory.length, 2);
   assertEquals(updatedGameData.gameState.moveHistory[1], "System: refresh");
-  assertEquals(updatedGameData.isComplete, false);
+  assertEquals(updatedGameData.outcome, undefined);
   assertEquals(updatedGameData.version, 1); // Version should be incremented to 1 after the refresh
 
   kv.close();
@@ -612,7 +644,7 @@ Deno.test("handleRefresh properly marks game as complete when threshold reached"
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: {
       value: 4,
@@ -625,7 +657,7 @@ Deno.test("handleRefresh properly marks game as complete when threshold reached"
     },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -638,13 +670,14 @@ Deno.test("handleRefresh properly marks game as complete when threshold reached"
   // Get the updated game state
   const updatedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
 
   assertEquals(updatedGameData.gameState.value, 5);
-  assertEquals(updatedGameData.isComplete, true);
+  assertEquals(updatedGameData.outcome, "done");
   assertEquals(updatedGameData.version, 1); // Version should be incremented to 1 after the refresh
 
   kv.close();
@@ -662,12 +695,12 @@ Deno.test("handleRefresh doesn't update completed games", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const initialGameData: GameStorageData<TestConfig, TestState> = {
+  const initialGameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -676,17 +709,22 @@ Deno.test("handleRefresh doesn't update completed games", async () => {
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
-  const gameData = await db.getGameStorageData<TestConfig, TestState>(
+  const gameData = await db.getGameStorageData<
+    TestConfig,
+    TestState,
+    TestOutcome
+  >(
     gameId,
   );
-  gameData.isComplete = true;
+  gameData.outcome = "done";
   gameData.version += 1;
   await db.updateGameStorageData(gameId, gameData);
 
   // Store initial state
   const completedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
@@ -696,7 +734,8 @@ Deno.test("handleRefresh doesn't update completed games", async () => {
   // Get the updated game state
   const updatedGameData = await db.getGameStorageData<
     TestConfig,
-    TestState
+    TestState,
+    TestOutcome
   >(
     gameId,
   );
@@ -710,7 +749,7 @@ Deno.test("handleRefresh doesn't update completed games", async () => {
     updatedGameData.gameState.moveHistory.length,
     completedGameData.gameState.moveHistory.length,
   );
-  assertEquals(updatedGameData.isComplete, true);
+  assertEquals(updatedGameData.outcome, "done");
 
   kv.close();
 });
@@ -730,12 +769,12 @@ Deno.test("handleMove schedules refresh with refreshTimeout", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -771,7 +810,7 @@ Deno.test("handleMove doesn't schedule refresh when refreshTimeout returns undef
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: {
       value: 3,
@@ -783,7 +822,7 @@ Deno.test("handleMove doesn't schedule refresh when refreshTimeout returns undef
     },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 
@@ -819,12 +858,12 @@ Deno.test("handleRefresh schedules refresh with refreshTimeout", async () => {
     { username: "Player 2", isGuest: false },
   ];
 
-  const gameData: GameStorageData<TestConfig, TestState> = {
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
     config: undefined,
     gameState: { value: 1, moveHistory: ["Player 0: increment"] },
     playerUserIds: [],
     players,
-    isComplete: false,
+    outcome: undefined,
     version: 0,
   };
 

@@ -1,5 +1,5 @@
 import type { AssignmentStorageData, DB, QueueConfig } from "./db.ts";
-import type { LobbySocketResponse } from "../common/types.ts";
+import type { LobbySocketResponse } from "../common/sockettypes.ts";
 import type { ActiveGame, SetupObject, User } from "../types.ts";
 import { ulid } from "@std/ulid";
 import { jsonEquals, type Socket } from "./socketutils.ts";

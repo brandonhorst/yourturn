@@ -15,19 +15,15 @@ export type LobbySocketResponse =
 
 export type GameSocketRequest<Move, PlayerState, PublicState> =
   | {
-    type: "InitializePlayer";
-    currentPlayerState: PlayerState;
+    type: "Initialize";
     currentPublicState: PublicState;
+    currentPlayerState?: PlayerState;
   }
-  | { type: "InitializeObserver"; currentPublicState: PublicState }
   | { type: "Move"; move: Move };
 
-export type GameSocketResponse<PlayerState, PublicState> =
-  | {
-    type: "UpdateGameState";
-    mode: "player";
-    playerState: PlayerState;
-    publicState: PublicState;
-  }
-  | { type: "UpdateGameState"; mode: "observer"; publicState: PublicState }
-  | { type: "MarkComplete" };
+export type GameSocketResponse<PlayerState, PublicState, Outcome> = {
+  type: "UpdateGameState";
+  publicState: PublicState;
+  playerState: PlayerState | undefined;
+  outcome: Outcome | undefined;
+};

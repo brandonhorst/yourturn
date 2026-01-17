@@ -2,26 +2,21 @@ import type { DB, GameStorageData } from "./db.ts";
 import { jsonEquals, type Socket } from "./socketutils.ts";
 import type { PlayerStateObject, PublicStateObject } from "../types.ts";
 import { assert } from "@std/assert";
-import type { GameSocketResponse } from "../common/types.ts";
+import type { GameSocketResponse } from "../common/sockettypes.ts";
 import { getPlayerState, getPublicState } from "./gamedata.ts";
 
-type PlayerSocket<PlayerState, PublicState> = {
-  playerId: number;
+type GameSocketEntry<PlayerState, PublicState, Outcome> = {
+  playerId: number | undefined;
   lastPlayerState: PlayerState | undefined;
   lastPublicState: PublicState | undefined;
+  lastOutcome: Outcome | undefined;
   socket: Socket;
 };
 
-type ObserverSocket<PublicState> = {
-  lastValue: PublicState | undefined;
-  socket: Socket;
-};
-
-type GameConnection<Config, GameState, PlayerState, PublicState> = {
-  playerSockets: PlayerSocket<PlayerState, PublicState>[];
-  observerSockets: ObserverSocket<PublicState>[];
+type GameConnection<Config, GameState, PlayerState, PublicState, Outcome> = {
+  sockets: GameSocketEntry<PlayerState, PublicState, Outcome>[];
   changesReader: ReadableStreamDefaultReader<
-    GameStorageData<Config, GameState>
+    GameStorageData<Config, GameState, Outcome>
   >;
 };
 
@@ -30,34 +25,16 @@ export class GameSocketStore<
   GameState,
   PlayerState,
   PublicState,
+  Outcome,
 > {
   private connections: Map<
     string,
-    GameConnection<Config, GameState, PlayerState, PublicState>
+    GameConnection<Config, GameState, PlayerState, PublicState, Outcome>
   > = new Map();
 
   constructor(private db: DB) {}
 
-  registerPlayer(
-    socket: Socket,
-    gameId: string,
-    playerId: number,
-    playerStateLogic: (
-      s: GameState,
-      o: PlayerStateObject<Config>,
-    ) => PlayerState,
-    publicStateLogic: (
-      s: GameState,
-      o: PublicStateObject<Config>,
-    ) => PublicState,
-  ) {
-    if (!this.hasGame(gameId)) {
-      this.createGame(gameId, playerStateLogic, publicStateLogic);
-    }
-    this.addPlayerSocket(gameId, playerId, socket);
-  }
-
-  registerObserver(
+  register(
     socket: Socket,
     gameId: string,
     playerStateLogic: (
@@ -68,18 +45,19 @@ export class GameSocketStore<
       s: GameState,
       o: PublicStateObject<Config>,
     ) => PublicState,
+    playerId?: number,
   ) {
     if (!this.hasGame(gameId)) {
       this.createGame(gameId, playerStateLogic, publicStateLogic);
     }
-    this.addObserverSocket(gameId, socket);
+    this.addSocket(gameId, socket, playerId);
   }
 
-  async initializePlayer(
+  async initialize(
     socket: Socket,
     gameId: string,
-    playerState: PlayerState,
     publicState: PublicState,
+    playerState: PlayerState | undefined,
     playerStateLogic: (
       s: GameState,
       o: PlayerStateObject<Config>,
@@ -89,57 +67,39 @@ export class GameSocketStore<
       o: PublicStateObject<Config>,
     ) => PublicState,
   ) {
-    const playerSocket =
-      this.getConnection(gameId).playerSockets.filter((s) =>
-        s.socket === socket
-      )[0];
-    playerSocket.lastPlayerState = playerState;
-    playerSocket.lastPublicState = publicState;
+    const connection = this.getConnection(gameId);
+    const gameSocket = connection.sockets.find((s) => s.socket === socket);
+    assert(gameSocket != null);
+    gameSocket.lastPlayerState = playerState;
+    gameSocket.lastPublicState = publicState;
+    gameSocket.lastOutcome = undefined;
 
-    const gameData = await this.db.getGameStorageData<Config, GameState>(
+    const gameData = await this.db.getGameStorageData<
+      Config,
+      GameState,
+      Outcome
+    >(
       gameId,
     );
-    const newPlayerState = getPlayerState(
-      gameData,
-      playerStateLogic,
-      playerSocket.playerId,
-    );
+    const newPlayerState = gameSocket.playerId == null
+      ? undefined
+      : getPlayerState(
+        gameData,
+        playerStateLogic,
+        gameSocket.playerId,
+      );
     const newPublicState = getPublicState(
       gameData,
       publicStateLogic,
     );
 
-    updatePlayerStateIfNecessary(
-      playerSocket,
+    updateSocketIfNecessary(
+      gameSocket,
       newPlayerState,
       newPublicState,
+      gameData.outcome,
     );
-  }
-
-  async initializeObserver(
-    socket: Socket,
-    gameId: string,
-    publicState: PublicState,
-    publicStateLogic: (
-      s: GameState,
-      o: PublicStateObject<Config>,
-    ) => PublicState,
-  ) {
-    const observerSocket =
-      this.getConnection(gameId).observerSockets.filter((s) =>
-        s.socket === socket
-      )[0];
-    observerSocket.lastValue = publicState;
-
-    const gameData = await this.db.getGameStorageData<Config, GameState>(
-      gameId,
-    );
-    const newPublicState = getPublicState(
-      gameData,
-      publicStateLogic,
-    );
-
-    updatePublicStateIfNecessary(observerSocket, newPublicState);
+    return;
   }
 
   unregister(socket: Socket, gameId: string) {
@@ -160,7 +120,9 @@ export class GameSocketStore<
       s: GameState,
       o: PublicStateObject<Config>,
     ) => PublicState,
-    stream: ReadableStreamDefaultReader<GameStorageData<Config, GameState>>,
+    stream: ReadableStreamDefaultReader<
+      GameStorageData<Config, GameState, Outcome>
+    >,
   ) {
     while (true) {
       const data = await stream.read();
@@ -171,46 +133,32 @@ export class GameSocketStore<
       const connection = this.getConnection(gameId);
       const state = data.value.gameState;
 
-      const hasPlayerSockets = connection.playerSockets.length > 0;
-      const hasObserverSockets = connection.observerSockets.length > 0;
+      const outcome = data.value.outcome;
+      const timestamp = new Date();
 
-      let publicState: PublicState | undefined;
-      if (hasPlayerSockets || hasObserverSockets) {
-        publicState = publicStateLogic(state, {
-          isComplete: data.value.isComplete,
-          players: data.value.players,
-          config: data.value.config,
-          timestamp: new Date(),
-        });
-      }
+      const publicState = publicStateLogic(state, {
+        players: data.value.players,
+        config: data.value.config,
+        timestamp,
+      });
 
-      if (hasPlayerSockets) {
-        for (const socket of connection.playerSockets) {
-          const playerState = playerStateLogic(state, {
+      for (const socket of connection.sockets) {
+        let playerState: PlayerState | undefined;
+
+        if (socket.playerId != null) {
+          playerState = playerStateLogic(state, {
             playerId: socket.playerId,
             players: data.value.players,
-            isComplete: data.value.isComplete,
             config: data.value.config,
-            timestamp: new Date(),
+            timestamp,
           });
-          updatePlayerStateIfNecessary(
-            socket,
-            playerState,
-            publicState as PublicState,
-          );
-          if (data.value.isComplete) {
-            markComplete(socket.socket);
-          }
         }
-      }
-
-      if (hasObserverSockets) {
-        for (const socket of connection.observerSockets) {
-          updatePublicStateIfNecessary(socket, publicState as PublicState);
-          if (data.value.isComplete) {
-            markComplete(socket.socket);
-          }
-        }
+        updateSocketIfNecessary(
+          socket,
+          playerState,
+          publicState,
+          outcome,
+        );
       }
     }
   }
@@ -226,8 +174,11 @@ export class GameSocketStore<
       o: PublicStateObject<Config>,
     ) => PublicState,
   ): void {
-    const changesReader = this.db.watchForGameChanges<Config, GameState>(gameId)
-      .getReader();
+    const changesReader = this.db.watchForGameChanges<
+      Config,
+      GameState,
+      Outcome
+    >(gameId).getReader();
     this.streamToAllSockets(
       gameId,
       playerStateLogic,
@@ -239,46 +190,34 @@ export class GameSocketStore<
       Config,
       GameState,
       PlayerState,
-      PublicState
+      PublicState,
+      Outcome
     > = {
-      playerSockets: [],
-      observerSockets: [],
+      sockets: [],
       changesReader,
     };
     this.connections.set(gameId, connection);
   }
 
-  private addPlayerSocket(
+  private addSocket(
     gameId: string,
-    playerId: number,
     socket: Socket,
+    playerId: number | undefined = undefined,
   ): void {
     const connection = this.getConnection(gameId);
-    connection.playerSockets.push({
+    connection.sockets.push({
       socket,
+      playerId,
       lastPlayerState: undefined,
       lastPublicState: undefined,
-      playerId,
+      lastOutcome: undefined,
     });
-  }
-
-  private addObserverSocket(gameId: string, socket: Socket): void {
-    const connection = this.getConnection(gameId);
-    connection.observerSockets.push({ socket, lastValue: undefined });
   }
 
   private deleteSocket(gameId: string, socket: Socket): void {
     const connection = this.getConnection(gameId);
-    connection.playerSockets = connection.playerSockets.filter((s) =>
-      s.socket !== socket
-    );
-    connection.observerSockets = connection.observerSockets.filter((s) =>
-      s.socket !== socket
-    );
-    if (
-      connection.playerSockets.length === 0 &&
-      connection.observerSockets.length === 0
-    ) {
+    connection.sockets = connection.sockets.filter((s) => s.socket !== socket);
+    if (connection.sockets.length === 0) {
       connection.changesReader.cancel();
       connection.changesReader.releaseLock();
       this.connections.delete(gameId);
@@ -287,56 +226,36 @@ export class GameSocketStore<
 
   private getConnection(
     gameId: string,
-  ): GameConnection<Config, GameState, PlayerState, PublicState> {
+  ): GameConnection<Config, GameState, PlayerState, PublicState, Outcome> {
     const connection = this.connections.get(gameId);
     assert(connection != null);
     return connection;
   }
 }
 
-function updatePlayerStateIfNecessary<PlayerState, PublicState>(
-  playerSocket: PlayerSocket<PlayerState, PublicState>,
-  playerState: PlayerState,
+function updateSocketIfNecessary<PlayerState, PublicState, Outcome>(
+  socket: GameSocketEntry<PlayerState, PublicState, Outcome>,
+  playerState: PlayerState | undefined,
   publicState: PublicState,
+  outcome: Outcome | undefined,
 ) {
   if (
-    jsonEquals(playerSocket.lastPlayerState, playerState) &&
-    jsonEquals(playerSocket.lastPublicState, publicState)
+    jsonEquals(socket.lastPlayerState, playerState) &&
+    jsonEquals(socket.lastPublicState, publicState) &&
+    jsonEquals(socket.lastOutcome, outcome)
   ) {
     return;
   }
 
-  const response: GameSocketResponse<PlayerState, PublicState> = {
+  const response: GameSocketResponse<PlayerState, PublicState, Outcome> = {
     type: "UpdateGameState",
-    mode: "player",
     playerState,
     publicState,
+    outcome,
   };
-  playerSocket.lastPlayerState = playerState;
-  playerSocket.lastPublicState = publicState;
-  playerSocket.socket.send(JSON.stringify(response));
-}
-
-function updatePublicStateIfNecessary<PublicState>(
-  observerSocket: ObserverSocket<PublicState>,
-  publicState: PublicState,
-) {
-  if (jsonEquals(observerSocket.lastValue, publicState)) {
-    return;
-  }
-
-  const response: GameSocketResponse<never, PublicState> = {
-    type: "UpdateGameState",
-    mode: "observer",
-    publicState,
-  };
-  observerSocket.lastValue = publicState;
-  observerSocket.socket.send(JSON.stringify(response));
-}
-
-function markComplete(socket: Socket) {
-  const response: GameSocketResponse<never, never> = {
-    type: "MarkComplete",
-  };
-  socket.send(JSON.stringify(response));
+  socket.lastPlayerState = playerState;
+  socket.lastPublicState = publicState;
+  socket.lastOutcome = outcome;
+  socket.socket.send(JSON.stringify(response));
+  return;
 }

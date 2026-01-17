@@ -72,14 +72,15 @@ Client-side hooks are organized by functionality:
 ### Game Interface
 
 Games must implement the
-`Game<Config, GameState, Move, PlayerState, PublicState>` interface defined in
-`types.ts`:
+`Game<Config, GameState, Move, PlayerState, PublicState, Outcome>` interface
+defined in `types.ts`:
 
 - `Config` - Configuration type (structured clone compatible)
 - `GameState` - Game state type (structured clone compatible)
 - `Move` - Move type (JSON serializable)
 - `PlayerState` - Player state type (JSON serializable)
 - `PublicState` - Observer state type (JSON serializable)
+- `Outcome` - Outcome type (JSON serializable)
 
 Key methods:
 
@@ -88,7 +89,7 @@ Key methods:
 - `processMove()` - Apply moves to game state
 - `playerState()` - Generate player-specific views
 - `publicState()` - Generate observer views
-- `isComplete()` - Check if game is finished
+- `outcome()` - Check if game is finished and report the result
 - Optional: `refreshTimeout()` and `refresh()` for time-based mechanics
 
 ### Database Layer
@@ -102,10 +103,9 @@ Uses Deno KV for:
 
 ### WebSocket Communication
 
-Three types of WebSocket connections:
-
 1. **Lobby sockets** - Handle matchmaking, queue joining/leaving
-2. **Play sockets** - Handle moves and game state updates for active players
-3. **Observe sockets** - Handle read-only game observation
+2. **Game sockets** - Handle moves and game state updates for both players and
+   observers
 
-Each socket type has its own message protocol defined in `common/types.ts`.
+Each socket type has its own message protocol defined in
+`common/sockettypes.ts`.

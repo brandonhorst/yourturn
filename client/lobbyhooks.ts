@@ -3,7 +3,7 @@ import { useSocket } from "../client/hookutils.ts";
 import type {
   LobbySocketRequest,
   LobbySocketResponse,
-} from "../common/types.ts";
+} from "../common/sockettypes.ts";
 import type { LobbyProps, LobbyViewProps } from "../types.ts";
 
 export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {

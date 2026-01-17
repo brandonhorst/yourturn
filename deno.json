@@ -16,6 +16,7 @@
     "linkedom": "npm:linkedom@0.18.12"
   },
   "tasks": {
+    "check": "deno fmt --check . && deno lint && deno check",
     "test": "deno test --allow-env **/*.test.ts"
   },
   "unstable": ["kv"],

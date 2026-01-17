@@ -13,12 +13,12 @@ type QueueEntryValue = {
   user: User;
 };
 
-export type GameStorageData<Config, GameState> = {
+export type GameStorageData<Config, GameState, Outcome> = {
   config: Config;
   gameState: GameState;
   playerUserIds: string[];
   players: User[];
-  isComplete: boolean;
+  outcome: Outcome | undefined;
   version: number;
 };
 
@@ -137,12 +137,12 @@ export class DB {
       const timestamp = new Date();
       const setupObject = { timestamp, players, config: queueConfig.config };
       const gameState = setupGame(setupObject);
-      const gameStorageData: GameStorageData<Config, GameState> = {
+      const gameStorageData: GameStorageData<Config, GameState, undefined> = {
         config: queueConfig.config,
         gameState,
         playerUserIds,
         players,
-        isComplete: false,
+        outcome: undefined,
         version: 0,
       };
 
@@ -199,15 +199,17 @@ export class DB {
    * @param gameData The updated game data
    * @param refreshDelay Optional delay in milliseconds for scheduling a refresh
    */
-  public async updateGameStorageData<Config, GameState>(
+  public async updateGameStorageData<Config, GameState, Outcome>(
     gameId: string,
-    gameData: GameStorageData<Config, GameState>,
+    gameData: GameStorageData<Config, GameState, Outcome>,
     refreshDelay?: number,
   ): Promise<void> {
     const gameKey = getGameKey(gameId);
     const activeGameTriggerKey = getActiveGameTriggerKey();
 
-    const entry = await this.kv.get<GameStorageData<Config, GameState>>(
+    const entry = await this.kv.get<
+      GameStorageData<Config, GameState, Outcome>
+    >(
       gameKey,
     );
     if (entry.value == null) {
@@ -218,7 +220,7 @@ export class DB {
       .check(entry)
       .set(gameKey, gameData);
 
-    if (gameData.isComplete) {
+    if (gameData.outcome !== undefined) {
       const activeGameKey = getActiveGameKey(gameId);
       transaction = transaction
         .delete(activeGameKey)
@@ -226,7 +228,7 @@ export class DB {
     }
 
     // If refreshDelay is provided, enqueue a refresh as part of the same transaction
-    if (refreshDelay !== undefined && !gameData.isComplete) {
+    if (refreshDelay !== undefined && gameData.outcome === undefined) {
       transaction = transaction.enqueue(gameId, { delay: refreshDelay });
     }
 
@@ -237,11 +239,15 @@ export class DB {
     }
   }
 
-  public async getGameStorageData<Config, GameState>(
+  public async getGameStorageData<Config, GameState, Outcome>(
     gameId: string,
-  ): Promise<GameStorageData<Config, GameState>> {
+  ): Promise<GameStorageData<Config, GameState, Outcome>> {
     const key = getGameKey(gameId);
-    const entry = await this.kv.get<GameStorageData<Config, GameState>>(key);
+    const entry = await this.kv.get<
+      GameStorageData<Config, GameState, Outcome>
+    >(
+      key,
+    );
     if (entry.value == null) {
       throw new Error(`Game ${gameId} not found`);
     } else {
@@ -249,16 +255,16 @@ export class DB {
     }
   }
 
-  public watchForGameChanges<Config, GameState>(
+  public watchForGameChanges<Config, GameState, Outcome>(
     gameId: string,
-  ): ReadableStream<GameStorageData<Config, GameState>> {
+  ): ReadableStream<GameStorageData<Config, GameState, Outcome>> {
     const key = getGameKey(gameId);
     const stream = this.kv.watch([key]);
     return stream.pipeThrough(
       new TransformStream({
         transform(events, controller) {
           const data = events[0].value as
-            | GameStorageData<Config, GameState>
+            | GameStorageData<Config, GameState, Outcome>
             | null;
           if (data != null) {
             controller.enqueue(data);

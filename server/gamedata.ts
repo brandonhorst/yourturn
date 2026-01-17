@@ -2,7 +2,7 @@ import type { DB, GameStorageData } from "./db.ts";
 import type {
   ActiveGame,
   Game,
-  IsCompleteObject,
+  OutcomeObject,
   PlayerStateObject,
   PublicStateObject,
   RefreshObject,
@@ -12,8 +12,8 @@ export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
   return await db.getAllActiveGames();
 }
 
-export function getPlayerId<Config, GameState>(
-  gameData: GameStorageData<Config, GameState>,
+export function getPlayerId<Config, GameState, Outcome>(
+  gameData: GameStorageData<Config, GameState, Outcome>,
   userId: string,
 ): number | undefined {
   const playerId = gameData.playerUserIds.indexOf(userId);
@@ -23,16 +23,18 @@ export function getPlayerId<Config, GameState>(
   return playerId;
 }
 
-export function getPlayerState<Config, GameState, PlayerState>(
-  gameData: GameStorageData<Config, GameState>,
-  playerStateLogic: (s: GameState, o: PlayerStateObject<Config>) => PlayerState,
+export function getPlayerState<Config, GameState, PlayerState, Outcome>(
+  gameData: GameStorageData<Config, GameState, Outcome>,
+  playerStateLogic: (
+    s: GameState,
+    o: PlayerStateObject<Config>,
+  ) => PlayerState,
   playerId: number,
 ): PlayerState {
   const state = gameData.gameState;
   const playerStateObject: PlayerStateObject<Config> = {
     config: gameData.config,
     playerId,
-    isComplete: gameData.isComplete,
     players: gameData.players,
     timestamp: new Date(),
   };
@@ -40,8 +42,8 @@ export function getPlayerState<Config, GameState, PlayerState>(
   return playerState;
 }
 
-export function getPublicState<Config, GameState, PublicState>(
-  gameData: GameStorageData<Config, GameState>,
+export function getPublicState<Config, GameState, PublicState, Outcome>(
+  gameData: GameStorageData<Config, GameState, Outcome>,
   publicStateLogic: (
     s: GameState,
     o: PublicStateObject<Config>,
@@ -49,7 +51,6 @@ export function getPublicState<Config, GameState, PublicState>(
 ): PublicState {
   const state = gameData.gameState;
   const publicStateObject: PublicStateObject<Config> = {
-    isComplete: gameData.isComplete,
     players: gameData.players,
     config: gameData.config,
     timestamp: new Date(),
@@ -64,16 +65,19 @@ async function updateGameState<
   Move,
   PlayerState,
   PublicState,
+  Outcome,
 >(
   db: DB,
-  game: Game<Config, GameState, Move, PlayerState, PublicState>,
+  game: Game<Config, GameState, Move, PlayerState, PublicState, Outcome>,
   gameId: string,
   computeNewState: (
-    gameData: GameStorageData<Config, GameState>,
+    gameData: GameStorageData<Config, GameState, Outcome>,
   ) => GameState | undefined,
 ) {
-  const gameData = await db.getGameStorageData<Config, GameState>(gameId);
-  if (gameData.isComplete) {
+  const gameData = await db.getGameStorageData<Config, GameState, Outcome>(
+    gameId,
+  );
+  if (gameData.outcome !== undefined) {
     return;
   }
 
@@ -82,16 +86,17 @@ async function updateGameState<
     return;
   }
 
-  const isCompleteObject: IsCompleteObject<Config> = {
+  const outcomeObject: OutcomeObject<Config> = {
     players: gameData.players,
     config: gameData.config,
   };
-  const isComplete = game.isComplete(newState, isCompleteObject);
+  const outcome = game.outcome(newState, outcomeObject);
+  const isComplete = outcome !== undefined;
 
   const newGameData = {
     ...gameData,
     gameState: newState,
-    isComplete,
+    outcome,
     version: gameData.version + 1,
   };
 
@@ -121,9 +126,10 @@ export async function handleMove<
   Move,
   PlayerState,
   PublicState,
+  Outcome,
 >(
   db: DB,
-  game: Game<Config, GameState, Move, PlayerState, PublicState>,
+  game: Game<Config, GameState, Move, PlayerState, PublicState, Outcome>,
   gameId: string,
   playerId: number,
   move: Move,
@@ -152,9 +158,10 @@ export async function handleRefresh<
   Move,
   PlayerState,
   PublicState,
+  Outcome,
 >(
   db: DB,
-  game: Game<Config, GameState, Move, PlayerState, PublicState>,
+  game: Game<Config, GameState, Move, PlayerState, PublicState, Outcome>,
   gameId: string,
 ) {
   await updateGameState(db, game, gameId, (gameData) => {

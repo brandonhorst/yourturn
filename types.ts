@@ -77,18 +77,16 @@ export type RefreshObject<Config> = {
 export type PlayerStateObject<Config> = {
   config: Config;
   playerId: number;
-  isComplete: boolean;
   players: User[];
   timestamp: Date;
 };
 export type PublicStateObject<Config> = {
   config: Config;
-  isComplete: boolean;
   players: User[];
   timestamp: Date;
 };
 
-export type IsCompleteObject<Config> = {
+export type OutcomeObject<Config> = {
   config: Config;
   players: User[];
 };
@@ -107,6 +105,7 @@ export type Mode<Config> = {
  * @template Move - Move type representing actions players can take (must be JSON serializable)
  * @template PlayerState - Player state type representing game state visible to a specific player (must be JSON serializable)
  * @template PublicState - Observer state type representing game state visible to observers (must be JSON serializable)
+ * @template Outcome - Outcome type representing game results (must be JSON serializable)
  */
 export interface Game<
   Config extends StructuredCloneValue,
@@ -114,6 +113,7 @@ export interface Game<
   Move extends JSONValue,
   PlayerState extends JSONValue,
   PublicState extends JSONValue,
+  Outcome extends JSONValue,
 > {
   /**
    * Defines the available game modes with their configurations.
@@ -185,7 +185,7 @@ export interface Game<
    * Can be used to hide information from players and provide a UI-friendly representation.
    *
    * @param state - Current immutable game state
-   * @param o - Player state object containing player ID, game completion status, configuration, and player information
+   * @param o - Player state object containing player ID, configuration, and player information
    * @returns Player-specific state representation
    */
   playerState(
@@ -198,7 +198,7 @@ export interface Game<
    * Can be used to hide information from observers and provide a UI-friendly representation.
    *
    * @param state - Current immutable game state
-   * @param o - Observer state object containing game completion status, configuration, and player information
+   * @param o - Observer state object containing configuration and player information
    * @returns Observer-specific state representation
    */
   publicState(
@@ -207,14 +207,16 @@ export interface Game<
   ): PublicState;
 
   /**
-   * Determines whether the game has ended.
-   * When true, no further moves will be accepted.
+   * Determines the game outcome.
+   * When a non-undefined value is returned, no further moves will be accepted.
    *
    * @param state - Current immutable game state
-   * @param o - Completion check object containing configuration and player information
-   * @returns True if the game is complete, false otherwise
+   * @param o - Outcome check object containing configuration and player information
+   * @returns Outcome value or undefined if the game is still in progress
    */
-  isComplete(state: Readonly<GameState>, o: IsCompleteObject<Config>): boolean;
+  outcome(state: Readonly<GameState>, o: OutcomeObject<Config>):
+    | Outcome
+    | undefined;
 }
 
 export type ActiveGame = {
@@ -226,54 +228,65 @@ export type LobbyProps = {
   user: User;
 };
 
-type CompletePlayerProps<PlayerState, PublicState> = {
-  mode: "player";
-  isComplete: true;
+type CompletePlayerProps<PlayerState, PublicState, Outcome> = {
   players: User[];
+  publicState: PublicState;
   playerId: number;
   playerState: PlayerState;
-  publicState: PublicState;
+  outcome: Outcome;
 };
 
 type IncompletePlayerProps<PlayerState, PublicState> = {
-  mode: "player";
-  isComplete: false;
   players: User[];
+  publicState: PublicState;
   playerId: number;
   playerState: PlayerState;
-  publicState: PublicState;
+  outcome: undefined;
 };
 
-type ObserverProps<PublicState> = {
-  mode: "observer";
-  isComplete: boolean;
+type CompleteObserverProps<PublicState, Outcome> = {
   players: User[];
-  playerId: undefined;
   publicState: PublicState;
+  playerId: undefined;
   playerState: undefined;
+  outcome: Outcome;
 };
 
-export type GameProps<PlayerState, PublicState> =
-  | CompletePlayerProps<PlayerState, PublicState>
+type IncompleteObserverProps<PublicState> = {
+  players: User[];
+  publicState: PublicState;
+  playerId: undefined;
+  playerState: undefined;
+  outcome: undefined;
+};
+
+export type GameProps<PlayerState, PublicState, Outcome> =
+  | CompletePlayerProps<PlayerState, PublicState, Outcome>
   | IncompletePlayerProps<PlayerState, PublicState>
-  | ObserverProps<PublicState>;
+  | CompleteObserverProps<PublicState, Outcome>
+  | IncompleteObserverProps<PublicState>;
 
 type IncompletePlayerViewProps<Move, PlayerState, PublicState> =
   & IncompletePlayerProps<PlayerState, PublicState>
   & { perform: (move: Move) => void };
 
-type CompletePlayerViewProps<PlayerState, PublicState> =
-  & CompletePlayerProps<PlayerState, PublicState>
+type CompletePlayerViewProps<PlayerState, PublicState, Outcome> =
+  & CompletePlayerProps<PlayerState, PublicState, Outcome>
   & { perform: undefined };
 
-type ObserveViewProps<PublicState> =
-  & ObserverProps<PublicState>
+type ObserveViewProps<PublicState, Outcome> =
+  & (
+    | CompleteObserverProps<PublicState, Outcome>
+    | IncompleteObserverProps<
+      PublicState
+    >
+  )
   & { perform: undefined };
 
-export type GameViewProps<Move, PlayerState, PublicState> =
-  | CompletePlayerViewProps<PlayerState, PublicState>
+export type GameViewProps<Move, PlayerState, PublicState, Outcome> =
+  | CompletePlayerViewProps<PlayerState, PublicState, Outcome>
   | IncompletePlayerViewProps<Move, PlayerState, PublicState>
-  | ObserveViewProps<PublicState>;
+  | ObserveViewProps<PublicState, Outcome>;
 
 export type LobbyViewProps = LobbyProps & {
   joinQueue: (queueId: string) => void;

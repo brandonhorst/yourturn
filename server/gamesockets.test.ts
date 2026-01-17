@@ -1,362 +1,228 @@
-import { assertEquals } from "@std/assert";
-import { DB } from "./db.ts";
+import { assertEquals, assertExists } from "@std/assert";
+import { spy } from "@std/testing/mock";
+import { DB, type GameStorageData } from "./db.ts";
 import { GameSocketStore } from "./gamesockets.ts";
-import { assertSpyCalls, spy } from "@std/testing/mock";
-import type { PlayerStateObject, PublicStateObject } from "../types.ts";
+import type { PlayerStateObject, PublicStateObject, User } from "../types.ts";
 
-const getPlayerState = (
-  state: number,
-  _o: PlayerStateObject<undefined>,
-) => state;
+const user1: User = { username: "guest-0001", isGuest: true };
+const user2: User = { username: "guest-0002", isGuest: true };
 
-const getPublicState = (
-  state: number,
-  _o: PublicStateObject<undefined>,
-) => state;
+type TestConfig = undefined;
+type TestState = { value: number };
+type TestPlayerState = { playerId: number; value: number };
+type TestPublicState = { value: number };
+type TestOutcome = "done";
 
-function createGameData(
-  kv: Deno.Kv,
-  gameId: string,
-  value: number,
-  version: number,
-) {
-  const gameKey = ["games", gameId];
-  const activeGameKey = ["activegames", gameId];
-  const activeGameTriggerKey = ["activegametrigger"];
-
-  const playerUserIds = ["user-1", "user-2"];
-  const players = [
-    { username: "Player 1", isGuest: false },
-    { username: "Player 2", isGuest: false },
-  ];
-
-  return kv.atomic()
-    .set(activeGameTriggerKey, {})
-    .set(activeGameKey, {})
-    .set(gameKey, {
-      config: undefined,
-      gameState: value,
-      playerUserIds,
-      players,
-      isComplete: false,
-      version,
-    })
-    .commit()
-    .then(() => ({ playerUserIds, players }));
+function getGameKey(gameId: string) {
+  return ["games", gameId];
 }
 
-Deno.test("registers and unregisters player and observer sockets", async () => {
-  const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-  const gameSocketStore = new GameSocketStore<
-    undefined,
-    number,
-    number,
-    number
-  >(db);
+function buildGameData(
+  value: number,
+  version: number,
+  outcome?: TestOutcome,
+): GameStorageData<TestConfig, TestState, TestOutcome> {
+  return {
+    config: undefined,
+    gameState: { value },
+    playerUserIds: ["user-1", "user-2"],
+    players: [user1, user2],
+    outcome,
+    version,
+  };
+}
 
-  const socket = { send: spy() };
-  const observerSocket = { send: spy() };
-  const gameId = "test-game-1";
-
-  gameSocketStore.registerPlayer(
-    socket,
-    gameId,
-    1,
-    getPlayerState,
-    getPublicState,
-  );
-  gameSocketStore.registerObserver(
-    observerSocket,
-    gameId,
-    getPlayerState,
-    getPublicState,
-  );
-
-  gameSocketStore.unregister(socket, gameId);
-  gameSocketStore.unregister(observerSocket, gameId);
-
-  kv.close();
+const playerStateLogic = (
+  state: TestState,
+  o: PlayerStateObject<TestConfig>,
+): TestPlayerState => ({
+  playerId: o.playerId,
+  value: state.value,
 });
 
-Deno.test("sends state updates to all player sockets", async () => {
+const publicStateLogic = (
+  state: TestState,
+  _o: PublicStateObject<TestConfig>,
+): TestPublicState => ({
+  value: state.value,
+});
+
+Deno.test("initialize sends UpdateGameState when client state is stale", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const gameId = "test-game-2";
-
-  const { playerUserIds, players } = await createGameData(kv, gameId, 1, 0);
   const gameSocketStore = new GameSocketStore<
-    undefined,
-    number,
-    number,
-    number
+    TestConfig,
+    TestState,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome
   >(db);
 
-  const socket1 = { send: spy() };
-  const socket2 = { send: spy() };
+  const gameId = "game-initialize";
+  await kv.set(getGameKey(gameId), buildGameData(0, 0));
 
-  gameSocketStore.registerPlayer(
-    socket1,
+  const socket = { send: spy() };
+  gameSocketStore.register(
+    socket,
     gameId,
+    playerStateLogic,
+    publicStateLogic,
     0,
-    getPlayerState,
-    getPublicState,
-  );
-  gameSocketStore.registerPlayer(
-    socket2,
-    gameId,
-    1,
-    getPlayerState,
-    getPublicState,
   );
 
-  await db.updateGameStorageData(gameId, {
-    config: undefined,
-    gameState: 1,
-    playerUserIds,
-    players,
-    isComplete: false,
-    version: 1,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 1));
-
-  assertSpyCalls(socket1.send, 1);
-  assertSpyCalls(socket2.send, 1);
-
-  const message1 = JSON.parse(socket1.send.calls[0].args[0]);
-  assertEquals(message1.type, "UpdateGameState");
-  assertEquals(message1.mode, "player");
-  assertEquals(message1.playerState, 1);
-  assertEquals(message1.publicState, 1);
-
-  const message2 = JSON.parse(socket2.send.calls[0].args[0]);
-  assertEquals(message2.type, "UpdateGameState");
-  assertEquals(message2.mode, "player");
-  assertEquals(message2.playerState, 1);
-  assertEquals(message2.publicState, 1);
-
-  gameSocketStore.unregister(socket1, gameId);
-  gameSocketStore.unregister(socket2, gameId);
-
-  kv.close();
-});
-
-Deno.test("sends state updates to all observer sockets", async () => {
-  const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-  const gameId = "test-game-3";
-
-  const { playerUserIds, players } = await createGameData(kv, gameId, 1, 0);
-  const gameSocketStore = new GameSocketStore<
-    undefined,
-    number,
-    number,
-    number
-  >(db);
-
-  const socket1 = { send: spy() };
-  const socket2 = { send: spy() };
-
-  gameSocketStore.registerObserver(
-    socket1,
-    gameId,
-    getPlayerState,
-    getPublicState,
-  );
-  gameSocketStore.registerObserver(
-    socket2,
-    gameId,
-    getPlayerState,
-    getPublicState,
-  );
-
-  await db.updateGameStorageData(gameId, {
-    config: undefined,
-    gameState: 1,
-    playerUserIds,
-    players,
-    isComplete: false,
-    version: 1,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 1));
-
-  assertSpyCalls(socket1.send, 1);
-  assertSpyCalls(socket2.send, 1);
-
-  const message1 = JSON.parse(socket1.send.calls[0].args[0]);
-  assertEquals(message1.type, "UpdateGameState");
-  assertEquals(message1.mode, "observer");
-  assertEquals(message1.publicState, 1);
-
-  const message2 = JSON.parse(socket2.send.calls[0].args[0]);
-  assertEquals(message2.type, "UpdateGameState");
-  assertEquals(message2.mode, "observer");
-  assertEquals(message2.publicState, 1);
-
-  gameSocketStore.unregister(socket1, gameId);
-  gameSocketStore.unregister(socket2, gameId);
-
-  kv.close();
-});
-
-Deno.test("only sends updates when player state changes", async () => {
-  const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-  const gameId = "test-game-4";
-
-  const { playerUserIds, players } = await createGameData(kv, gameId, 1, 0);
-  const gameSocketStore = new GameSocketStore<
-    undefined,
-    number,
-    number,
-    number
-  >(db);
-
-  const socket = { send: spy() };
-
-  await db.updateGameStorageData(gameId, {
-    config: undefined,
-    gameState: 1,
-    playerUserIds,
-    players,
-    isComplete: false,
-    version: 1,
-  });
-
-  gameSocketStore.registerPlayer(
+  await gameSocketStore.initialize(
     socket,
     gameId,
-    0,
-    getPlayerState,
-    getPublicState,
-  );
-  await gameSocketStore.initializePlayer(
-    socket,
-    gameId,
-    1,
-    1,
-    getPlayerState,
-    getPublicState,
+    { value: -1 },
+    { playerId: 0, value: -1 },
+    playerStateLogic,
+    publicStateLogic,
   );
 
-  socket.send = spy();
+  let updateMessage;
+  for (const call of socket.send.calls) {
+    const msg = JSON.parse(call.args[0]);
+    if (msg.type === "UpdateGameState" && msg.publicState?.value === 0) {
+      updateMessage = msg;
+      break;
+    }
+  }
 
-  await db.updateGameStorageData(gameId, {
-    config: undefined,
-    gameState: 1,
-    playerUserIds,
-    players,
-    isComplete: false,
-    version: 2,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  assertSpyCalls(socket.send, 0);
+  assertExists(updateMessage);
+  assertEquals(updateMessage.playerState?.value, 0);
+  assertEquals(updateMessage.publicState.value, 0);
+  assertEquals(updateMessage.outcome, undefined);
 
   gameSocketStore.unregister(socket, gameId);
-
   kv.close();
 });
 
-Deno.test("only sends updates when public state changes", async () => {
+Deno.test("streams updates to player and observer sockets", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
-  const gameId = "test-game-5";
-
-  const { playerUserIds, players } = await createGameData(kv, gameId, 1, 0);
   const gameSocketStore = new GameSocketStore<
-    undefined,
-    number,
-    number,
-    number
+    TestConfig,
+    TestState,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome
   >(db);
 
-  const socket = { send: spy() };
-
-  gameSocketStore.registerObserver(
-    socket,
-    gameId,
-    getPlayerState,
-    getPublicState,
-  );
-
-  await db.updateGameStorageData(gameId, {
-    config: undefined,
-    gameState: 1,
-    playerUserIds,
-    players,
-    isComplete: false,
-    version: 1,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  await db.updateGameStorageData(gameId, {
-    config: undefined,
-    gameState: 1,
-    playerUserIds,
-    players,
-    isComplete: false,
-    version: 2,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  assertSpyCalls(socket.send, 1);
-
-  gameSocketStore.unregister(socket, gameId);
-
-  kv.close();
-});
-
-Deno.test("updates both player and observer sockets together", async () => {
-  const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-  const gameId = "test-game-6";
-
-  const { playerUserIds, players } = await createGameData(kv, gameId, 1, 0);
-  const gameSocketStore = new GameSocketStore<
-    undefined,
-    number,
-    number,
-    number
-  >(db);
+  const gameId = "game-stream";
+  await kv.set(getGameKey(gameId), buildGameData(0, 0));
 
   const playerSocket = { send: spy() };
   const observerSocket = { send: spy() };
 
-  gameSocketStore.registerPlayer(
+  gameSocketStore.register(
     playerSocket,
     gameId,
+    playerStateLogic,
+    publicStateLogic,
     0,
-    getPlayerState,
-    getPublicState,
   );
-  gameSocketStore.registerObserver(
+  gameSocketStore.register(
     observerSocket,
     gameId,
-    getPlayerState,
-    getPublicState,
+    playerStateLogic,
+    publicStateLogic,
   );
 
-  await db.updateGameStorageData(gameId, {
-    config: undefined,
-    gameState: 1,
-    playerUserIds,
-    players,
-    isComplete: false,
-    version: 1,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 1));
+  await Promise.all([
+    gameSocketStore.initialize(
+      playerSocket,
+      gameId,
+      { value: 0 },
+      { playerId: 0, value: 0 },
+      playerStateLogic,
+      publicStateLogic,
+    ),
+    gameSocketStore.initialize(
+      observerSocket,
+      gameId,
+      { value: 0 },
+      undefined,
+      playerStateLogic,
+      publicStateLogic,
+    ),
+  ]);
 
-  assertSpyCalls(playerSocket.send, 1);
-  assertSpyCalls(observerSocket.send, 1);
+  const updatedData = buildGameData(5, 1, "done");
+  await db.updateGameStorageData(gameId, updatedData);
 
-  const playerMessage = JSON.parse(playerSocket.send.calls[0].args[0]);
-  assertEquals(playerMessage.mode, "player");
-  const observerMessage = JSON.parse(observerSocket.send.calls[0].args[0]);
-  assertEquals(observerMessage.mode, "observer");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  let playerUpdate;
+  for (const call of playerSocket.send.calls) {
+    const msg = JSON.parse(call.args[0]);
+    if (msg.type === "UpdateGameState" && msg.publicState?.value === 5) {
+      playerUpdate = msg;
+      break;
+    }
+  }
+
+  let observerUpdate;
+  for (const call of observerSocket.send.calls) {
+    const msg = JSON.parse(call.args[0]);
+    if (msg.type === "UpdateGameState" && msg.publicState?.value === 5) {
+      observerUpdate = msg;
+      break;
+    }
+  }
+
+  assertExists(playerUpdate);
+  assertExists(observerUpdate);
+  assertEquals(playerUpdate.outcome, "done");
+  assertEquals(observerUpdate.outcome, "done");
+  assertEquals(playerUpdate.playerState.value, 5);
+  assertEquals(observerUpdate.playerState, undefined);
 
   gameSocketStore.unregister(playerSocket, gameId);
   gameSocketStore.unregister(observerSocket, gameId);
+  kv.close();
+});
+
+Deno.test("unregister stops streaming updates", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const db = new DB(kv);
+  const gameSocketStore = new GameSocketStore<
+    TestConfig,
+    TestState,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome
+  >(db);
+
+  const gameId = "game-unregister";
+  await kv.set(getGameKey(gameId), buildGameData(0, 0));
+
+  const socket = { send: spy() };
+  gameSocketStore.register(
+    socket,
+    gameId,
+    playerStateLogic,
+    publicStateLogic,
+    0,
+  );
+
+  await gameSocketStore.initialize(
+    socket,
+    gameId,
+    { value: 0 },
+    { playerId: 0, value: 0 },
+    playerStateLogic,
+    publicStateLogic,
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const callCount = socket.send.calls.length;
+
+  gameSocketStore.unregister(socket, gameId);
+
+  await db.updateGameStorageData(gameId, buildGameData(2, 1));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assertEquals(socket.send.calls.length, callCount);
 
   kv.close();
 });

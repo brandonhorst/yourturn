@@ -100,9 +100,14 @@ export const game: {
     s: GameState,
     o: { config: Config; timestamp: Date },
   ): GameState;
-  playerState(s: GameState, o: { playerId: number; isComplete: boolean }): PlayerState;
-  publicState(s: GameState, o: { isComplete: boolean }): PublicState;
-  isComplete(s: GameState): boolean;
+  playerState(
+    s: GameState,
+    o: { playerId: number },
+  ): PlayerState;
+  publicState(
+    s: GameState,
+  ): PublicState;
+  outcome(s: GameState): Outcome | undefined;
 };
 ```
 
@@ -125,9 +130,9 @@ are only executed on the server.
 - `publicState` should create an `PublicState` object to be sent to the client.
   This can be used to hide information from observers, and to provide a nicer
   interface for building the UI upon.
-- `isComplete` should return true if the game is done and no further `Move`s
-  should be permitted.
-- `refreshTimeout` can be called to trigger a `refresh` call and an `isComplete`
+- `outcome` should return a non-undefined value when the game is done and no
+  further `Move`s should be permitted.
+- `refreshTimeout` can be called to trigger a `refresh` call and an `outcome`
   check after a certain number of milliseconds. This can be used to implement
   timers.
 - `refreshTimeout` can be used to create a new `GameState` object in response to

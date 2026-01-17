@@ -118,7 +118,7 @@ Deno.test("Updates game data", async () => {
   const updatedData = {
     ...gameData,
     gameState: 2,
-    isComplete: false,
+    outcome: undefined,
     version: gameData.version + 1,
   };
 
@@ -163,7 +163,7 @@ Deno.test("Watches for game changes", async () => {
   const updatedData = {
     ...gameData,
     gameState: 2,
-    isComplete: false,
+    outcome: undefined,
     version: gameData.version + 1,
   };
 
@@ -209,7 +209,7 @@ Deno.test("Completes game", async () => {
   const updatedData = {
     ...gameData,
     gameState: 3,
-    isComplete: true,
+    outcome: "finished",
     version: gameData.version + 1,
   };
 
@@ -217,7 +217,7 @@ Deno.test("Completes game", async () => {
 
   // Should still be able to get game data even after completion
   const retrievedData = await db.getGameStorageData(gameId);
-  assertEquals(retrievedData.isComplete, true);
+  assertEquals(retrievedData.outcome, "finished");
 
   kv.close();
 });
@@ -318,7 +318,7 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
         { username: "Player 1", isGuest: false },
         { username: "Player 2", isGuest: false },
       ],
-      isComplete: false,
+      outcome: undefined,
       version: 0,
     })
     .commit();
