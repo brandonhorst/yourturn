@@ -123,13 +123,13 @@ class Server<Config, GameState, Move, PlayerState, PublicState> {
       playerId = getPlayerId(gameData, userId);
     }
 
+    const publicState = getPublicState(gameData, this.game.publicState);
     if (playerId != null) {
       const playerState = getPlayerState(
         gameData,
         this.game.playerState,
         playerId,
       );
-      const publicState = getPublicState(gameData, this.game.publicState);
       return {
         mode: "player",
         playerId,
@@ -139,13 +139,13 @@ class Server<Config, GameState, Move, PlayerState, PublicState> {
         players: gameData.players,
       };
     } else {
-      const publicState = getPublicState(gameData, this.game.publicState);
       return {
         mode: "observer",
         publicState,
         isComplete: gameData.isComplete,
         players: gameData.players,
         playerId: undefined,
+        playerState: undefined,
       };
     }
   }

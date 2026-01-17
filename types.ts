@@ -250,6 +250,7 @@ type ObserverProps<PublicState> = {
   players: User[];
   playerId: undefined;
   publicState: PublicState;
+  playerState: undefined;
 };
 
 export type GameProps<PlayerState, PublicState> =
