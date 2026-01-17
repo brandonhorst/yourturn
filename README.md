@@ -64,19 +64,19 @@ Any JSON-serializable object. This represents any action that any player takes.
 This can be thought of as the edges of the game's state machine's graph. Often,
 typescript "Union Types" are a good way to implement this.
 
-### `PlayerState` and `ObserverState`
+### `PlayerState` and `PublicState`
 
 ```ts
 export type PlayerState
 
-export type ObserverState
+export type PublicState
 ```
 
 Two JSON-serializable objects. These are sent to users' browsers to be rendered
 by the View. For games with hidden information, this should only contain
 information that each player (and observers) should be privy to. In games with
-no hidden information, `GameState`, `PlayerState`, and `ObserverState` can (but
-do not need to be) the same type.
+no hidden information, `GameState`, `PlayerState`, and `PublicState` can (but do
+not need to be) the same type.
 
 ### `game`
 
@@ -101,7 +101,7 @@ export const game: {
     o: { config: Config; timestamp: Date },
   ): GameState;
   playerState(s: GameState, o: { playerId: number; isComplete: boolean }): PlayerState;
-  observerState(s: GameState, o: { isComplete: boolean }): ObserverState;
+  publicState(s: GameState, o: { isComplete: boolean }): PublicState;
   isComplete(s: GameState): boolean;
 };
 ```
@@ -122,9 +122,9 @@ are only executed on the server.
 - `playerState` should create a `PlayerState` object to be sent to the client.
   This can be used to hide information from players, and to provide a nicer
   interface for building the UI upon.
-- `observerState` should create an `ObserverState` object to be sent to the
-  client. This can be used to hide information from observers, and to provide a
-  nicer interface for building the UI upon.
+- `publicState` should create an `PublicState` object to be sent to the client.
+  This can be used to hide information from observers, and to provide a nicer
+  interface for building the UI upon.
 - `isComplete` should return true if the game is done and no further `Move`s
   should be permitted.
 - `refreshTimeout` can be called to trigger a `refresh` call and an `isComplete`
@@ -140,19 +140,20 @@ are only executed on the server.
 ```ts
 export function PlayerView(props: {
   playerState: PlayerState;
+  publicState: PublicState;
   playerId: number;
   perform: (move: Move) => void;
 });
 
-export function ObserverView(props: { observerState: ObserverState });
+export function ObserverView(props: { publicState: PublicState });
 ```
 
 Two Preact components to define your views.
 
-- `PlayerView` takes a `PlayerState` for rendering the game for each player, as
-  well as a `playerId`. In response to user action, it can call `perform` to
-  pass a `Move` to the server and modify the gamestate.
-- `ObserverView` takes an `ObserverState` for rendering the game for people
+- `PlayerView` takes a `PlayerState` and `PublicState` for rendering the game
+  for each player, as well as a `playerId`. In response to user action, it can
+  call `perform` to pass a `Move` to the server and modify the gamestate.
+- `ObserverView` takes an `PublicState` for rendering the game for people
   watching. It cannot perform actions.
 
 In both cases, game state modifications cause a new state to be generated and

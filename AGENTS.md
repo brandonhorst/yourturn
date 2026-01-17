@@ -72,14 +72,14 @@ Client-side hooks are organized by functionality:
 ### Game Interface
 
 Games must implement the
-`Game<Config, GameState, Move, PlayerState, ObserverState>` interface defined in
+`Game<Config, GameState, Move, PlayerState, PublicState>` interface defined in
 `types.ts`:
 
 - `Config` - Configuration type (structured clone compatible)
 - `GameState` - Game state type (structured clone compatible)
 - `Move` - Move type (JSON serializable)
 - `PlayerState` - Player state type (JSON serializable)
-- `ObserverState` - Observer state type (JSON serializable)
+- `PublicState` - Observer state type (JSON serializable)
 
 Key methods:
 
@@ -87,7 +87,7 @@ Key methods:
 - `isValidMove()` - Validate player moves
 - `processMove()` - Apply moves to game state
 - `playerState()` - Generate player-specific views
-- `observerState()` - Generate observer views
+- `publicState()` - Generate observer views
 - `isComplete()` - Check if game is finished
 - Optional: `refreshTimeout()` and `refresh()` for time-based mechanics
 

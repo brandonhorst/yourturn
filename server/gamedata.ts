@@ -3,8 +3,8 @@ import type {
   ActiveGame,
   Game,
   IsCompleteObject,
-  ObserverStateObject,
   PlayerStateObject,
+  PublicStateObject,
   RefreshObject,
 } from "../types.ts";
 
@@ -40,22 +40,22 @@ export function getPlayerState<Config, GameState, PlayerState>(
   return playerState;
 }
 
-export function getObserverState<Config, GameState, ObserverState>(
+export function getPublicState<Config, GameState, PublicState>(
   gameData: GameStorageData<Config, GameState>,
-  observerStateLogic: (
+  publicStateLogic: (
     s: GameState,
-    o: ObserverStateObject<Config>,
-  ) => ObserverState,
-): ObserverState {
+    o: PublicStateObject<Config>,
+  ) => PublicState,
+): PublicState {
   const state = gameData.gameState;
-  const observerStateObject: ObserverStateObject<Config> = {
+  const publicStateObject: PublicStateObject<Config> = {
     isComplete: gameData.isComplete,
     players: gameData.players,
     config: gameData.config,
     timestamp: new Date(),
   };
-  const observerState = observerStateLogic(state, observerStateObject);
-  return observerState;
+  const publicState = publicStateLogic(state, publicStateObject);
+  return publicState;
 }
 
 async function updateGameState<
@@ -63,10 +63,10 @@ async function updateGameState<
   GameState,
   Move,
   PlayerState,
-  ObserverState,
+  PublicState,
 >(
   db: DB,
-  game: Game<Config, GameState, Move, PlayerState, ObserverState>,
+  game: Game<Config, GameState, Move, PlayerState, PublicState>,
   gameId: string,
   computeNewState: (
     gameData: GameStorageData<Config, GameState>,
@@ -120,10 +120,10 @@ export async function handleMove<
   GameState,
   Move,
   PlayerState,
-  ObserverState,
+  PublicState,
 >(
   db: DB,
-  game: Game<Config, GameState, Move, PlayerState, ObserverState>,
+  game: Game<Config, GameState, Move, PlayerState, PublicState>,
   gameId: string,
   playerId: number,
   move: Move,
@@ -151,10 +151,10 @@ export async function handleRefresh<
   GameState,
   Move,
   PlayerState,
-  ObserverState,
+  PublicState,
 >(
   db: DB,
-  game: Game<Config, GameState, Move, PlayerState, ObserverState>,
+  game: Game<Config, GameState, Move, PlayerState, PublicState>,
   gameId: string,
 ) {
   await updateGameState(db, game, gameId, (gameData) => {

@@ -3,9 +3,9 @@ import { assertSpyCalls, spy } from "@std/testing/mock";
 import { DB } from "./db.ts";
 import {
   fetchActiveGames,
-  getObserverState,
   getPlayerId,
   getPlayerState,
+  getPublicState,
   handleMove,
   handleRefresh,
 } from "./gamedata.ts";
@@ -41,8 +41,8 @@ type TestPlayerState = {
   canMove: boolean;
 };
 
-// Test observer state
-type TestObserverState = {
+// Test public state
+type TestPublicState = {
   currentValue: number;
   moves: number;
 };
@@ -53,7 +53,7 @@ const testGame: Game<
   TestState,
   TestMove,
   TestPlayerState,
-  TestObserverState
+  TestPublicState
 > = {
   modes: {
     queue: { numPlayers: 2, matchmaking: "queue", config: undefined },
@@ -103,7 +103,7 @@ const testGame: Game<
     };
   },
 
-  observerState: (state): TestObserverState => {
+  publicState: (state): TestPublicState => {
     return {
       currentValue: state.value,
       moves: state.moveHistory.length,
@@ -248,7 +248,7 @@ Deno.test("getPlayerState handles completed games", async () => {
   kv.close();
 });
 
-Deno.test("getObserverState returns correct observer state", async () => {
+Deno.test("getPublicState returns correct public state", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
 
@@ -275,15 +275,15 @@ Deno.test("getObserverState returns correct observer state", async () => {
   const gameData = await db.getGameStorageData<TestConfig, TestState>(
     gameId,
   );
-  const observerState = getObserverState(gameData, testGame.observerState);
+  const publicState = getPublicState(gameData, testGame.publicState);
 
-  assertEquals(observerState.currentValue, 1);
-  assertEquals(observerState.moves, 1);
+  assertEquals(publicState.currentValue, 1);
+  assertEquals(publicState.moves, 1);
 
   kv.close();
 });
 
-Deno.test("getObserverState handles completed games", async () => {
+Deno.test("getPublicState handles completed games", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
 
@@ -322,13 +322,13 @@ Deno.test("getObserverState handles completed games", async () => {
   >(
     gameId,
   );
-  const observerState = getObserverState(
+  const publicState = getPublicState(
     updatedGameData,
-    testGame.observerState,
+    testGame.publicState,
   );
 
-  assertEquals(observerState.currentValue, 1);
-  assertEquals(observerState.moves, 1);
+  assertEquals(publicState.currentValue, 1);
+  assertEquals(publicState.moves, 1);
 
   kv.close();
 });

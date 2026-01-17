@@ -6,9 +6,9 @@ import type {
 } from "./common/types.ts";
 import {
   fetchActiveGames,
-  getObserverState,
   getPlayerId,
   getPlayerState,
+  getPublicState,
   handleMove,
   handleRefresh,
 } from "./server/gamedata.ts";
@@ -24,10 +24,10 @@ export async function initializeServer<
   GameState,
   Move,
   PlayerState,
-  ObserverState,
+  PublicState,
 >(
-  game: Game<Config, GameState, Move, PlayerState, ObserverState>,
-): Promise<Server<Config, GameState, Move, PlayerState, ObserverState>> {
+  game: Game<Config, GameState, Move, PlayerState, PublicState>,
+): Promise<Server<Config, GameState, Move, PlayerState, PublicState>> {
   const kv = await Deno.openKv();
   const db = new DB(kv);
 
@@ -49,7 +49,7 @@ export async function initializeServer<
     Config,
     GameState,
     PlayerState,
-    ObserverState
+    PublicState
   >(db);
 
   return new Server(
@@ -62,16 +62,16 @@ export async function initializeServer<
 
 export type { Server };
 
-class Server<Config, GameState, Move, PlayerState, ObserverState> {
+class Server<Config, GameState, Move, PlayerState, PublicState> {
   constructor(
-    private game: Game<Config, GameState, Move, PlayerState, ObserverState>,
+    private game: Game<Config, GameState, Move, PlayerState, PublicState>,
     private db: DB,
     private lobbySocketStore: LobbySocketStore,
     private gameSocketStore: GameSocketStore<
       Config,
       GameState,
       PlayerState,
-      ObserverState
+      PublicState
     >,
   ) {}
 
@@ -112,7 +112,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
   async getInitialGameProps(
     gameId: string,
     token: string | undefined,
-  ): Promise<GameProps<PlayerState, ObserverState>> {
+  ): Promise<GameProps<PlayerState, PublicState>> {
     const gameData = await this.db.getGameStorageData<Config, GameState>(
       gameId,
     );
@@ -129,20 +129,23 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
         this.game.playerState,
         playerId,
       );
+      const publicState = getPublicState(gameData, this.game.publicState);
       return {
         mode: "player",
         playerId,
         playerState,
+        publicState,
         isComplete: gameData.isComplete,
         players: gameData.players,
       };
     } else {
-      const observerState = getObserverState(gameData, this.game.observerState);
+      const publicState = getPublicState(gameData, this.game.publicState);
       return {
         mode: "observer",
-        observerState,
+        publicState,
         isComplete: gameData.isComplete,
         players: gameData.players,
+        playerId: undefined,
       };
     }
   }
@@ -257,7 +260,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
           gameId,
           playerId,
           this.game.playerState,
-          this.game.observerState,
+          this.game.publicState,
         );
       };
 
@@ -265,7 +268,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
         const request: GameSocketRequest<
           Move,
           PlayerState,
-          ObserverState
+          PublicState
         > = JSON.parse(
           event.data,
         );
@@ -275,7 +278,9 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
               socket,
               gameId,
               request.currentPlayerState,
+              request.currentPublicState,
               this.game.playerState,
+              this.game.publicState,
             );
             break;
           case "InitializeObserver":
@@ -308,7 +313,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
         socket,
         gameId,
         this.game.playerState,
-        this.game.observerState,
+        this.game.publicState,
       );
     };
 
@@ -316,7 +321,7 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
       const request: GameSocketRequest<
         Move,
         PlayerState,
-        ObserverState
+        PublicState
       > = JSON.parse(
         event.data,
       );
@@ -325,8 +330,8 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
           await this.gameSocketStore.initializeObserver(
             socket,
             gameId,
-            request.currentObserverState,
-            this.game.observerState,
+            request.currentPublicState,
+            this.game.publicState,
           );
           break;
         }

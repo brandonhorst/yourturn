@@ -6,16 +6,16 @@ import type { GameProps, GameViewProps } from "../types.ts";
 // Opens an auto-reconnecting WebSocket to a given Game URL.
 // Returns an always up-to-date view of the game and optionally a move handler.
 // Closes the socket if the game completes.
-export function useGameSocket<Move, PlayerState, ObserverState>(
+export function useGameSocket<Move, PlayerState, PublicState>(
   socketUrl: string,
-  initialGameProps: GameProps<PlayerState, ObserverState>,
-): GameViewProps<Move, PlayerState, ObserverState> {
+  initialGameProps: GameProps<PlayerState, PublicState>,
+): GameViewProps<Move, PlayerState, PublicState> {
   const isPlayer = initialGameProps.mode === "player";
   const [playerState, setPlayerState] = useState<PlayerState | undefined>(
     isPlayer ? initialGameProps.playerState : undefined,
   );
-  const [observerState, setObserverState] = useState<ObserverState | undefined>(
-    isPlayer ? undefined : initialGameProps.observerState,
+  const [publicState, setPublicState] = useState<PublicState>(
+    initialGameProps.publicState,
   );
   const [isComplete, setIsComplete] = useState<boolean>(
     initialGameProps.isComplete,
@@ -23,7 +23,7 @@ export function useGameSocket<Move, PlayerState, ObserverState>(
   const players = initialGameProps.players;
 
   function onMessage(
-    response: GameSocketResponse<PlayerState, ObserverState>,
+    response: GameSocketResponse<PlayerState, PublicState>,
     close: () => void,
   ) {
     switch (response.type) {
@@ -34,16 +34,17 @@ export function useGameSocket<Move, PlayerState, ObserverState>(
       case "UpdateGameState":
         if (response.mode === "player") {
           setPlayerState(response.playerState);
+          setPublicState(response.publicState);
         } else {
-          setObserverState(response.observerState);
+          setPublicState(response.publicState);
         }
         break;
     }
   }
 
   const send = useSocket<
-    GameSocketRequest<Move, PlayerState, ObserverState>,
-    GameSocketResponse<PlayerState, ObserverState>
+    GameSocketRequest<Move, PlayerState, PublicState>,
+    GameSocketResponse<PlayerState, PublicState>
   >(
     !initialGameProps.isComplete,
     () => new WebSocket(socketUrl),
@@ -51,37 +52,52 @@ export function useGameSocket<Move, PlayerState, ObserverState>(
       ? {
         type: "InitializePlayer",
         currentPlayerState: playerState as PlayerState,
+        currentPublicState: publicState as PublicState,
       }
       : {
         type: "InitializeObserver",
-        currentObserverState: observerState as ObserverState,
+        currentPublicState: publicState as PublicState,
       },
     onMessage,
   );
 
   const perform = useCallback((move: Move) => {
-    const request: GameSocketRequest<Move, PlayerState, ObserverState> = {
+    const request: GameSocketRequest<Move, PlayerState, PublicState> = {
       type: "Move",
       move,
     };
     send(request);
   }, [send]);
 
-  if (isPlayer) {
+  if (isPlayer && playerState != null) {
+    if (isComplete) {
+      return {
+        mode: "player",
+        playerId: initialGameProps.playerId,
+        playerState,
+        publicState,
+        perform: undefined,
+        isComplete,
+        players,
+      };
+    } else {
+      return {
+        mode: "player",
+        playerId: initialGameProps.playerId,
+        playerState,
+        publicState,
+        perform,
+        isComplete,
+        players,
+      };
+    }
+  } else {
     return {
-      mode: "player",
-      playerId: initialGameProps.playerId,
-      playerState: playerState as PlayerState,
-      perform,
+      mode: "observer",
+      publicState,
       isComplete,
       players,
+      playerId: undefined,
     };
   }
-
-  return {
-    mode: "observer",
-    observerState: observerState as ObserverState,
-    isComplete,
-    players,
-  };
 }
