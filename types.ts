@@ -265,7 +265,9 @@ type CompletePlayerViewProps<PlayerState, PublicState> =
   & CompletePlayerProps<PlayerState, PublicState>
   & { perform: undefined };
 
-type ObserveViewProps<PublicState> = ObserverProps<PublicState>;
+type ObserveViewProps<PublicState> =
+  & ObserverProps<PublicState>
+  & { perform: undefined };
 
 export type GameViewProps<Move, PlayerState, PublicState> =
   | CompletePlayerViewProps<PlayerState, PublicState>

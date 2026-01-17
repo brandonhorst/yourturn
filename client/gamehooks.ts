@@ -98,6 +98,7 @@ export function useGameSocket<Move, PlayerState, PublicState>(
       isComplete,
       players,
       playerId: undefined,
+      perform: undefined,
     };
   }
 }
