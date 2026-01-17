@@ -226,33 +226,48 @@ export type LobbyProps = {
   user: User;
 };
 
-type PlayerProps<PlayerState> = {
+type CompletePlayerProps<PlayerState> = {
   mode: "player";
-  isComplete: boolean;
+  isComplete: true;
   players: User[];
   playerId: number;
-  playerState: PlayerState;
+  state: PlayerState;
+};
+
+type IncompletePlayerProps<PlayerState> = {
+  mode: "player";
+  isComplete: false;
+  players: User[];
+  playerId: number;
+  state: PlayerState;
 };
 
 type ObserverProps<ObserverState> = {
   mode: "observer";
   isComplete: boolean;
   players: User[];
-  observerState: ObserverState;
+  playerId: undefined;
+  state: ObserverState;
 };
 
 export type GameProps<PlayerState, ObserverState> =
-  | PlayerProps<PlayerState>
+  | CompletePlayerProps<PlayerState>
+  | IncompletePlayerProps<PlayerState>
   | ObserverProps<ObserverState>;
 
-type PlayerViewProps<Move, PlayerState> = PlayerProps<PlayerState> & {
-  perform?: (move: Move) => void;
-};
+type IncompletePlayerViewProps<Move, PlayerState> =
+  & IncompletePlayerProps<PlayerState>
+  & { perform: (move: Move) => void };
+
+type CompletePlayerViewProps<PlayerState> =
+  & CompletePlayerProps<PlayerState>
+  & { perform: undefined };
 
 type ObserveViewProps<ObserverState> = ObserverProps<ObserverState>;
 
 export type GameViewProps<Move, PlayerState, ObserverState> =
-  | PlayerViewProps<Move, PlayerState>
+  | CompletePlayerViewProps<PlayerState>
+  | IncompletePlayerViewProps<Move, PlayerState>
   | ObserveViewProps<ObserverState>;
 
 export type LobbyViewProps = LobbyProps & {
