@@ -85,7 +85,7 @@ class Server<Config, GameState, Move, PlayerState, PublicState, Outcome> {
   ) {}
 
   async getInitialLobbyProps(
-    token: string | null,
+    token: string | undefined,
   ): Promise<{ props: LobbyProps; token: string }> {
     const activeGames = await fetchActiveGames(this.db);
     let user: User | null = null;
