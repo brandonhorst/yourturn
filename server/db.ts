@@ -7,10 +7,11 @@ export type QueueConfig<Config> = {
   config: Config;
 };
 
-type QueueEntryValue = {
+type QueueEntryValue<Loadout> = {
   timestamp: Date;
   userId: string;
   user: User;
+  loadout: Loadout;
 };
 
 export type GameStorageData<Config, GameState, Outcome> = {
@@ -72,19 +73,20 @@ export class DB {
     this.kv = kv;
   }
 
-  public async addToQueue<Config, GameState>(
+  public async addToQueue<Config, GameState, Loadout>(
     queueConfig: QueueConfig<Config>,
     entryId: string,
     userId: string,
     user: User,
-    setupGame: (setupObject: SetupObject<Config>) => GameState,
+    loadout: Loadout,
+    setupGame: (setupObject: SetupObject<Config, Loadout>) => GameState,
   ): Promise<void> {
     await repeatUntilSuccess(async () => {
       const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
       return await this.kv
         .atomic()
         .check({ key: entryKey, versionstamp: null })
-        .set(entryKey, { timestamp: new Date(), userId, user })
+        .set(entryKey, { timestamp: new Date(), userId, user, loadout })
         .commit();
     });
 
@@ -104,9 +106,9 @@ export class DB {
     });
   }
 
-  private async maybeGraduateFromQueue<Config, GameState>(
+  private async maybeGraduateFromQueue<Config, GameState, Loadout>(
     queueConfig: QueueConfig<Config>,
-    setupGame: (o: SetupObject<Config>) => GameState,
+    setupGame: (o: SetupObject<Config, Loadout>) => GameState,
   ): Promise<void> {
     const gameId = ulid();
     const queuePrefix = getQueuePrefix(queueConfig.queueId);
@@ -116,10 +118,12 @@ export class DB {
 
     await repeatUntilSuccess(async () => {
       // Get desired queue entries, if they exist
-      const queueEntries = await Array.fromAsync(this.kv.list<QueueEntryValue>(
-        { prefix: queuePrefix },
-        { limit: queueConfig.numPlayers },
-      ));
+      const queueEntries = await Array.fromAsync(
+        this.kv.list<QueueEntryValue<Loadout>>(
+          { prefix: queuePrefix },
+          { limit: queueConfig.numPlayers },
+        ),
+      );
 
       // If the queue doesn't have enough entrants, stop
       if (queueEntries.length < queueConfig.numPlayers) {
@@ -135,11 +139,16 @@ export class DB {
         players[i] = queueEntries[i].value.user;
       }
       const timestamp = new Date();
+      const loadouts: Loadout[] = [];
       const setupObject = {
         timestamp,
         numPlayers: queueConfig.numPlayers,
         config: queueConfig.config,
+        loadouts,
       };
+      for (let i = 0; i < queueConfig.numPlayers; i++) {
+        loadouts[i] = queueEntries[i].value.loadout;
+      }
       const gameState = setupGame(setupObject);
       const gameStorageData: GameStorageData<Config, GameState, undefined> = {
         config: queueConfig.config,

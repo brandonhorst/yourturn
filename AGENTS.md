@@ -108,3 +108,8 @@ Uses Deno KV for:
 
 Each socket type has its own message protocol defined in
 `common/sockettypes.ts`.
+
+## Agent Instructions
+
+- When making changes, ALWAYS run `deno task check` and `deno task test` and fix
+  errors.

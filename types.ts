@@ -54,10 +54,11 @@ export type TokenData = {
   expiration: Date;
 };
 
-export type SetupObject<Config> = {
+export type SetupObject<Config, Loadout> = {
   timestamp: Date;
   numPlayers: number;
   config: Config;
+  loadouts: Loadout[];
 };
 
 export type MoveObject<Config, Move> = {
@@ -106,6 +107,7 @@ export type Mode<Config> = {
  * @template PlayerState - Player state type representing game state visible to a specific player (must be JSON serializable)
  * @template PublicState - Observer state type representing game state visible to observers (must be JSON serializable)
  * @template Outcome - Outcome type representing game results (must be JSON serializable)
+ * @template Loadout - Player loadout data provided during queue join (must be JSON serializable)
  */
 export interface Game<
   Config extends StructuredCloneValue,
@@ -114,6 +116,7 @@ export interface Game<
   PlayerState extends JSONValue,
   PublicState extends JSONValue,
   Outcome extends JSONValue,
+  Loadout extends JSONValue,
 > {
   /**
    * Defines the available game modes with their configurations.
@@ -127,7 +130,7 @@ export interface Game<
    * @param o - Setup object containing configuration, player count, and timestamp
    * @returns Immutable initial game state
    */
-  setup(o: SetupObject<Config>): Readonly<GameState>;
+  setup(o: SetupObject<Config, Loadout>): Readonly<GameState>;
 
   /**
    * Validates whether a move is legitimate based on current game state.
@@ -272,9 +275,11 @@ export type GameViewProps<Move, PlayerState, PublicState, Outcome> =
   | IncompletePlayerViewProps<Move, PlayerState, PublicState>
   | ObserveViewProps<PublicState, Outcome>;
 
-export type LobbyViewProps = LobbyProps & {
-  joinQueue: (queueId: string) => void;
-  isQueued: boolean;
-  leaveQueue: () => void;
-  updateUsername: (username: string) => void;
-};
+export type LobbyViewProps<Loadout> =
+  & LobbyProps
+  & {
+    joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
+    isQueued: boolean;
+    leaveQueue: () => void;
+    updateUsername: (username: string) => void;
+  };

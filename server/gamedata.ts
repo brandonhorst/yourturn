@@ -67,9 +67,18 @@ async function updateGameState<
   PlayerState,
   PublicState,
   Outcome,
+  Loadout,
 >(
   db: DB,
-  game: Game<Config, GameState, Move, PlayerState, PublicState, Outcome>,
+  game: Game<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Loadout
+  >,
   gameId: string,
   computeNewState: (
     gameData: GameStorageData<Config, GameState, Outcome>,
@@ -111,9 +120,18 @@ export async function handleMove<
   PlayerState,
   PublicState,
   Outcome,
+  Loadout,
 >(
   db: DB,
-  game: Game<Config, GameState, Move, PlayerState, PublicState, Outcome>,
+  game: Game<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Loadout
+  >,
   gameId: string,
   playerId: number,
   move: Move,

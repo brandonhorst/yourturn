@@ -1,8 +1,8 @@
 import type { ActiveGame, User } from "../types.ts";
 
-export type LobbySocketRequest =
+export type LobbySocketRequest<Loadout> =
   | { type: "Initialize"; activeGames: ActiveGame[] }
-  | { type: "JoinQueue"; queueId: string }
+  | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | { type: "LeaveQueue" }
   | { type: "UpdateUsername"; username: string };
 

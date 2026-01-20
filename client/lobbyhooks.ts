@@ -6,11 +6,15 @@ import type {
 } from "../common/sockettypes.ts";
 import type { LobbyProps, LobbyViewProps } from "../types.ts";
 
-export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
+export function useLobbySocket<Loadout>({
+  socketUrl,
+  initialLobbyProps,
+  navigate,
+}: {
   socketUrl: string;
   initialLobbyProps: LobbyProps;
   navigate: (gameId: string) => void;
-}): LobbyViewProps {
+}): LobbyViewProps<Loadout> {
   const [activeGames, setActiveGames] = useState(initialLobbyProps.activeGames);
   const [user, setUser] = useState(initialLobbyProps.user);
   const [isQueued, setIsQueued] = useState(false);
@@ -39,7 +43,7 @@ export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
     setIsQueued(false);
   }
 
-  const send = useSocket<LobbySocketRequest, LobbySocketResponse>(
+  const send = useSocket<LobbySocketRequest<Loadout>, LobbySocketResponse>(
     true,
     () => new WebSocket(socketUrl),
     { type: "Initialize", activeGames },
@@ -48,8 +52,8 @@ export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
   );
 
   const joinQueue = useCallback(
-    (queueId: string) => {
-      send({ type: "JoinQueue", queueId });
+    (queueId: string, options: { loadout: Loadout }) => {
+      send({ type: "JoinQueue", queueId, loadout: options.loadout });
     },
     [send],
   );

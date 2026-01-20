@@ -24,9 +24,28 @@ export async function initializeServer<
   PlayerState,
   PublicState,
   Outcome,
+  Loadout,
 >(
-  game: Game<Config, GameState, Move, PlayerState, PublicState, Outcome>,
-): Promise<Server<Config, GameState, Move, PlayerState, PublicState, Outcome>> {
+  game: Game<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Loadout
+  >,
+): Promise<
+  Server<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Loadout
+  >
+> {
   const kv = await Deno.openKv();
   const db = new DB(kv);
 
@@ -52,7 +71,15 @@ export async function initializeServer<
 
 export type { Server };
 
-class Server<Config, GameState, Move, PlayerState, PublicState, Outcome> {
+class Server<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  PublicState,
+  Outcome,
+  Loadout,
+> {
   constructor(
     private game: Game<
       Config,
@@ -60,7 +87,8 @@ class Server<Config, GameState, Move, PlayerState, PublicState, Outcome> {
       Move,
       PlayerState,
       PublicState,
-      Outcome
+      Outcome,
+      Loadout
     >,
     private db: DB,
     private lobbySocketStore: LobbySocketStore,
@@ -167,7 +195,7 @@ class Server<Config, GameState, Move, PlayerState, PublicState, Outcome> {
     const handleLobbySocketMessage = async (event: MessageEvent) => {
       const message = event.data;
       console.log("Lobby Socket Message", message);
-      const parsedMessage: LobbySocketRequest = JSON.parse(message);
+      const parsedMessage: LobbySocketRequest<Loadout> = JSON.parse(message);
       switch (parsedMessage.type) {
         case "Initialize":
           this.lobbySocketStore.initialize(socket, parsedMessage.activeGames);
@@ -191,6 +219,7 @@ class Server<Config, GameState, Move, PlayerState, PublicState, Outcome> {
             queueConfig,
             userId,
             user,
+            parsedMessage.loadout,
             this.game.setup,
           );
           break;

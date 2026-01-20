@@ -46,6 +46,7 @@ type TestPublicState = {
 };
 
 type TestOutcome = "done";
+type TestLoadout = undefined;
 
 // Game implementation for tests
 const testGame: Game<
@@ -54,13 +55,14 @@ const testGame: Game<
   TestMove,
   TestPlayerState,
   TestPublicState,
-  TestOutcome
+  TestOutcome,
+  TestLoadout
 > = {
   modes: {
     queue: { numPlayers: 2, matchmaking: "queue", config: undefined },
   },
 
-  setup: () => ({ value: 0, moveHistory: [] }),
+  setup: (_o) => ({ value: 0, moveHistory: [] }),
 
   processMove: (state, { move, playerId }): TestState => {
     const newValue = move.action === "increment"
