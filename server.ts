@@ -209,6 +209,18 @@ class Server<
             );
             return;
           }
+          if (
+            this.game.isValidLoadout != null &&
+            !this.game.isValidLoadout(parsedMessage.loadout, queue.config)
+          ) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Invalid loadout.",
+              },
+            ));
+            return;
+          }
           const queueConfig = {
             queueId: parsedMessage.queueId,
             numPlayers: queue.numPlayers,

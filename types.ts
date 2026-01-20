@@ -143,6 +143,16 @@ export interface Game<
   isValidMove(state: Readonly<GameState>, o: MoveObject<Config, Move>): boolean;
 
   /**
+   * Validates whether a loadout is acceptable for the given game configuration.
+   * When omitted, loadouts are assumed valid.
+   *
+   * @param loadout - Player loadout data supplied during queue join
+   * @param config - Configuration for the selected mode
+   * @returns True if the loadout is valid, false otherwise
+   */
+  isValidLoadout?(loadout: Loadout, config: Config): boolean;
+
+  /**
    * Processes a player's move and updates the game state accordingly.
    * Only called if isValidMove returns true for the given move.
    *

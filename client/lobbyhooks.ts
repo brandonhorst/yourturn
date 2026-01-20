@@ -10,10 +10,12 @@ export function useLobbySocket<Loadout>({
   socketUrl,
   initialLobbyProps,
   navigate,
+  displayError,
 }: {
   socketUrl: string;
   initialLobbyProps: LobbyProps;
   navigate: (gameId: string) => void;
+  displayError: (message: string) => void;
 }): LobbyViewProps<Loadout> {
   const [activeGames, setActiveGames] = useState(initialLobbyProps.activeGames);
   const [user, setUser] = useState(initialLobbyProps.user);
@@ -35,6 +37,9 @@ export function useLobbySocket<Loadout>({
         break;
       case "UserUpdated":
         setUser(response.user);
+        break;
+      case "DisplayError":
+        displayError(response.message);
         break;
     }
   }

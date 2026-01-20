@@ -11,7 +11,8 @@ export type LobbySocketResponse =
   | { type: "QueueLeft" }
   | { type: "UpdateActiveGames"; activeGames: ActiveGame[] }
   | { type: "GameAssignment"; gameId: string }
-  | { type: "UserUpdated"; user: User };
+  | { type: "UserUpdated"; user: User }
+  | { type: "DisplayError"; message: string };
 
 export type GameSocketRequest<Move, PlayerState, PublicState> =
   | {
