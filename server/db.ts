@@ -135,7 +135,11 @@ export class DB {
         players[i] = queueEntries[i].value.user;
       }
       const timestamp = new Date();
-      const setupObject = { timestamp, players, config: queueConfig.config };
+      const setupObject = {
+        timestamp,
+        numPlayers: queueConfig.numPlayers,
+        config: queueConfig.config,
+      };
       const gameState = setupGame(setupObject);
       const gameStorageData: GameStorageData<Config, GameState, undefined> = {
         config: queueConfig.config,
@@ -194,15 +198,13 @@ export class DB {
   }
 
   /**
-   * Updates game storage data and optionally enqueues a refresh with the specified delay
+   * Updates game storage data.
    * @param gameId The ID of the game to update
    * @param gameData The updated game data
-   * @param refreshDelay Optional delay in milliseconds for scheduling a refresh
    */
   public async updateGameStorageData<Config, GameState, Outcome>(
     gameId: string,
     gameData: GameStorageData<Config, GameState, Outcome>,
-    refreshDelay?: number,
   ): Promise<void> {
     const gameKey = getGameKey(gameId);
     const activeGameTriggerKey = getActiveGameTriggerKey();
@@ -225,11 +227,6 @@ export class DB {
       transaction = transaction
         .delete(activeGameKey)
         .set(activeGameTriggerKey, {});
-    }
-
-    // If refreshDelay is provided, enqueue a refresh as part of the same transaction
-    if (refreshDelay !== undefined && gameData.outcome === undefined) {
-      transaction = transaction.enqueue(gameId, { delay: refreshDelay });
     }
 
     const res = await transaction.commit();
@@ -300,24 +297,6 @@ export class DB {
         },
       }),
     );
-  }
-
-  public listenForRefreshes(): ReadableStream<string> {
-    let controller: ReadableStreamDefaultController<string>;
-
-    const stream = new ReadableStream<string>({
-      start(c) {
-        controller = c;
-      },
-    });
-
-    this.kv.listenQueue((message: string) => {
-      if (typeof message === "string") {
-        controller.enqueue(message);
-      }
-    });
-
-    return stream;
   }
 
   public async storeUser(

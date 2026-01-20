@@ -9,7 +9,6 @@ import {
   getPlayerState,
   getPublicState,
   handleMove,
-  handleRefresh,
 } from "./server/gamedata.ts";
 import { GameSocketStore } from "./server/gamesockets.ts";
 import { DB } from "./server/db.ts";
@@ -33,16 +32,6 @@ export async function initializeServer<
 
   const activeGamesStream: ReadableStream<ActiveGame[]> = db
     .watchForActiveGameListChanges();
-
-  // Start the refresh listener if the game implements the refresh mechanism
-  if (game.refresh != null) {
-    const refreshStream = db.listenForRefreshes();
-    (async () => {
-      for await (const gameId of refreshStream) {
-        await handleRefresh(db, game, gameId);
-      }
-    })();
-  }
 
   const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
   const gameSocketStore = new GameSocketStore<

@@ -5,7 +5,6 @@ import type {
   OutcomeObject,
   PlayerStateObject,
   PublicStateObject,
-  RefreshObject,
 } from "../types.ts";
 
 export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
@@ -32,10 +31,11 @@ export function getPlayerState<Config, GameState, PlayerState, Outcome>(
   playerId: number,
 ): PlayerState {
   const state = gameData.gameState;
+  const numPlayers = gameData.playerUserIds.length;
   const playerStateObject: PlayerStateObject<Config> = {
     config: gameData.config,
     playerId,
-    players: gameData.players,
+    numPlayers,
     timestamp: new Date(),
   };
   const playerState = playerStateLogic(state, playerStateObject);
@@ -50,9 +50,10 @@ export function getPublicState<Config, GameState, PublicState, Outcome>(
   ) => PublicState,
 ): PublicState {
   const state = gameData.gameState;
+  const numPlayers = gameData.playerUserIds.length;
   const publicStateObject: PublicStateObject<Config> = {
-    players: gameData.players,
     config: gameData.config,
+    numPlayers,
     timestamp: new Date(),
   };
   const publicState = publicStateLogic(state, publicStateObject);
@@ -87,8 +88,8 @@ async function updateGameState<
   }
 
   const outcomeObject: OutcomeObject<Config> = {
-    players: gameData.players,
     config: gameData.config,
+    numPlayers: gameData.playerUserIds.length,
   };
   const outcome = game.outcome(newState, outcomeObject);
   const isComplete = outcome !== undefined;
@@ -100,24 +101,7 @@ async function updateGameState<
     version: gameData.version + 1,
   };
 
-  // Calculate refresh timeout if game has a refreshTimeout function
-  let refreshDelay: number | undefined;
-  if (game.refreshTimeout && !isComplete) {
-    const refreshObject: RefreshObject<Config> = {
-      timestamp: new Date(),
-      players: gameData.players,
-      config: gameData.config,
-    };
-
-    refreshDelay = game.refreshTimeout(newState, refreshObject);
-  }
-
-  // Update game data and schedule refresh in a single atomic transaction
-  await db.updateGameStorageData(
-    gameId,
-    newGameData,
-    refreshDelay,
-  );
+  await db.updateGameStorageData(gameId, newGameData);
 }
 
 export async function handleMove<
@@ -139,8 +123,8 @@ export async function handleMove<
       playerId,
       timestamp: new Date(),
       move,
-      players: gameData.players,
       config: gameData.config,
+      numPlayers: gameData.playerUserIds.length,
     };
 
     const state = gameData.gameState;
@@ -149,35 +133,5 @@ export async function handleMove<
     }
 
     return game.processMove(state, moveData);
-  });
-}
-
-export async function handleRefresh<
-  Config,
-  GameState,
-  Move,
-  PlayerState,
-  PublicState,
-  Outcome,
->(
-  db: DB,
-  game: Game<Config, GameState, Move, PlayerState, PublicState, Outcome>,
-  gameId: string,
-) {
-  await updateGameState(db, game, gameId, (gameData) => {
-    const state = gameData.gameState;
-
-    // If game.refersh is not provided, just return and do the update as normal.
-    if (!game.refresh) {
-      return state;
-    }
-
-    const refreshData: RefreshObject<Config> = {
-      timestamp: new Date(),
-      players: gameData.players,
-      config: gameData.config,
-    };
-
-    return game.refresh(state, refreshData);
   });
 }

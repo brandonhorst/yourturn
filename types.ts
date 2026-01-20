@@ -56,7 +56,7 @@ export type TokenData = {
 
 export type SetupObject<Config> = {
   timestamp: Date;
-  players: User[];
+  numPlayers: number;
   config: Config;
 };
 
@@ -65,30 +65,30 @@ export type MoveObject<Config, Move> = {
   move: Move;
   playerId: number;
   timestamp: Date;
-  players: User[];
+  numPlayers: number;
 };
 
 export type RefreshObject<Config> = {
   config: Config;
   timestamp: Date;
-  players: User[];
+  numPlayers: number;
 };
 
 export type PlayerStateObject<Config> = {
   config: Config;
   playerId: number;
-  players: User[];
+  numPlayers: number;
   timestamp: Date;
 };
 export type PublicStateObject<Config> = {
   config: Config;
-  players: User[];
+  numPlayers: number;
   timestamp: Date;
 };
 
 export type OutcomeObject<Config> = {
   config: Config;
-  players: User[];
+  numPlayers: number;
 };
 
 export type Mode<Config> = {
@@ -124,7 +124,7 @@ export interface Game<
   /**
    * Creates the initial game state when a new game is started.
    *
-   * @param o - Setup object containing configuration, player information, and timestamp
+   * @param o - Setup object containing configuration, player count, and timestamp
    * @returns Immutable initial game state
    */
   setup(o: SetupObject<Config>): Readonly<GameState>;
@@ -134,7 +134,7 @@ export interface Game<
    * Prevents invalid moves from being processed.
    *
    * @param state - Current immutable game state
-   * @param o - Move object containing the move, player ID, configuration, timestamp, and player information
+   * @param o - Move object containing the move, player ID, configuration, timestamp, and player count
    * @returns True if the move is valid, false otherwise
    */
   isValidMove(state: Readonly<GameState>, o: MoveObject<Config, Move>): boolean;
@@ -144,7 +144,7 @@ export interface Game<
    * Only called if isValidMove returns true for the given move.
    *
    * @param state - Current immutable game state
-   * @param o - Move object containing the move, player ID, configuration, timestamp, and player information
+   * @param o - Move object containing the move, player ID, configuration, timestamp, and player count
    * @returns Updated immutable game state
    */
   processMove(
@@ -153,13 +153,11 @@ export interface Game<
   ): Readonly<GameState>;
 
   /**
-   * Determines the timeout in milliseconds for automatic state refreshes. Called
-   * after every successful processMove or refresh call.
-   * Don't provide this function to disable automatic refreshes.
+   * Reserved for future time-based mechanics.
    *
    * @param state - Current immutable game state
-   * @param o - Refresh object containing configuration, timestamp, and player information
-   * @returns Timeout in milliseconds or undefined to disable automatic refreshes
+   * @param o - Refresh object containing configuration, timestamp, and player count
+   * @returns Timeout in milliseconds or undefined
    */
   refreshTimeout?(
     state: Readonly<GameState>,
@@ -167,25 +165,11 @@ export interface Game<
   ): number | undefined;
 
   /**
-   * Updates the game state during automatic refreshes.
-   * Called based on the timeout from refreshTimeout, not in response to moves.
-   * Can be used for time-based game mechanics.
-   *
-   * @param state - Current immutable game state
-   * @param o - Refresh object containing configuration, timestamp, and player information
-   * @returns Updated immutable game state
-   */
-  refresh?(
-    state: Readonly<GameState>,
-    o: RefreshObject<Config>,
-  ): Readonly<GameState>;
-
-  /**
    * Creates a player-specific view of the game state.
    * Can be used to hide information from players and provide a UI-friendly representation.
    *
    * @param state - Current immutable game state
-   * @param o - Player state object containing player ID, configuration, and player information
+   * @param o - Player state object containing player ID, configuration, and player count
    * @returns Player-specific state representation
    */
   playerState(
@@ -198,7 +182,7 @@ export interface Game<
    * Can be used to hide information from observers and provide a UI-friendly representation.
    *
    * @param state - Current immutable game state
-   * @param o - Observer state object containing configuration and player information
+   * @param o - Observer state object containing configuration and player count
    * @returns Observer-specific state representation
    */
   publicState(
@@ -211,7 +195,7 @@ export interface Game<
    * When a non-undefined value is returned, no further moves will be accepted.
    *
    * @param state - Current immutable game state
-   * @param o - Outcome check object containing configuration and player information
+   * @param o - Outcome check object containing configuration and player count
    * @returns Outcome value or undefined if the game is still in progress
    */
   outcome(state: Readonly<GameState>, o: OutcomeObject<Config>):

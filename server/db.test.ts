@@ -1,5 +1,4 @@
 import { assertEquals, assertExists, assertRejects } from "@std/assert";
-import { FakeTime } from "@std/testing/time";
 import { DB } from "./db.ts";
 
 // Mock game implementation for testing
@@ -290,61 +289,5 @@ Deno.test("Handles errors for non-existent games", async () => {
     "Game non-existent-game-id not found",
   );
 
-  kv.close();
-});
-
-Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay", async () => {
-  const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
-  // Using FakeTime to control time progression
-  using fakeTime = new FakeTime();
-
-  // Create a game directly with KV
-  const gameId = "test-refresh-game";
-  const gameKey = ["games", gameId];
-  const activeGameKey = ["activegames", gameId];
-  const activeGameTriggerKey = ["activegametrigger"];
-
-  // Set up the game data directly
-  await kv.atomic()
-    .set(activeGameTriggerKey, {})
-    .set(activeGameKey, {})
-    .set(gameKey, {
-      config: undefined,
-      gameState: { timestamp: new Date() },
-      playerUserIds: ["user-1", "user-2"],
-      players: [
-        { username: "Player 1", isGuest: false },
-        { username: "Player 2", isGuest: false },
-      ],
-      outcome: undefined,
-      version: 0,
-    })
-    .commit();
-
-  // Set up a stream to listen for refreshes
-  const refreshStream = db.listenForRefreshes();
-  const reader = refreshStream.getReader();
-
-  // Get the game data
-  const gameData = await db.getGameStorageData(gameId);
-  const testDelay = 100;
-
-  // Update the game data with a refresh delay
-  await db.updateGameStorageData(gameId, {
-    ...gameData,
-    version: gameData.version + 1,
-  }, testDelay);
-
-  // Advance time past the delay
-  fakeTime.tick(testDelay + 10);
-
-  // Now we should be able to read the enqueued game ID from the stream
-  const result = await reader.read();
-  assertEquals(result.value, gameId);
-
-  // Clean up
-  await reader.cancel();
   kv.close();
 });

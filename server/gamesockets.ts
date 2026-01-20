@@ -137,8 +137,8 @@ export class GameSocketStore<
       const timestamp = new Date();
 
       const publicState = publicStateLogic(state, {
-        players: data.value.players,
         config: data.value.config,
+        numPlayers: data.value.playerUserIds.length,
         timestamp,
       });
 
@@ -148,8 +148,8 @@ export class GameSocketStore<
         if (socket.playerId != null) {
           playerState = playerStateLogic(state, {
             playerId: socket.playerId,
-            players: data.value.players,
             config: data.value.config,
+            numPlayers: data.value.playerUserIds.length,
             timestamp,
           });
         }

@@ -90,7 +90,7 @@ Key methods:
 - `playerState()` - Generate player-specific views
 - `publicState()` - Generate observer views
 - `outcome()` - Check if game is finished and report the result
-- Optional: `refreshTimeout()` and `refresh()` for time-based mechanics
+- Optional: `refreshTimeout()` for future time-based mechanics
 
 ### Database Layer
 
@@ -99,7 +99,6 @@ Uses Deno KV for:
 - Game state persistence
 - Player queues and matchmaking
 - Real-time state synchronization via watch streams
-- Automatic game state refresh scheduling
 
 ### WebSocket Communication
 

@@ -96,10 +96,6 @@ export const game: {
     s: GameState,
     o: { config: Config; timestamp: Date },
   ): number | undefined;
-  refresh?(
-    s: GameState,
-    o: { config: Config; timestamp: Date },
-  ): GameState;
   playerState(
     s: GameState,
     o: { playerId: number },
@@ -132,13 +128,7 @@ are only executed on the server.
   interface for building the UI upon.
 - `outcome` should return a non-undefined value when the game is done and no
   further `Move`s should be permitted.
-- `refreshTimeout` can be called to trigger a `refresh` call and an `outcome`
-  check after a certain number of milliseconds. This can be used to implement
-  timers.
-- `refreshTimeout` can be used to create a new `GameState` object in response to
-  a `refreshTimeout` trigger. Note that it's OK to implement `refreshTimeout`
-  without implementing `refresh` in cases where the only time-based effect is
-  ending the game in a loss (such as a chess timer).
+- `refreshTimeout` is reserved for future time-based mechanics.
 
 ### `View`
 
