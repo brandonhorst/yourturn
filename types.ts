@@ -92,9 +92,8 @@ export type OutcomeObject<Config> = {
   numPlayers: number;
 };
 
-export type Mode<Config> = {
+export type QueueConfig<Config> = {
   numPlayers: number;
-  matchmaking: "queue";
   config: Config;
 };
 
@@ -119,10 +118,10 @@ export interface Game<
   Loadout extends JSONValue,
 > {
   /**
-   * Defines the available game modes with their configurations.
-   * Used for matchmaking and game initialization.
+   * Defines the available game queues with their configurations.
+   * Used for game initialization.
    */
-  modes: { [id: string]: Mode<Config> };
+  queues: { [id: string]: QueueConfig<Config> };
 
   /**
    * Creates the initial game state when a new game is started.

@@ -82,6 +82,7 @@ not need to be) the same type.
 
 ```ts
 export const game: {
+  queues: { [id: string]: {numPlayers: number, config: Config} };
   setup(c: Config, o: { timestamp: Date }): GameState;
   isValidMove(
     s: GameState,

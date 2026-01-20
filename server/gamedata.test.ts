@@ -58,8 +58,8 @@ const testGame: Game<
   TestOutcome,
   TestLoadout
 > = {
-  modes: {
-    queue: { numPlayers: 2, matchmaking: "queue", config: undefined },
+  queues: {
+    queue: { numPlayers: 2, config: undefined },
   },
 
   setup: (_o) => ({ value: 0, moveHistory: [] }),

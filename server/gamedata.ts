@@ -101,7 +101,6 @@ async function updateGameState<
     numPlayers: gameData.playerUserIds.length,
   };
   const outcome = game.outcome(newState, outcomeObject);
-  const isComplete = outcome !== undefined;
 
   const newGameData = {
     ...gameData,

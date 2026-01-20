@@ -201,7 +201,7 @@ class Server<
           this.lobbySocketStore.initialize(socket, parsedMessage.activeGames);
           break;
         case "JoinQueue": {
-          const queue = this.game.modes[parsedMessage.queueId];
+          const queue = this.game.queues[parsedMessage.queueId];
           if (queue == null) {
             console.log(
               "Attempted to join non-existant queue",
