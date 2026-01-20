@@ -1,37 +1,33 @@
+import type { ActiveGame, Game, GameProps, LobbyProps, User } from "./types.ts";
 import type {
-  ActiveGame,
-  Game,
-  LobbyProps,
-  ObserverProps,
-  PlayerProps,
-} from "./types.ts";
-import type {
+  GameSocketRequest,
   LobbySocketRequest,
-  ObserveSocketRequest,
-  PlaySocketRequest,
-} from "./common/types.ts";
+} from "./common/sockettypes.ts";
 import {
   fetchActiveGames,
-  getObserverState,
   getPlayerId,
   getPlayerState,
+  getPublicState,
   handleMove,
   handleRefresh,
 } from "./server/gamedata.ts";
-import { ObserveSocketStore } from "./server/observesockets.ts";
-import { PlaySocketStore } from "./server/playsockets.ts";
+import { GameSocketStore } from "./server/gamesockets.ts";
 import { DB } from "./server/db.ts";
 import { LobbySocketStore } from "./server/lobbysockets.ts";
+import { ulid } from "@std/ulid";
+
+const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
 
 export async function initializeServer<
   Config,
   GameState,
   Move,
   PlayerState,
-  ObserverState,
+  PublicState,
+  Outcome,
 >(
-  game: Game<Config, GameState, Move, PlayerState, ObserverState>,
-): Promise<Server<Config, GameState, Move, PlayerState, ObserverState>> {
+  game: Game<Config, GameState, Move, PlayerState, PublicState, Outcome>,
+): Promise<Server<Config, GameState, Move, PlayerState, PublicState, Outcome>> {
   const kv = await Deno.openKv();
   const db = new DB(kv);
 
@@ -49,84 +45,131 @@ export async function initializeServer<
   }
 
   const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
-  const observeSocketStore = new ObserveSocketStore<
+  const gameSocketStore = new GameSocketStore<
     Config,
     GameState,
-    ObserverState
+    PlayerState,
+    PublicState,
+    Outcome
   >(db);
-  const playSocketStore = new PlaySocketStore<Config, GameState, PlayerState>(
-    db,
-  );
 
   return new Server(
     game,
     db,
     lobbySocketStore,
-    observeSocketStore,
-    playSocketStore,
+    gameSocketStore,
   );
 }
 
 export type { Server };
 
-class Server<Config, GameState, Move, PlayerState, ObserverState> {
+class Server<Config, GameState, Move, PlayerState, PublicState, Outcome> {
   constructor(
-    private game: Game<Config, GameState, Move, PlayerState, ObserverState>,
-    private db: DB,
-    private lobbySocketStore: LobbySocketStore,
-    private observeSocketStore: ObserveSocketStore<
+    private game: Game<
       Config,
       GameState,
-      ObserverState
+      Move,
+      PlayerState,
+      PublicState,
+      Outcome
     >,
-    private playSocketStore: PlaySocketStore<Config, GameState, PlayerState>,
+    private db: DB,
+    private lobbySocketStore: LobbySocketStore,
+    private gameSocketStore: GameSocketStore<
+      Config,
+      GameState,
+      PlayerState,
+      PublicState,
+      Outcome
+    >,
   ) {}
 
-  async getInitialActiveGames(): Promise<ActiveGame[]> {
-    return await fetchActiveGames(this.db);
-  }
-
-  async getInitialLobbyProps(): Promise<LobbyProps> {
+  async getInitialLobbyProps(
+    token: string | undefined,
+  ): Promise<{ props: LobbyProps; token: string }> {
     const activeGames = await fetchActiveGames(this.db);
-    return { activeGames };
+    let user: User | null = null;
+    let lobbyToken = token;
+
+    if (token != null) {
+      const tokenData = await this.db.getToken(token);
+      if (tokenData != null && tokenData.expiration > new Date()) {
+        user = await this.db.getUser(tokenData.userId);
+      }
+    }
+
+    if (user == null) {
+      user = await createGuestUser(this.db);
+      const userId = ulid();
+      lobbyToken = crypto.randomUUID();
+      const expiration = new Date(Date.now() + tokenTtlMs);
+
+      await this.db.storeUser(userId, user);
+      await this.db.storeToken(lobbyToken, { userId, expiration });
+    }
+
+    if (lobbyToken == null) {
+      throw new Error("Missing lobby auth token");
+    }
+    if (user == null) {
+      throw new Error("Missing lobby user");
+    }
+
+    return { props: { activeGames, user }, token: lobbyToken };
   }
 
-  async getInitialPlayerProps(
+  async getInitialGameProps(
     gameId: string,
-    sessionId: string,
-  ): Promise<PlayerProps<PlayerState>> {
-    const gameData = await this.db.getGameStorageData<Config, GameState>(
+    token: string | undefined,
+  ): Promise<GameProps<PlayerState, PublicState, Outcome>> {
+    const gameData = await this.db.getGameStorageData<
+      Config,
+      GameState,
+      Outcome
+    >(
       gameId,
     );
-    const playerId = getPlayerId(gameData, sessionId);
-    const playerState = getPlayerState(
+
+    let playerId: number | undefined;
+    const userId = await this.getUserIdFromToken(token);
+    if (userId != null) {
+      playerId = getPlayerId(gameData, userId);
+    }
+
+    const publicState = getPublicState(gameData, this.game.publicState);
+    const playerState = playerId == null ? undefined : getPlayerState(
       gameData,
       this.game.playerState,
       playerId,
     );
+
     return {
+      players: gameData.players,
+      publicState,
       playerId,
       playerState,
-      isComplete: gameData.isComplete,
-      players: gameData.players,
-    };
+      outcome: gameData.outcome,
+    } as GameProps<PlayerState, PublicState, Outcome>;
   }
 
-  async getInitialObserverProps(
-    gameId: string,
-  ): Promise<ObserverProps<ObserverState>> {
-    const gameData = await this.db.getGameStorageData<Config, GameState>(
-      gameId,
-    );
-    const observerState = getObserverState(gameData, this.game.observerState);
-    return {
-      observerState,
-      isComplete: gameData.isComplete,
-      players: gameData.players,
-    };
-  }
+  async configureLobbySocket(socket: WebSocket, token: string) {
+    if (token === "") {
+      throw new Error("Missing lobby auth token");
+    }
 
-  configureLobbySocket(socket: WebSocket) {
+    const tokenData = await this.db.getToken(token);
+    if (tokenData == null || tokenData.expiration <= new Date()) {
+      throw new Error("Invalid lobby auth token");
+    }
+
+    const storedUser = await this.db.getUser(tokenData.userId);
+    if (storedUser == null) {
+      throw new Error("Unknown lobby user");
+    }
+
+    let user = storedUser;
+    const userId = tokenData.userId;
+
     const handleLobbySocketOpen = () => {
       console.log("lobby socket opened");
       this.lobbySocketStore.register(socket);
@@ -157,6 +200,8 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
           await this.lobbySocketStore.joinQueue(
             socket,
             queueConfig,
+            userId,
+            user,
             this.game.setup,
           );
           break;
@@ -164,6 +209,28 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
         case "LeaveQueue":
           await this.lobbySocketStore.leaveQueue(socket);
           break;
+        case "UpdateUsername": {
+          const newUsername = parsedMessage.username;
+          if (newUsername === user.username) {
+            break;
+          }
+          const existingUser = await this.db.getUserByUsername(newUsername);
+          if (existingUser != null) {
+            break;
+          }
+
+          const updatedUser: User = { ...user, username: newUsername };
+          await this.db.storeUser(userId, updatedUser, user.username);
+          user = updatedUser;
+
+          socket.send(JSON.stringify(
+            {
+              type: "UserUpdated",
+              user,
+            },
+          ));
+          break;
+        }
       }
     };
 
@@ -177,84 +244,100 @@ class Server<Config, GameState, Move, PlayerState, ObserverState> {
     socket.addEventListener("close", handleLobbySocketClose);
   }
 
-  configureObserveSocket(
+  async configureGameSocket(
     socket: WebSocket,
     gameId: string,
+    token: string | undefined,
   ) {
-    const handleObserveSocketOpen = () => {
-      console.log("observe socket opened");
-      this.observeSocketStore.register(socket, gameId, this.game.observerState);
-    };
-
-    const handleObserveSocketMessage = async (event: MessageEvent) => {
-      const request: ObserveSocketRequest<ObserverState> = JSON.parse(
-        event.data,
-      );
-      switch (request.type) {
-        case "Initialize": {
-          await this.observeSocketStore.initialize(
-            socket,
-            gameId,
-            request.currentObserverState,
-            this.game.observerState,
-          );
-        }
-      }
-    };
-
-    const handleObserveSocketClose = () => {
-      this.observeSocketStore.unregister(socket, gameId);
-    };
-
-    socket.addEventListener("open", handleObserveSocketOpen);
-    socket.addEventListener("message", handleObserveSocketMessage);
-    socket.addEventListener("close", handleObserveSocketClose);
-  }
-
-  async configurePlaySocket(
-    socket: WebSocket,
-    gameId: string,
-    sessionId: string,
-  ) {
-    const playerId = getPlayerId(
-      await this.db.getGameStorageData<Config, GameState>(gameId),
-      sessionId,
+    const userId = await this.getUserIdFromToken(token);
+    const gameData = await this.db.getGameStorageData<
+      Config,
+      GameState,
+      Outcome
+    >(
+      gameId,
     );
+    const playerId = userId == null ? undefined : getPlayerId(gameData, userId);
 
-    const handlePlaySocketOpen = () => {
-      this.playSocketStore.register(
+    const handleGameSocketOpen = () => {
+      this.gameSocketStore.register(
         socket,
         gameId,
-        playerId,
         this.game.playerState,
+        this.game.publicState,
+        playerId,
       );
     };
 
-    const handlePlaySocketMessage = async (event: MessageEvent) => {
-      const request: PlaySocketRequest<Move, PlayerState> = JSON.parse(
+    const handleGameSocketMessage = async (event: MessageEvent) => {
+      const request: GameSocketRequest<
+        Move,
+        PlayerState,
+        PublicState
+      > = JSON.parse(
         event.data,
       );
       switch (request.type) {
         case "Initialize":
-          await this.playSocketStore.initialize(
+          await this.gameSocketStore.initialize(
             socket,
             gameId,
-            request.currentPlayerState,
+            request.currentPublicState,
+            playerId == null ? undefined : request.currentPlayerState,
             this.game.playerState,
+            this.game.publicState,
           );
           break;
         case "Move":
-          await handleMove(this.db, this.game, gameId, playerId, request.move);
+          if (playerId == null) {
+            break;
+          }
+          await handleMove(
+            this.db,
+            this.game,
+            gameId,
+            playerId,
+            request.move,
+          );
           break;
       }
     };
 
-    const handlePlaySocketClose = () => {
-      this.playSocketStore.unregister(socket, gameId);
+    const handleGameSocketClose = () => {
+      this.gameSocketStore.unregister(socket, gameId);
     };
 
-    socket.addEventListener("open", handlePlaySocketOpen);
-    socket.addEventListener("message", handlePlaySocketMessage);
-    socket.addEventListener("close", handlePlaySocketClose);
+    socket.addEventListener("open", handleGameSocketOpen);
+    socket.addEventListener("message", handleGameSocketMessage);
+    socket.addEventListener("close", handleGameSocketClose);
   }
+
+  private async getUserIdFromToken(
+    token: string | undefined,
+  ): Promise<string | undefined> {
+    if (token == null || token === "") {
+      return;
+    }
+    const tokenData = await this.db.getToken(token);
+    if (tokenData == null || tokenData.expiration <= new Date()) {
+      return;
+    }
+    return tokenData.userId;
+  }
+}
+
+async function createGuestUser(db: DB): Promise<User> {
+  for (let attempt = 0; attempt < 10000; attempt++) {
+    const suffix = Math.floor(Math.random() * 10000).toString().padStart(
+      4,
+      "0",
+    );
+    const username = `guest-${suffix}`;
+    const existingUser = await db.getUserByUsername(username);
+    if (existingUser == null) {
+      return { username, isGuest: true };
+    }
+  }
+
+  throw new Error("Failed to create a unique guest username");
 }

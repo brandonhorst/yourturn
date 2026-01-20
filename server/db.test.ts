@@ -4,6 +4,8 @@ import { DB } from "./db.ts";
 
 // Mock game implementation for testing
 const setupGame = () => 1;
+const user1 = { username: "guest-0001", isGuest: true };
+const user2 = { username: "guest-0002", isGuest: true };
 
 Deno.test("Adds to queue, graduates, and assigns", async () => {
   const kv = await Deno.openKv(":memory:");
@@ -15,8 +17,8 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
 
   const assignmentStream = db.watchForAssignments(entryId);
   const assignmentStream2 = db.watchForAssignments(entryId2);
-  await db.addToQueue(queue, entryId, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId, "user-1", user1, setupGame);
+  await db.addToQueue(queue, entryId2, "user-2", user2, setupGame);
 
   // Check for assignment after queue graduation
   const reader = assignmentStream.getReader();
@@ -28,11 +30,9 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
 
   assertExists(result.value);
   assertExists(result.value.gameId);
-  assertExists(result.value.sessionId);
 
   assertExists(result2.value);
   assertExists(result2.value.gameId);
-  assertExists(result2.value.sessionId);
 
   kv.close();
 });
@@ -48,11 +48,11 @@ Deno.test("Removes from queue", async () => {
   };
   const entryId = "test-entry-remove";
 
-  await db.addToQueue(queue, entryId, setupGame);
+  await db.addToQueue(queue, entryId, "user-1", user1, setupGame);
   await db.removeFromQueue(queue.queueId, entryId);
 
   // Verify the entry is removed (this will implicitly check through the next test succeeding)
-  await db.addToQueue(queue, entryId, setupGame);
+  await db.addToQueue(queue, entryId, "user-1", user1, setupGame);
 
   kv.close();
 });
@@ -70,8 +70,8 @@ Deno.test("Creates game and retrieves it", async () => {
   const entryId2 = "test-entry-game-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, "user-1", user1, setupGame);
+  await db.addToQueue(queue, entryId2, "user-2", user2, setupGame);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -83,7 +83,7 @@ Deno.test("Creates game and retrieves it", async () => {
   const gameData = await db.getGameStorageData(gameId);
   assertExists(gameData);
   assertEquals(gameData.gameState, 1);
-  assertExists(gameData.sessionTokens);
+  assertExists(gameData.playerUserIds);
 
   kv.close();
 });
@@ -102,8 +102,8 @@ Deno.test("Updates game data", async () => {
   const entryId2 = "test-entry-update-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, "user-1", user1, setupGame);
+  await db.addToQueue(queue, entryId2, "user-2", user2, setupGame);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -118,7 +118,7 @@ Deno.test("Updates game data", async () => {
   const updatedData = {
     ...gameData,
     gameState: 2,
-    isComplete: false,
+    outcome: undefined,
     version: gameData.version + 1,
   };
 
@@ -144,8 +144,8 @@ Deno.test("Watches for game changes", async () => {
   const entryId2 = "test-entry-watch-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, "user-1", user1, setupGame);
+  await db.addToQueue(queue, entryId2, "user-2", user2, setupGame);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -163,7 +163,7 @@ Deno.test("Watches for game changes", async () => {
   const updatedData = {
     ...gameData,
     gameState: 2,
-    isComplete: false,
+    outcome: undefined,
     version: gameData.version + 1,
   };
 
@@ -193,8 +193,8 @@ Deno.test("Completes game", async () => {
   const entryId2 = "test-entry-complete-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, "user-1", user1, setupGame);
+  await db.addToQueue(queue, entryId2, "user-2", user2, setupGame);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -209,7 +209,7 @@ Deno.test("Completes game", async () => {
   const updatedData = {
     ...gameData,
     gameState: 3,
-    isComplete: true,
+    outcome: "finished",
     version: gameData.version + 1,
   };
 
@@ -217,7 +217,7 @@ Deno.test("Completes game", async () => {
 
   // Should still be able to get game data even after completion
   const retrievedData = await db.getGameStorageData(gameId);
-  assertEquals(retrievedData.isComplete, true);
+  assertEquals(retrievedData.outcome, "finished");
 
   kv.close();
 });
@@ -236,8 +236,8 @@ Deno.test("Lists active games", async () => {
   const entryId2 = "test-entry-active-2";
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, "user-1", user1, setupGame);
+  await db.addToQueue(queue, entryId2, "user-2", user2, setupGame);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -269,8 +269,8 @@ Deno.test("Watches for active game count changes", async () => {
   const entryId1 = "test-entry-count-1";
   const entryId2 = "test-entry-count-2";
 
-  await db.addToQueue(queue, entryId1, setupGame);
-  await db.addToQueue(queue, entryId2, setupGame);
+  await db.addToQueue(queue, entryId1, "user-1", user1, setupGame);
+  await db.addToQueue(queue, entryId2, "user-2", user2, setupGame);
 
   const result = await reader.read();
   await reader.cancel();
@@ -313,12 +313,12 @@ Deno.test("updateGameStorageData with refreshDelay enqueues a game ID with delay
     .set(gameKey, {
       config: undefined,
       gameState: { timestamp: new Date() },
-      sessionTokens: { "session-1": 0, "session-2": 1 },
+      playerUserIds: ["user-1", "user-2"],
       players: [
-        { username: "Player 1" },
-        { username: "Player 2" },
+        { username: "Player 1", isGuest: false },
+        { username: "Player 2", isGuest: false },
       ],
-      isComplete: false,
+      outcome: undefined,
       version: 0,
     })
     .commit();

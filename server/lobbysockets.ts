@@ -1,8 +1,8 @@
 import type { AssignmentStorageData, DB, QueueConfig } from "./db.ts";
-import type { LobbySocketResponse } from "../common/types.ts";
-import type { ActiveGame, SetupObject } from "../types.ts";
+import type { LobbySocketResponse } from "../common/sockettypes.ts";
+import type { ActiveGame, SetupObject, User } from "../types.ts";
 import { ulid } from "@std/ulid";
-import { deepEquals, type Socket } from "./socketutils.ts";
+import { jsonEquals, type Socket } from "./socketutils.ts";
 
 type QueueEntry = {
   queueId: string;
@@ -27,7 +27,6 @@ async function streamToSocket(
 
     const message: LobbySocketResponse = {
       type: "GameAssignment",
-      sessionId: data.value.sessionId,
       gameId: data.value.gameId,
     };
     socket.send(JSON.stringify(message));
@@ -90,6 +89,8 @@ export class LobbySocketStore {
   public async joinQueue<Config, GameState>(
     socket: Socket,
     queueConfig: QueueConfig<Config>,
+    userId: string,
+    user: User,
     setupGame: (o: SetupObject<Config>) => GameState,
   ) {
     const entryId = ulid();
@@ -100,7 +101,7 @@ export class LobbySocketStore {
     const message: LobbySocketResponse = { type: "QueueJoined" };
     socket.send(JSON.stringify(message));
 
-    await this.db.addToQueue(queueConfig, entryId, setupGame);
+    await this.db.addToQueue(queueConfig, entryId, userId, user, setupGame);
 
     const connectionData = this.sockets.get(socket);
     if (connectionData) {
@@ -140,7 +141,7 @@ function updateActiveGamesIfNecessary(
   connectionData: ConnectionData,
   activeGames: ActiveGame[],
 ) {
-  if (deepEquals(connectionData.lastValue, activeGames)) {
+  if (jsonEquals(connectionData.lastValue, activeGames)) {
     return;
   }
 

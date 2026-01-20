@@ -59,29 +59,28 @@ The server-side code is organized around WebSocket handling:
 - `server/gamedata.ts` - Core game state management and move processing
 - Socket handlers:
   - `server/lobbysockets.ts` - Matchmaking and lobby functionality
-  - `server/playsockets.ts` - Active game play WebSocket handling
-  - `server/observesockets.ts` - Observer WebSocket handling
+  - `server/gamesockets.ts` - Player and observer WebSocket handling
 
 ### Client Architecture
 
 Client-side hooks are organized by functionality:
 
 - `client/lobbyhooks.ts` - Lobby and matchmaking state management
-- `client/playhooks.ts` - Active game play state management
-- `client/observehooks.ts` - Game observation state management
+- `client/gamehooks.ts` - Game play and observation state management
 - `client/hookutils.ts` - Shared utilities for WebSocket management
 
 ### Game Interface
 
 Games must implement the
-`Game<Config, GameState, Move, PlayerState, ObserverState>` interface defined in
-`types.ts`:
+`Game<Config, GameState, Move, PlayerState, PublicState, Outcome>` interface
+defined in `types.ts`:
 
 - `Config` - Configuration type (structured clone compatible)
 - `GameState` - Game state type (structured clone compatible)
 - `Move` - Move type (JSON serializable)
 - `PlayerState` - Player state type (JSON serializable)
-- `ObserverState` - Observer state type (JSON serializable)
+- `PublicState` - Observer state type (JSON serializable)
+- `Outcome` - Outcome type (JSON serializable)
 
 Key methods:
 
@@ -89,8 +88,8 @@ Key methods:
 - `isValidMove()` - Validate player moves
 - `processMove()` - Apply moves to game state
 - `playerState()` - Generate player-specific views
-- `observerState()` - Generate observer views
-- `isComplete()` - Check if game is finished
+- `publicState()` - Generate observer views
+- `outcome()` - Check if game is finished and report the result
 - Optional: `refreshTimeout()` and `refresh()` for time-based mechanics
 
 ### Database Layer
@@ -104,10 +103,9 @@ Uses Deno KV for:
 
 ### WebSocket Communication
 
-Three types of WebSocket connections:
-
 1. **Lobby sockets** - Handle matchmaking, queue joining/leaving
-2. **Play sockets** - Handle moves and game state updates for active players
-3. **Observe sockets** - Handle read-only game observation
+2. **Game sockets** - Handle moves and game state updates for both players and
+   observers
 
-Each socket type has its own message protocol defined in `common/types.ts`.
+Each socket type has its own message protocol defined in
+`common/sockettypes.ts`.

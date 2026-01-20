@@ -3,15 +3,16 @@ import { useSocket } from "../client/hookutils.ts";
 import type {
   LobbySocketRequest,
   LobbySocketResponse,
-} from "../common/types.ts";
+} from "../common/sockettypes.ts";
 import type { LobbyProps, LobbyViewProps } from "../types.ts";
 
 export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
   socketUrl: string;
   initialLobbyProps: LobbyProps;
-  navigate: (gameId: string, sessionId: string) => void;
+  navigate: (gameId: string) => void;
 }): LobbyViewProps {
   const [activeGames, setActiveGames] = useState(initialLobbyProps.activeGames);
+  const [user, setUser] = useState(initialLobbyProps.user);
   const [isQueued, setIsQueued] = useState(false);
 
   function onUpdate(response: LobbySocketResponse) {
@@ -26,7 +27,10 @@ export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
         setActiveGames(response.activeGames);
         break;
       case "GameAssignment":
-        navigate(response.gameId, response.sessionId);
+        navigate(response.gameId);
+        break;
+      case "UserUpdated":
+        setUser(response.user);
         break;
     }
   }
@@ -54,5 +58,9 @@ export function useLobbySocket({ socketUrl, initialLobbyProps, navigate }: {
     send({ type: "LeaveQueue" });
   }, [send]);
 
-  return { activeGames, joinQueue, isQueued, leaveQueue };
+  const updateUsername = useCallback((username: string) => {
+    send({ type: "UpdateUsername", username });
+  }, [send]);
+
+  return { activeGames, user, joinQueue, isQueued, leaveQueue, updateUsername };
 }
