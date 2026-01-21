@@ -5,6 +5,7 @@ import type {
 } from "./common/sockettypes.ts";
 import {
   fetchActiveGames,
+  fetchAvailableRooms,
   getPlayerId,
   getPlayerState,
   getPublicState,
@@ -51,8 +52,13 @@ export async function initializeServer<
 
   const activeGamesStream: ReadableStream<ActiveGame[]> = db
     .watchForActiveGameListChanges();
+  const availableRoomsStream = db.watchForAvailableRoomListChanges();
 
-  const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
+  const lobbySocketStore = new LobbySocketStore(
+    db,
+    activeGamesStream,
+    availableRoomsStream,
+  );
   const gameSocketStore = new GameSocketStore<
     Config,
     GameState,
@@ -103,8 +109,9 @@ class Server<
 
   async getInitialLobbyProps(
     token: string | undefined,
-  ): Promise<{ props: LobbyProps; token: string }> {
+  ): Promise<{ props: LobbyProps<Config>; token: string }> {
     const activeGames = await fetchActiveGames(this.db);
+    const availableRooms = await fetchAvailableRooms<Config>(this.db);
     let user: User | null = null;
     let lobbyToken = token;
 
@@ -132,7 +139,7 @@ class Server<
       throw new Error("Missing lobby user");
     }
 
-    return { props: { activeGames, user }, token: lobbyToken };
+    return { props: { activeGames, availableRooms, user }, token: lobbyToken };
   }
 
   async getInitialGameProps(
@@ -195,10 +202,16 @@ class Server<
     const handleLobbySocketMessage = async (event: MessageEvent) => {
       const message = event.data;
       console.log("Lobby Socket Message", message);
-      const parsedMessage: LobbySocketRequest<Loadout> = JSON.parse(message);
+      const parsedMessage: LobbySocketRequest<Config, Loadout> = JSON.parse(
+        message,
+      );
       switch (parsedMessage.type) {
         case "Initialize":
-          this.lobbySocketStore.initialize(socket, parsedMessage.activeGames);
+          this.lobbySocketStore.initialize(
+            socket,
+            parsedMessage.activeGames,
+            parsedMessage.availableRooms,
+          );
           break;
         case "JoinQueue": {
           const queue = this.game.queues[parsedMessage.queueId];
@@ -210,8 +223,10 @@ class Server<
             return;
           }
           if (
-            this.game.isValidLoadout != null &&
-            !this.game.isValidLoadout(parsedMessage.loadout, queue.config)
+            this.game.isValidLoadout?.(
+              parsedMessage.loadout,
+              queue.config,
+            ) ?? false
           ) {
             socket.send(JSON.stringify(
               {
@@ -236,8 +251,106 @@ class Server<
           );
           break;
         }
-        case "LeaveQueue":
-          await this.lobbySocketStore.leaveQueue(socket);
+        case "CreateAndJoinRoom": {
+          if (!(this.game.isValidRoom?.(parsedMessage.config) ?? false)) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Invalid room config.",
+              },
+            ));
+            return;
+          }
+
+          if (
+            !(this.game.isValidLoadout?.(
+              parsedMessage.loadout,
+              parsedMessage.config,
+            ) ?? false)
+          ) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Invalid loadout.",
+              },
+            ));
+            return;
+          }
+
+          await this.lobbySocketStore.createAndJoinRoom(
+            socket,
+            {
+              numPlayers: parsedMessage.numPlayers,
+              config: parsedMessage.config,
+              private: parsedMessage.private,
+            },
+            userId,
+            user,
+            parsedMessage.loadout,
+          );
+          break;
+        }
+        case "JoinRoom": {
+          const room = await this.db.getRoom<Config>(parsedMessage.roomId);
+          if (room == null) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Room not found.",
+              },
+            ));
+            return;
+          }
+          if (
+            this.game.isValidLoadout?.(
+              parsedMessage.loadout,
+              room.config,
+            ) ?? false
+          ) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Invalid loadout.",
+              },
+            ));
+            return;
+          }
+          if (room.memberCount >= room.numPlayers) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Room is full.",
+              },
+            ));
+            return;
+          }
+          const joined = await this.lobbySocketStore.joinRoom(
+            socket,
+            parsedMessage.roomId,
+            room,
+            userId,
+            user,
+            parsedMessage.loadout,
+          );
+          if (!joined) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Unable to join room.",
+              },
+            ));
+          }
+          break;
+        }
+        case "CommitRoom": {
+          await this.db.commitRoom(
+            parsedMessage.roomId,
+            this.game.setup,
+          );
+          break;
+        }
+        case "LeaveMatchmaking":
+          await this.lobbySocketStore.leaveMatchmaking(socket);
           break;
         case "UpdateUsername": {
           const newUsername = parsedMessage.username;

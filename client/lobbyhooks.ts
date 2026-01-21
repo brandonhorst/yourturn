@@ -4,33 +4,58 @@ import type {
   LobbySocketRequest,
   LobbySocketResponse,
 } from "../common/sockettypes.ts";
-import type { LobbyProps, LobbyViewProps } from "../types.ts";
+import type {
+  CurrentMatchmaking,
+  LobbyProps,
+  LobbyViewProps,
+} from "../types.ts";
 
-export function useLobbySocket<Loadout>({
+export function useLobbySocket<Config, Loadout>({
   socketUrl,
   initialLobbyProps,
   navigate,
   displayError,
 }: {
   socketUrl: string;
-  initialLobbyProps: LobbyProps;
+  initialLobbyProps: LobbyProps<Config>;
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
-}): LobbyViewProps<Loadout> {
+}): LobbyViewProps<Config, Loadout> {
   const [activeGames, setActiveGames] = useState(initialLobbyProps.activeGames);
+  const [availableRooms, setAvailableRooms] = useState(
+    initialLobbyProps.availableRooms,
+  );
   const [user, setUser] = useState(initialLobbyProps.user);
-  const [isQueued, setIsQueued] = useState(false);
+  const [currentMatchmaking, setCurrentMatchmaking] = useState<
+    CurrentMatchmaking<Config, Loadout> | undefined
+  >(undefined);
 
-  function onUpdate(response: LobbySocketResponse) {
+  function onUpdate(response: LobbySocketResponse<Config, Loadout>) {
     switch (response.type) {
       case "QueueJoined":
-        setIsQueued(true);
+        setCurrentMatchmaking({
+          type: "queue",
+          queueId: response.queueId,
+          loadout: response.loadout,
+        });
+        break;
+      case "RoomJoined":
+        setCurrentMatchmaking({
+          type: "room",
+          roomId: response.roomId,
+          config: response.config,
+          loadout: response.loadout,
+        });
         break;
       case "QueueLeft":
-        setIsQueued(false);
+      case "RoomLeft":
+        setCurrentMatchmaking(undefined);
         break;
       case "UpdateActiveGames":
         setActiveGames(response.activeGames);
+        break;
+      case "UpdateAvailableRooms":
+        setAvailableRooms(response.availableRooms);
         break;
       case "GameAssignment":
         navigate(response.gameId);
@@ -45,13 +70,16 @@ export function useLobbySocket<Loadout>({
   }
 
   function onClose() {
-    setIsQueued(false);
+    setCurrentMatchmaking(undefined);
   }
 
-  const send = useSocket<LobbySocketRequest<Loadout>, LobbySocketResponse>(
+  const send = useSocket<
+    LobbySocketRequest<Config, Loadout>,
+    LobbySocketResponse<Config, Loadout>
+  >(
     true,
     () => new WebSocket(socketUrl),
-    { type: "Initialize", activeGames },
+    { type: "Initialize", activeGames, availableRooms },
     onUpdate,
     onClose,
   );
@@ -63,13 +91,51 @@ export function useLobbySocket<Loadout>({
     [send],
   );
 
-  const leaveQueue = useCallback(() => {
-    send({ type: "LeaveQueue" });
+  const createAndJoinRoom = useCallback(
+    (
+      options: { config: Config; numPlayers: number; private: boolean },
+      player: { loadout: Loadout },
+    ) => {
+      send({
+        type: "CreateAndJoinRoom",
+        config: options.config,
+        numPlayers: options.numPlayers,
+        private: options.private,
+        loadout: player.loadout,
+      });
+    },
+    [send],
+  );
+
+  const joinRoom = useCallback(
+    (roomId: string, options: { loadout: Loadout }) => {
+      send({ type: "JoinRoom", roomId, loadout: options.loadout });
+    },
+    [send],
+  );
+
+  const commitRoom = useCallback((roomId: string) => {
+    send({ type: "CommitRoom", roomId });
+  }, [send]);
+
+  const leaveMatchmaking = useCallback(() => {
+    send({ type: "LeaveMatchmaking" });
   }, [send]);
 
   const updateUsername = useCallback((username: string) => {
     send({ type: "UpdateUsername", username });
   }, [send]);
 
-  return { activeGames, user, joinQueue, isQueued, leaveQueue, updateUsername };
+  return {
+    activeGames,
+    availableRooms,
+    user,
+    joinQueue,
+    createAndJoinRoom,
+    joinRoom,
+    commitRoom,
+    currentMatchmaking,
+    leaveMatchmaking,
+    updateUsername,
+  };
 }

@@ -12,7 +12,12 @@ Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
-  const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
+  const availableRoomsStream = db.watchForAvailableRoomListChanges();
+  const lobbySocketStore = new LobbySocketStore(
+    db,
+    activeGamesStream,
+    availableRoomsStream,
+  );
 
   // Register a socket
   const socket = { send: spy() };
@@ -36,7 +41,12 @@ Deno.test("joins and leaves a queue", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
-  const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
+  const availableRoomsStream = db.watchForAvailableRoomListChanges();
+  const lobbySocketStore = new LobbySocketStore(
+    db,
+    activeGamesStream,
+    availableRoomsStream,
+  );
 
   const setupGame = () => 1;
 
@@ -59,7 +69,7 @@ Deno.test("joins and leaves a queue", async () => {
   // We can't directly access the private fields, but we can test functionality
 
   // Leave the queue
-  await lobbySocketStore.leaveQueue(socket);
+  await lobbySocketStore.leaveMatchmaking(socket);
 
   // Verify we can join again (which would fail if not properly removed)
   await lobbySocketStore.joinQueue(
@@ -72,7 +82,7 @@ Deno.test("joins and leaves a queue", async () => {
   );
 
   // Clean up
-  await lobbySocketStore.leaveQueue(socket);
+  await lobbySocketStore.leaveMatchmaking(socket);
   await lobbySocketStore.unregister(socket);
 
   kv.close();
@@ -82,7 +92,12 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
-  const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
+  const availableRoomsStream = db.watchForAvailableRoomListChanges();
+  const lobbySocketStore = new LobbySocketStore(
+    db,
+    activeGamesStream,
+    availableRoomsStream,
+  );
 
   const setupGame = () => 1;
 
@@ -168,7 +183,12 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
-  const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
+  const availableRoomsStream = db.watchForAvailableRoomListChanges();
+  const lobbySocketStore = new LobbySocketStore(
+    db,
+    activeGamesStream,
+    availableRoomsStream,
+  );
 
   const setupGame = () => 1;
 
@@ -255,7 +275,12 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
-  const lobbySocketStore = new LobbySocketStore(db, activeGamesStream);
+  const availableRoomsStream = db.watchForAvailableRoomListChanges();
+  const lobbySocketStore = new LobbySocketStore(
+    db,
+    activeGamesStream,
+    availableRoomsStream,
+  );
 
   // Create a simple setup function (not a spy anymore)
   const setupGame = () => 1;
@@ -320,5 +345,57 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
   await lobbySocketStore.unregister(socket2);
   await lobbySocketStore.unregister(socket3);
 
+  kv.close();
+});
+
+Deno.test("players can create and leave a room", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const db = new DB(kv);
+  const activeGamesStream = db.watchForActiveGameListChanges();
+  const availableRoomsStream = db.watchForAvailableRoomListChanges();
+  const lobbySocketStore = new LobbySocketStore(
+    db,
+    activeGamesStream,
+    availableRoomsStream,
+  );
+
+  const socket = { send: spy() };
+  lobbySocketStore.register(socket);
+
+  await lobbySocketStore.createAndJoinRoom(
+    socket,
+    { numPlayers: 2, config: { mode: "test" }, private: false },
+    "user-1",
+    user1,
+    loadout,
+  );
+
+  let joinedMessage;
+  for (const call of socket.send.calls) {
+    const message = JSON.parse(call.args[0]);
+    if (message.type === "RoomJoined") {
+      joinedMessage = message;
+      break;
+    }
+  }
+
+  assertExists(joinedMessage);
+  assertEquals(joinedMessage.type, "RoomJoined");
+
+  await lobbySocketStore.leaveMatchmaking(socket);
+
+  let leftMessage;
+  for (const call of socket.send.calls) {
+    const message = JSON.parse(call.args[0]);
+    if (message.type === "RoomLeft") {
+      leftMessage = message;
+      break;
+    }
+  }
+
+  assertExists(leftMessage);
+  assertEquals(leftMessage.type, "RoomLeft");
+
+  await lobbySocketStore.unregister(socket);
   kv.close();
 });

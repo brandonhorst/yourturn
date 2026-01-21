@@ -5,10 +5,17 @@ import type {
   OutcomeObject,
   PlayerStateObject,
   PublicStateObject,
+  Room,
 } from "../types.ts";
 
 export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
   return await db.getAllActiveGames();
+}
+
+export async function fetchAvailableRooms<Config>(
+  db: DB,
+): Promise<Room<Config>[]> {
+  return await db.getAllAvailableRooms<Config>();
 }
 
 export function getPlayerId<Config, GameState, Outcome>(

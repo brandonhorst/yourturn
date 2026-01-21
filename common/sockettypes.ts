@@ -1,15 +1,31 @@
-import type { ActiveGame, User } from "../types.ts";
+import type { ActiveGame, Room, User } from "../types.ts";
 
-export type LobbySocketRequest<Loadout> =
-  | { type: "Initialize"; activeGames: ActiveGame[] }
+export type LobbySocketRequest<Config, Loadout> =
+  | {
+    type: "Initialize";
+    activeGames: ActiveGame[];
+    availableRooms: Room<Config>[];
+  }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
-  | { type: "LeaveQueue" }
+  | {
+    type: "CreateAndJoinRoom";
+    config: Config;
+    numPlayers: number;
+    private: boolean;
+    loadout: Loadout;
+  }
+  | { type: "JoinRoom"; roomId: string; loadout: Loadout }
+  | { type: "CommitRoom"; roomId: string }
+  | { type: "LeaveMatchmaking" }
   | { type: "UpdateUsername"; username: string };
 
-export type LobbySocketResponse =
-  | { type: "QueueJoined" }
+export type LobbySocketResponse<Config, Loadout> =
+  | { type: "QueueJoined"; queueId: string; loadout: Loadout }
+  | { type: "RoomJoined"; roomId: string; config: Config; loadout: Loadout }
   | { type: "QueueLeft" }
+  | { type: "RoomLeft" }
   | { type: "UpdateActiveGames"; activeGames: ActiveGame[] }
+  | { type: "UpdateAvailableRooms"; availableRooms: Room<Config>[] }
   | { type: "GameAssignment"; gameId: string }
   | { type: "UserUpdated"; user: User }
   | { type: "DisplayError"; message: string };

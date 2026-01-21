@@ -152,6 +152,15 @@ export interface Game<
   isValidLoadout?(loadout: Loadout, config: Config): boolean;
 
   /**
+   * Validates whether a room configuration is acceptable.
+   * When omitted, rooms cannot be created or joined.
+   *
+   * @param config - Configuration for the room being created or joined
+   * @returns True if the room configuration is valid, false otherwise
+   */
+  isValidRoom?(config: Config): boolean;
+
+  /**
    * Processes a player's move and updates the game state accordingly.
    * Only called if isValidMove returns true for the given move.
    *
@@ -219,8 +228,16 @@ export type ActiveGame = {
   gameId: string;
 };
 
-export type LobbyProps = {
+export type Room<Config> = {
+  roomId: string;
+  numPlayers: number;
+  players: User[];
+  config: Config;
+};
+
+export type LobbyProps<Config> = {
   activeGames: ActiveGame[];
+  availableRooms: Room<Config>[];
   user: User;
 };
 
@@ -284,11 +301,21 @@ export type GameViewProps<Move, PlayerState, PublicState, Outcome> =
   | IncompletePlayerViewProps<Move, PlayerState, PublicState>
   | ObserveViewProps<PublicState, Outcome>;
 
-export type LobbyViewProps<Loadout> =
-  & LobbyProps
+export type CurrentMatchmaking<Config, Loadout> =
+  | { type: "queue"; queueId: string; loadout: Loadout }
+  | { type: "room"; roomId: string; config: Config; loadout: Loadout };
+
+export type LobbyViewProps<Config, Loadout> =
+  & LobbyProps<Config>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
-    isQueued: boolean;
-    leaveQueue: () => void;
+    createAndJoinRoom: (
+      options: { config: Config; numPlayers: number; private: boolean },
+      player: { loadout: Loadout },
+    ) => void;
+    joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
+    commitRoom: (roomId: string) => void;
+    currentMatchmaking: CurrentMatchmaking<Config, Loadout> | undefined;
+    leaveMatchmaking: () => void;
     updateUsername: (username: string) => void;
   };

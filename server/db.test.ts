@@ -292,3 +292,83 @@ Deno.test("Handles errors for non-existent games", async () => {
 
   kv.close();
 });
+
+Deno.test("Creates rooms and lists available rooms", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const db = new DB(kv);
+
+  const roomId = "room-1";
+  const roomConfig = {
+    numPlayers: 2,
+    config: { mode: "test" },
+    private: false,
+  };
+
+  await db.createRoom(roomId, roomConfig);
+  await db.addToRoom(roomId, "entry-1", "user-1", user1, loadout);
+
+  const rooms = await db.getAllAvailableRooms<{ mode: string }>();
+  assertEquals(rooms.length, 1);
+  assertEquals(rooms[0].roomId, roomId);
+  assertEquals(rooms[0].numPlayers, 2);
+  assertEquals(rooms[0].players.length, 1);
+
+  kv.close();
+});
+
+Deno.test("Excludes private rooms from available rooms", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const db = new DB(kv);
+
+  const roomId = "room-private";
+  const roomConfig = {
+    numPlayers: 2,
+    config: { mode: "test" },
+    private: true,
+  };
+
+  await db.createRoom(roomId, roomConfig);
+  await db.addToRoom(roomId, "entry-1", "user-1", user1, loadout);
+
+  const rooms = await db.getAllAvailableRooms<{ mode: string }>();
+  assertEquals(rooms.length, 0);
+
+  kv.close();
+});
+
+Deno.test("Commits room and assigns players", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const db = new DB(kv);
+
+  const roomId = "room-commit";
+  const roomConfig = {
+    numPlayers: 2,
+    config: { mode: "test" },
+    private: false,
+  };
+
+  await db.createRoom(roomId, roomConfig);
+  await db.addToRoom(roomId, "entry-1", "user-1", user1, loadout);
+  await db.addToRoom(roomId, "entry-2", "user-2", user2, loadout);
+
+  const assignmentStream1 = db.watchForAssignments("entry-1");
+  const assignmentStream2 = db.watchForAssignments("entry-2");
+
+  await db.commitRoom(roomId, setupGame);
+
+  const reader1 = assignmentStream1.getReader();
+  const reader2 = assignmentStream2.getReader();
+  const result1 = await reader1.read();
+  const result2 = await reader2.read();
+  await reader1.cancel();
+  await reader2.cancel();
+
+  assertExists(result1.value);
+  assertExists(result2.value);
+  assertEquals(result1.value.gameId, result2.value.gameId);
+
+  const rooms = await db.getAllAvailableRooms<{ mode: string }>();
+  assertEquals(rooms.length, 0);
+
+  kv.close();
+});

@@ -1,18 +1,32 @@
-import type { AssignmentStorageData, DB, QueueConfig } from "./db.ts";
+import type {
+  AssignmentStorageData,
+  DB,
+  QueueConfig,
+  RoomStorageData,
+} from "./db.ts";
 import type { LobbySocketResponse } from "../common/sockettypes.ts";
-import type { ActiveGame, SetupObject, User } from "../types.ts";
+import type { ActiveGame, Room, SetupObject, User } from "../types.ts";
 import { ulid } from "@std/ulid";
 import { jsonEquals, type Socket } from "./socketutils.ts";
 
-type QueueEntry = {
-  queueId: string;
-  entryId: string;
-  assignmentsReader: ReadableStreamDefaultReader;
-};
+type MatchmakingEntry =
+  | {
+    type: "queue";
+    queueId: string;
+    entryId: string;
+    assignmentsReader: ReadableStreamDefaultReader;
+  }
+  | {
+    type: "room";
+    roomId: string;
+    entryId: string;
+    assignmentsReader: ReadableStreamDefaultReader;
+  };
 
 type ConnectionData = {
-  queueEntry?: Readonly<QueueEntry>;
-  lastValue: ActiveGame[];
+  matchmakingEntry?: Readonly<MatchmakingEntry>;
+  lastActiveGames: ActiveGame[];
+  lastAvailableRooms: Room<unknown>[];
 };
 
 async function streamToSocket(
@@ -25,7 +39,7 @@ async function streamToSocket(
       break;
     }
 
-    const message: LobbySocketResponse = {
+    const message: LobbySocketResponse<unknown, unknown> = {
       type: "GameAssignment",
       gameId: data.value.gameId,
     };
@@ -36,29 +50,45 @@ async function streamToSocket(
 export class LobbySocketStore {
   private sockets: Map<Socket, ConnectionData> = new Map();
   private lastActiveGames: ActiveGame[] = [];
+  private lastAvailableRooms: Room<unknown>[] = [];
 
   constructor(
     private db: DB,
     activeGamesStream: ReadableStream<ActiveGame[]>,
+    availableRoomsStream: ReadableStream<Room<unknown>[]>,
   ) {
     this.streamToAllSocketAndStore(activeGamesStream);
+    this.streamRoomsToAllSocketAndStore(availableRoomsStream);
   }
   register(socket: Socket) {
-    this.sockets.set(socket, { lastValue: [] });
+    this.sockets.set(socket, {
+      lastActiveGames: [],
+      lastAvailableRooms: [],
+    });
   }
 
-  initialize(socket: Socket, activeGames: ActiveGame[]) {
+  initialize(
+    socket: Socket,
+    activeGames: ActiveGame[],
+    availableRooms: Room<unknown>[],
+  ) {
     const connectionData = this.sockets.get(socket);
     if (connectionData == null) {
       return;
     }
-    connectionData.lastValue = activeGames;
+    connectionData.lastActiveGames = activeGames;
+    connectionData.lastAvailableRooms = availableRooms;
 
     updateActiveGamesIfNecessary(socket, connectionData, this.lastActiveGames);
+    updateAvailableRoomsIfNecessary(
+      socket,
+      connectionData,
+      this.lastAvailableRooms,
+    );
   }
 
   async unregister(socket: Socket) {
-    await this.leaveQueue(socket);
+    await this.leaveMatchmaking(socket);
     this.sockets.delete(socket);
   }
 
@@ -83,6 +113,26 @@ export class LobbySocketStore {
     );
   }
 
+  private streamRoomsToAllSocketAndStore(
+    availableRoomsStream: ReadableStream<Room<unknown>[]>,
+  ) {
+    availableRoomsStream.pipeTo(
+      new WritableStream({
+        write: (availableRooms: Room<unknown>[]) => {
+          this.lastAvailableRooms = availableRooms;
+
+          for (const socket of this.allSockets()) {
+            updateAvailableRoomsIfNecessary(
+              socket,
+              this.sockets.get(socket)!,
+              availableRooms,
+            );
+          }
+        },
+      }),
+    );
+  }
+
   // Creates a new queue entry, assigns it to the given queue in the database,
   // and stores the socket. Watches for assignments, and when an assignment is
   // made, sends it to the socket.
@@ -99,7 +149,11 @@ export class LobbySocketStore {
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
     streamToSocket(assignmentsReader, socket);
 
-    const message: LobbySocketResponse = { type: "QueueJoined" };
+    const message: LobbySocketResponse<Config, Loadout> = {
+      type: "QueueJoined",
+      queueId: queueConfig.queueId,
+      loadout,
+    };
     socket.send(JSON.stringify(message));
 
     await this.db.addToQueue(
@@ -113,7 +167,8 @@ export class LobbySocketStore {
 
     const connectionData = this.sockets.get(socket);
     if (connectionData) {
-      connectionData.queueEntry = {
+      connectionData.matchmakingEntry = {
+        type: "queue",
         queueId: queueConfig.queueId,
         entryId,
         assignmentsReader,
@@ -121,22 +176,111 @@ export class LobbySocketStore {
     }
   }
 
-  // Removes the queue entry from the database and stops watching for assignments.
-  async leaveQueue(socket: Socket) {
-    const connectionData = this.sockets.get(socket);
-    const queueEntry = connectionData?.queueEntry;
+  public async createAndJoinRoom<Config, Loadout>(
+    socket: Socket,
+    roomConfig: { numPlayers: number; config: Config; private: boolean },
+    userId: string,
+    user: User,
+    loadout: Loadout,
+  ) {
+    const roomId = ulid();
+    const roomData: RoomStorageData<Config> = {
+      numPlayers: roomConfig.numPlayers,
+      config: roomConfig.config,
+      private: roomConfig.private,
+      memberCount: 0,
+    };
+    await this.db.createRoom(roomId, roomConfig);
+    await this.joinRoom(
+      socket,
+      roomId,
+      roomData,
+      userId,
+      user,
+      loadout,
+    );
+  }
 
-    if (queueEntry == null) {
+  public async joinRoom<Config, Loadout>(
+    socket: Socket,
+    roomId: string,
+    roomConfig: RoomStorageData<Config>,
+    userId: string,
+    user: User,
+    loadout: Loadout,
+  ): Promise<boolean> {
+    const entryId = ulid();
+
+    const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
+    streamToSocket(assignmentsReader, socket);
+
+    const joinResult = await this.db.addToRoom(
+      roomId,
+      entryId,
+      userId,
+      user,
+      loadout,
+    );
+    if (joinResult !== "joined") {
+      assignmentsReader.cancel();
+      assignmentsReader.releaseLock();
+      return false;
+    }
+
+    const message: LobbySocketResponse<Config, Loadout> = {
+      type: "RoomJoined",
+      roomId,
+      config: roomConfig.config,
+      loadout,
+    };
+    socket.send(JSON.stringify(message));
+
+    const connectionData = this.sockets.get(socket);
+    if (connectionData) {
+      connectionData.matchmakingEntry = {
+        type: "room",
+        roomId,
+        entryId,
+        assignmentsReader,
+      };
+    }
+
+    return true;
+  }
+
+  // Removes the matchmaking entry from the database and stops watching assignments.
+  async leaveMatchmaking(socket: Socket) {
+    const connectionData = this.sockets.get(socket);
+    const matchmakingEntry = connectionData?.matchmakingEntry;
+
+    if (matchmakingEntry == null) {
       return;
     }
 
-    queueEntry.assignmentsReader.cancel();
-    queueEntry.assignmentsReader.releaseLock();
-    await this.db.removeFromQueue(queueEntry.queueId, queueEntry.entryId);
-    delete connectionData?.queueEntry;
+    matchmakingEntry.assignmentsReader.cancel();
+    matchmakingEntry.assignmentsReader.releaseLock();
 
-    const message: LobbySocketResponse = { type: "QueueLeft" };
-    socket.send(JSON.stringify(message));
+    if (matchmakingEntry.type === "queue") {
+      await this.db.removeFromQueue(
+        matchmakingEntry.queueId,
+        matchmakingEntry.entryId,
+      );
+      const message: LobbySocketResponse<unknown, unknown> = {
+        type: "QueueLeft",
+      };
+      socket.send(JSON.stringify(message));
+    } else {
+      await this.db.removeFromRoom(
+        matchmakingEntry.roomId,
+        matchmakingEntry.entryId,
+      );
+      const message: LobbySocketResponse<unknown, unknown> = {
+        type: "RoomLeft",
+      };
+      socket.send(JSON.stringify(message));
+    }
+
+    delete connectionData?.matchmakingEntry;
   }
 
   allSockets(): Socket[] {
@@ -149,14 +293,31 @@ function updateActiveGamesIfNecessary(
   connectionData: ConnectionData,
   activeGames: ActiveGame[],
 ) {
-  if (jsonEquals(connectionData.lastValue, activeGames)) {
+  if (jsonEquals(connectionData.lastActiveGames, activeGames)) {
     return;
   }
 
-  const response: LobbySocketResponse = {
+  const response: LobbySocketResponse<unknown, unknown> = {
     type: "UpdateActiveGames",
     activeGames,
   };
-  connectionData.lastValue = activeGames;
+  connectionData.lastActiveGames = activeGames;
+  socket.send(JSON.stringify(response));
+}
+
+function updateAvailableRoomsIfNecessary(
+  socket: Socket,
+  connectionData: ConnectionData,
+  availableRooms: Room<unknown>[],
+) {
+  if (jsonEquals(connectionData.lastAvailableRooms, availableRooms)) {
+    return;
+  }
+
+  const response: LobbySocketResponse<unknown, unknown> = {
+    type: "UpdateAvailableRooms",
+    availableRooms,
+  };
+  connectionData.lastAvailableRooms = availableRooms;
   socket.send(JSON.stringify(response));
 }
