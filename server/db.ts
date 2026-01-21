@@ -41,7 +41,6 @@ export type GameStorageData<Config, GameState, Outcome> = {
   playerUserIds: string[];
   players: User[];
   outcome: Outcome | undefined;
-  version: number;
 };
 
 export type AssignmentStorageData = {
@@ -315,7 +314,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
         playerUserIds,
         players,
         outcome: undefined,
-        version: 0,
       };
       const activeGames = activeGamesEntry.value ?? [];
       const activeGamesNext = activeGames.some((game) => game.gameId === gameId)
@@ -411,7 +409,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
         playerUserIds,
         players,
         outcome: undefined,
-        version: 0,
       };
       const activeGames = activeGamesEntry.value ?? [];
       const activeGamesNext = activeGames.some((game) => game.gameId === gameId)

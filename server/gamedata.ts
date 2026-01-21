@@ -123,7 +123,6 @@ async function updateGameState<
     ...gameData,
     gameState: newState,
     outcome,
-    version: gameData.version + 1,
   };
 
   await db.updateGameStorageData(gameId, newGameData);

@@ -129,7 +129,6 @@ Deno.test("fetchActiveGames returns active games from the database", async () =>
       playerUserIds: [],
       players,
       outcome: undefined,
-      version: 0,
     };
 
     await kv.set(getGameKey(gameId), gameData);
@@ -165,7 +164,6 @@ Deno.test("getPlayerState returns correct player state", async () => {
     playerUserIds,
     players,
     outcome: undefined,
-    version: 0,
   };
 
   // Set up active game list and game data
@@ -210,7 +208,6 @@ Deno.test("getPlayerState handles completed games", async () => {
     playerUserIds,
     players,
     outcome: undefined,
-    version: 0,
   };
 
   // Set up active game list and game data
@@ -222,7 +219,6 @@ Deno.test("getPlayerState handles completed games", async () => {
     gameId,
   );
   gameData.outcome = "done";
-  gameData.version += 1;
   await db.updateGameStorageData(gameId, gameData);
 
   const userId = playerUserIds[0];
@@ -255,7 +251,6 @@ Deno.test("getPublicState returns correct public state", async () => {
     playerUserIds: [],
     players,
     outcome: undefined,
-    version: 0,
   };
 
   // Set up active game list and game data
@@ -291,7 +286,6 @@ Deno.test("getPublicState handles completed games", async () => {
     playerUserIds: [],
     players,
     outcome: undefined,
-    version: 0,
   };
 
   // Set up active game list and game data
@@ -303,7 +297,6 @@ Deno.test("getPublicState handles completed games", async () => {
     gameId,
   );
   gameData.outcome = "done";
-  gameData.version += 1;
   await db.updateGameStorageData(gameId, gameData);
 
   const updatedGameData = await db.getGameStorageData(
@@ -338,7 +331,6 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
     playerUserIds: [],
     players,
     outcome: undefined,
-    version: 0,
   };
 
   // Set up active game list and game data
@@ -358,7 +350,6 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
   assertEquals(updatedGameData.gameState.value, 2);
   assertEquals(updatedGameData.gameState.moveHistory.length, 2);
   assertEquals(updatedGameData.outcome, undefined);
-  assertEquals(updatedGameData.version, 1); // Version should be incremented to 1 after the first move
 
   kv.close();
 });
@@ -389,7 +380,6 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
     playerUserIds: [],
     players,
     outcome: undefined,
-    version: 0,
   };
 
   // Set up active game list and game data
@@ -408,7 +398,6 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
 
   assertEquals(updatedGameData.gameState.value, 5);
   assertEquals(updatedGameData.outcome, "done");
-  assertEquals(updatedGameData.version, 1); // Version should be incremented to 1 after the move
 
   kv.close();
 });
@@ -430,7 +419,6 @@ Deno.test("handleMove rejects invalid moves", async () => {
     playerUserIds: [],
     players,
     outcome: undefined,
-    version: 0,
   };
 
   // Set up active game list and game data
@@ -481,7 +469,6 @@ Deno.test("handleMove doesn't update completed games", async () => {
     playerUserIds: [],
     players,
     outcome: undefined,
-    version: 0,
   };
 
   // Set up active game list and game data
@@ -493,7 +480,6 @@ Deno.test("handleMove doesn't update completed games", async () => {
     gameId,
   );
   gameData.outcome = "done";
-  gameData.version += 1;
   await db.updateGameStorageData(gameId, gameData);
 
   // Store initial state

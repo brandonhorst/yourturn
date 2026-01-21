@@ -119,7 +119,6 @@ Deno.test("Updates game data", async () => {
     ...gameData,
     gameState: 2,
     outcome: undefined,
-    version: gameData.version + 1,
   };
 
   await db.updateGameStorageData(gameId, updatedData);
@@ -164,7 +163,6 @@ Deno.test("Watches for game changes", async () => {
     ...gameData,
     gameState: 2,
     outcome: undefined,
-    version: gameData.version + 1,
   };
 
   await db.updateGameStorageData(gameId, updatedData);
@@ -210,7 +208,6 @@ Deno.test("Completes game", async () => {
     ...gameData,
     gameState: 3,
     outcome: "finished",
-    version: gameData.version + 1,
   };
 
   await db.updateGameStorageData(gameId, updatedData);

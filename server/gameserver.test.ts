@@ -137,7 +137,6 @@ Deno.test("getInitialGameProps returns player state for matching token", async (
     playerUserIds: [userId, "user-2"],
     players,
     outcome: undefined,
-    version: 0,
   };
 
   await kv.set(getGameKey(gameId), gameData);

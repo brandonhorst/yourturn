@@ -20,7 +20,6 @@ function getGameKey(gameId: string) {
 
 function buildGameData(
   value: number,
-  version: number,
   outcome?: TestOutcome,
 ): GameStorageData<TestConfig, TestState, TestOutcome> {
   return {
@@ -29,7 +28,6 @@ function buildGameData(
     playerUserIds: ["user-1", "user-2"],
     players: [user1, user2],
     outcome,
-    version,
   };
 }
 
@@ -61,7 +59,7 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
   >(db);
 
   const gameId = "game-initialize";
-  await kv.set(getGameKey(gameId), buildGameData(0, 0));
+  await kv.set(getGameKey(gameId), buildGameData(0));
 
   const socket = { send: spy() };
   gameSocketStore.register(
@@ -112,7 +110,7 @@ Deno.test("streams updates to player and observer sockets", async () => {
   >(db);
 
   const gameId = "game-stream";
-  await kv.set(getGameKey(gameId), buildGameData(0, 0));
+  await kv.set(getGameKey(gameId), buildGameData(0));
 
   const playerSocket = { send: spy() };
   const observerSocket = { send: spy() };
@@ -150,7 +148,7 @@ Deno.test("streams updates to player and observer sockets", async () => {
     ),
   ]);
 
-  const updatedData = buildGameData(5, 1, "done");
+  const updatedData = buildGameData(5, "done");
   await db.updateGameStorageData(gameId, updatedData);
 
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -198,7 +196,7 @@ Deno.test("unregister stops streaming updates", async () => {
   >(db);
 
   const gameId = "game-unregister";
-  await kv.set(getGameKey(gameId), buildGameData(0, 0));
+  await kv.set(getGameKey(gameId), buildGameData(0));
 
   const socket = { send: spy() };
   gameSocketStore.register(
@@ -223,7 +221,7 @@ Deno.test("unregister stops streaming updates", async () => {
 
   gameSocketStore.unregister(socket, gameId);
 
-  await db.updateGameStorageData(gameId, buildGameData(2, 1));
+  await db.updateGameStorageData(gameId, buildGameData(2));
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   assertEquals(socket.send.calls.length, callCount);
