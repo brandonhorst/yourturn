@@ -37,14 +37,20 @@ export class Server<
       Outcome,
       Loadout
     >,
-    private db: DB,
-    private lobbySocketStore: LobbySocketStore<Config, Loadout>,
+    private db: DB<Config, GameState, Loadout, Outcome>,
+    private lobbySocketStore: LobbySocketStore<
+      Config,
+      GameState,
+      Loadout,
+      Outcome
+    >,
     private gameSocketStore: GameSocketStore<
       Config,
       GameState,
       PlayerState,
       PublicState,
-      Outcome
+      Outcome,
+      Loadout
     >,
   ) {}
 
@@ -52,7 +58,7 @@ export class Server<
     token: string | undefined,
   ): Promise<{ props: LobbyProps<Config>; token: string }> {
     const activeGames = await fetchActiveGames(this.db);
-    const availableRooms = await fetchAvailableRooms<Config, Loadout>(this.db);
+    const availableRooms = await fetchAvailableRooms(this.db);
     let user: User | null = null;
     let lobbyToken = token;
 
@@ -87,13 +93,7 @@ export class Server<
     gameId: string,
     token: string | undefined,
   ): Promise<GameProps<PlayerState, PublicState, Outcome>> {
-    const gameData = await this.db.getGameStorageData<
-      Config,
-      GameState,
-      Outcome
-    >(
-      gameId,
-    );
+    const gameData = await this.db.getGameStorageData(gameId);
 
     let playerId: number | undefined;
     const userId = await this.getUserIdFromToken(token);
@@ -232,9 +232,7 @@ export class Server<
           break;
         }
         case "JoinRoom": {
-          const room = await this.db.getRoom<Config, Loadout>(
-            parsedMessage.roomId,
-          );
+          const room = await this.db.getRoom(parsedMessage.roomId);
           if (room == null) {
             socket.send(JSON.stringify(
               {
@@ -346,13 +344,7 @@ export class Server<
     token: string | undefined,
   ) {
     const userId = await this.getUserIdFromToken(token);
-    const gameData = await this.db.getGameStorageData<
-      Config,
-      GameState,
-      Outcome
-    >(
-      gameId,
-    );
+    const gameData = await this.db.getGameStorageData(gameId);
     const playerId = userId == null ? undefined : getPlayerId(gameData, userId);
 
     const handleGameSocketOpen = () => {

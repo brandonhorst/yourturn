@@ -26,13 +26,14 @@ export class GameSocketStore<
   PlayerState,
   PublicState,
   Outcome,
+  Loadout,
 > {
   private connections: Map<
     string,
     GameConnection<Config, GameState, PlayerState, PublicState, Outcome>
   > = new Map();
 
-  constructor(private db: DB) {}
+  constructor(private db: DB<Config, GameState, Loadout, Outcome>) {}
 
   register(
     socket: Socket,
@@ -74,13 +75,7 @@ export class GameSocketStore<
     gameSocket.lastPublicState = publicState;
     gameSocket.lastOutcome = undefined;
 
-    const gameData = await this.db.getGameStorageData<
-      Config,
-      GameState,
-      Outcome
-    >(
-      gameId,
-    );
+    const gameData = await this.db.getGameStorageData(gameId);
     const newPlayerState = gameSocket.playerId == null
       ? undefined
       : getPlayerState(
@@ -174,11 +169,7 @@ export class GameSocketStore<
       o: PublicStateObject<Config>,
     ) => PublicState,
   ): void {
-    const changesReader = this.db.watchForGameChanges<
-      Config,
-      GameState,
-      Outcome
-    >(gameId).getReader();
+    const changesReader = this.db.watchForGameChanges(gameId).getReader();
     this.streamToAllSockets(
       gameId,
       playerStateLogic,

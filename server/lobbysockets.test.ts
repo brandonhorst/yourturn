@@ -17,7 +17,12 @@ Deno.test("registers and unregisters a socket", async () => {
   const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
+  const lobbySocketStore = new LobbySocketStore<
+    TestConfig,
+    TestGameState,
+    TestLoadout,
+    TestOutcome
+  >(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -46,7 +51,12 @@ Deno.test("joins and leaves a queue", async () => {
   const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
+  const lobbySocketStore = new LobbySocketStore<
+    TestConfig,
+    TestGameState,
+    TestLoadout,
+    TestOutcome
+  >(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -97,7 +107,12 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
+  const lobbySocketStore = new LobbySocketStore<
+    TestConfig,
+    TestGameState,
+    TestLoadout,
+    TestOutcome
+  >(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -188,7 +203,12 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
+  const lobbySocketStore = new LobbySocketStore<
+    TestConfig,
+    TestGameState,
+    TestLoadout,
+    TestOutcome
+  >(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -280,7 +300,12 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
   const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
+  const lobbySocketStore = new LobbySocketStore<
+    TestConfig,
+    TestGameState,
+    TestLoadout,
+    TestOutcome
+  >(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -357,7 +382,12 @@ Deno.test("players can create and leave a room", async () => {
   const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
+  const lobbySocketStore = new LobbySocketStore<
+    TestConfig,
+    TestGameState,
+    TestLoadout,
+    TestOutcome
+  >(
     db,
     activeGamesStream,
     availableRoomsStream,

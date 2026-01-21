@@ -47,13 +47,13 @@ async function streamToSocket<Config, Loadout>(
   }
 }
 
-export class LobbySocketStore<Config, Loadout> {
+export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   private sockets: Map<Socket, ConnectionData<Config>> = new Map();
   private lastActiveGames: ActiveGame[] = [];
   private lastAvailableRooms: Room<Config>[] = [];
 
   constructor(
-    private db: DB,
+    private db: DB<Config, GameState, Loadout, Outcome>,
     activeGamesStream: ReadableStream<ActiveGame[]>,
     availableRoomsStream: ReadableStream<Room<Config>[]>,
   ) {
@@ -136,7 +136,7 @@ export class LobbySocketStore<Config, Loadout> {
   // Creates a new queue entry, assigns it to the given queue in the database,
   // and stores the socket. Watches for assignments, and when an assignment is
   // made, sends it to the socket.
-  public async joinQueue<Config, GameState, Loadout>(
+  public async joinQueue(
     socket: Socket,
     queueConfig: QueueConfig<Config>,
     userId: string,
@@ -185,7 +185,7 @@ export class LobbySocketStore<Config, Loadout> {
   ) {
     const roomId = ulid();
     try {
-      await this.db.createRoom<Config, Loadout>(roomId, roomConfig);
+      await this.db.createRoom(roomId, roomConfig);
       await this.joinRoom(
         socket,
         roomId,

@@ -12,6 +12,7 @@ type TestState = { value: number };
 type TestPlayerState = { playerId: number; value: number };
 type TestPublicState = { value: number };
 type TestOutcome = "done";
+type TestLoadout = undefined;
 
 function getGameKey(gameId: string) {
   return ["games", gameId];
@@ -49,13 +50,14 @@ const publicStateLogic = (
 
 Deno.test("initialize sends UpdateGameState when client state is stale", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
   const gameSocketStore = new GameSocketStore<
     TestConfig,
     TestState,
     TestPlayerState,
     TestPublicState,
-    TestOutcome
+    TestOutcome,
+    TestLoadout
   >(db);
 
   const gameId = "game-initialize";
@@ -99,13 +101,14 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
 
 Deno.test("streams updates to player and observer sockets", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
   const gameSocketStore = new GameSocketStore<
     TestConfig,
     TestState,
     TestPlayerState,
     TestPublicState,
-    TestOutcome
+    TestOutcome,
+    TestLoadout
   >(db);
 
   const gameId = "game-stream";
@@ -184,13 +187,14 @@ Deno.test("streams updates to player and observer sockets", async () => {
 
 Deno.test("unregister stops streaming updates", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
   const gameSocketStore = new GameSocketStore<
     TestConfig,
     TestState,
     TestPlayerState,
     TestPublicState,
-    TestOutcome
+    TestOutcome,
+    TestLoadout
   >(db);
 
   const gameId = "game-unregister";

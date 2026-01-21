@@ -8,14 +8,26 @@ import type {
   Room,
 } from "../types.ts";
 
-export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
+export async function fetchActiveGames<
+  Config,
+  GameState,
+  Loadout,
+  Outcome,
+>(
+  db: DB<Config, GameState, Loadout, Outcome>,
+): Promise<ActiveGame[]> {
   return await db.getAllActiveGames();
 }
 
-export async function fetchAvailableRooms<Config, Loadout>(
-  db: DB,
+export async function fetchAvailableRooms<
+  Config,
+  GameState,
+  Loadout,
+  Outcome,
+>(
+  db: DB<Config, GameState, Loadout, Outcome>,
 ): Promise<Room<Config>[]> {
-  return await db.getAllAvailableRooms<Config, Loadout>();
+  return await db.getAllAvailableRooms();
 }
 
 export function getPlayerId<Config, GameState, Outcome>(
@@ -76,7 +88,7 @@ async function updateGameState<
   Outcome,
   Loadout,
 >(
-  db: DB,
+  db: DB<Config, GameState, Loadout, Outcome>,
   game: Game<
     Config,
     GameState,
@@ -91,9 +103,7 @@ async function updateGameState<
     gameData: GameStorageData<Config, GameState, Outcome>,
   ) => GameState | undefined,
 ) {
-  const gameData = await db.getGameStorageData<Config, GameState, Outcome>(
-    gameId,
-  );
+  const gameData = await db.getGameStorageData(gameId);
   if (gameData.outcome !== undefined) {
     return;
   }
@@ -128,7 +138,7 @@ export async function handleMove<
   Outcome,
   Loadout,
 >(
-  db: DB,
+  db: DB<Config, GameState, Loadout, Outcome>,
   game: Game<
     Config,
     GameState,

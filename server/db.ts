@@ -98,29 +98,22 @@ function getTokenKey(token: string) {
   return ["tokens", token];
 }
 
-export class DB<
-  ConfigType = unknown,
-  GameStateType = unknown,
-  LoadoutType = unknown,
-  OutcomeType = unknown,
-> {
+export class DB<Config, GameState, Loadout, Outcome> {
   private kv: Deno.Kv;
 
   constructor(kv: Deno.Kv) {
     this.kv = kv;
   }
 
-  public async addToQueue<
-    Config = ConfigType,
-    GameState = GameStateType,
-    Loadout = LoadoutType,
-  >(
+  public async addToQueue(
     queueConfig: QueueConfig<Config>,
     entryId: string,
     userId: string,
     user: User,
     loadout: Loadout,
-    setupGame: (setupObject: SetupObject<Config, Loadout>) => GameState,
+    setupGame: (
+      setupObject: SetupObject<Config, Loadout>,
+    ) => GameState,
   ): Promise<void> {
     await repeatUntilSuccess(async () => {
       const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
@@ -149,9 +142,13 @@ export class DB<
     });
   }
 
-  public async createRoom<Config = ConfigType, Loadout = LoadoutType>(
+  public async createRoom(
     roomId: string,
-    roomConfig: { numPlayers: number; config: Config; private: boolean },
+    roomConfig: {
+      numPlayers: number;
+      config: Config;
+      private: boolean;
+    },
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
@@ -172,7 +169,7 @@ export class DB<
     });
   }
 
-  public async getRoom<Config = ConfigType, Loadout = LoadoutType>(
+  public async getRoom(
     roomId: string,
   ): Promise<RoomStorageData<Config, Loadout> | null> {
     const entry = await this.kv.get<RoomStorageData<Config, Loadout>>(
@@ -181,7 +178,7 @@ export class DB<
     return entry.value;
   }
 
-  public async addToRoom<Config = ConfigType, Loadout = LoadoutType>(
+  public async addToRoom(
     roomId: string,
     entryId: string,
     userId: string,
@@ -192,7 +189,9 @@ export class DB<
     const roomListTriggerKey = getRoomListTriggerKey();
 
     await repeatUntilSuccess(async () => {
-      const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
+      const roomEntry = await this.kv.get<
+        RoomStorageData<Config, Loadout>
+      >(
         roomKey,
       );
       if (roomEntry.value == null) {
@@ -221,7 +220,7 @@ export class DB<
     });
   }
 
-  public async removeFromRoom<Config = ConfigType, Loadout = LoadoutType>(
+  public async removeFromRoom(
     roomId: string,
     entryId: string,
   ): Promise<void> {
@@ -229,7 +228,9 @@ export class DB<
     const roomListTriggerKey = getRoomListTriggerKey();
 
     await repeatUntilSuccess(async () => {
-      const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
+      const roomEntry = await this.kv.get<
+        RoomStorageData<Config, Loadout>
+      >(
         roomKey,
       );
       if (roomEntry.value == null) {
@@ -262,20 +263,20 @@ export class DB<
     });
   }
 
-  public async commitRoom<
-    Config = ConfigType,
-    GameState = GameStateType,
-    Loadout = LoadoutType,
-  >(
+  public async commitRoom(
     roomId: string,
-    setupGame: (setupObject: SetupObject<Config, Loadout>) => GameState,
+    setupGame: (
+      setupObject: SetupObject<Config, Loadout>,
+    ) => GameState,
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const activeGameTriggerKey = getActiveGameTriggerKey();
     const roomListTriggerKey = getRoomListTriggerKey();
 
     await repeatUntilSuccess(async () => {
-      const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
+      const roomEntry = await this.kv.get<
+        RoomStorageData<Config, Loadout>
+      >(
         roomKey,
       );
       if (roomEntry.value == null) {
@@ -307,7 +308,11 @@ export class DB<
         loadouts,
       };
       const gameState = setupGame(setupObject);
-      const gameStorageData: GameStorageData<Config, GameState, undefined> = {
+      const gameStorageData: GameStorageData<
+        Config,
+        GameState,
+        Outcome
+      > = {
         config: roomEntry.value.config,
         gameState,
         playerUserIds,
@@ -342,11 +347,7 @@ export class DB<
     });
   }
 
-  private async maybeGraduateFromQueue<
-    Config = ConfigType,
-    GameState = GameStateType,
-    Loadout = LoadoutType,
-  >(
+  private async maybeGraduateFromQueue(
     queueConfig: QueueConfig<Config>,
     setupGame: (o: SetupObject<Config, Loadout>) => GameState,
   ): Promise<void> {
@@ -390,7 +391,11 @@ export class DB<
         loadouts[i] = queueEntries[i].value.loadout;
       }
       const gameState = setupGame(setupObject);
-      const gameStorageData: GameStorageData<Config, GameState, undefined> = {
+      const gameStorageData: GameStorageData<
+        Config,
+        GameState,
+        Outcome
+      > = {
         config: queueConfig.config,
         gameState,
         playerUserIds,
@@ -452,11 +457,7 @@ export class DB<
    * @param gameId The ID of the game to update
    * @param gameData The updated game data
    */
-  public async updateGameStorageData<
-    Config = ConfigType,
-    GameState = GameStateType,
-    Outcome = OutcomeType,
-  >(
+  public async updateGameStorageData(
     gameId: string,
     gameData: GameStorageData<Config, GameState, Outcome>,
   ): Promise<void> {
@@ -490,11 +491,7 @@ export class DB<
     }
   }
 
-  public async getGameStorageData<
-    Config = ConfigType,
-    GameState = GameStateType,
-    Outcome = OutcomeType,
-  >(
+  public async getGameStorageData(
     gameId: string,
   ): Promise<GameStorageData<Config, GameState, Outcome>> {
     const key = getGameKey(gameId);
@@ -510,11 +507,7 @@ export class DB<
     }
   }
 
-  public watchForGameChanges<
-    Config = ConfigType,
-    GameState = GameStateType,
-    Outcome = OutcomeType,
-  >(
+  public watchForGameChanges(
     gameId: string,
   ): ReadableStream<GameStorageData<Config, GameState, Outcome>> {
     const key = getGameKey(gameId);
@@ -561,10 +554,7 @@ export class DB<
     );
   }
 
-  public async getAllAvailableRooms<
-    Config = ConfigType,
-    Loadout = LoadoutType,
-  >(): Promise<Room<Config>[]> {
+  public async getAllAvailableRooms(): Promise<Room<Config>[]> {
     const roomPrefix = getRoomPrefix();
     const iter = this.kv.list<RoomStorageData<Config, Loadout>>(
       { prefix: roomPrefix },
@@ -589,16 +579,15 @@ export class DB<
     return rooms;
   }
 
-  public watchForAvailableRoomListChanges<
-    Config = ConfigType,
-    Loadout = LoadoutType,
-  >(): ReadableStream<Room<Config>[]> {
+  public watchForAvailableRoomListChanges(): ReadableStream<
+    Room<Config>[]
+  > {
     const roomListTriggerKey = getRoomListTriggerKey();
     const stream = this.kv.watch([roomListTriggerKey]);
     return stream.pipeThrough(
       new TransformStream({
         transform: async (_events, controller) => {
-          const rooms = await this.getAllAvailableRooms<Config, Loadout>();
+          const rooms = await this.getAllAvailableRooms();
           controller.enqueue(rooms);
         },
       }),

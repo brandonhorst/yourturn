@@ -34,16 +34,18 @@ export async function initializeServer<
   >
 > {
   const kv = await Deno.openKv();
-  const db = new DB(kv);
+  const db = new DB<Config, GameState, Loadout, Outcome>(kv);
 
   const activeGamesStream: ReadableStream<ActiveGame[]> = db
     .watchForActiveGameListChanges();
-  const availableRoomsStream = db.watchForAvailableRoomListChanges<
-    Config,
-    Loadout
-  >();
+  const availableRoomsStream = db.watchForAvailableRoomListChanges();
 
-  const lobbySocketStore = new LobbySocketStore<Config, Loadout>(
+  const lobbySocketStore = new LobbySocketStore<
+    Config,
+    GameState,
+    Loadout,
+    Outcome
+  >(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -53,7 +55,8 @@ export async function initializeServer<
     GameState,
     PlayerState,
     PublicState,
-    Outcome
+    Outcome,
+    Loadout
   >(db);
 
   return new Server(
