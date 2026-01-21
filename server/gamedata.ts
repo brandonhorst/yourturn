@@ -12,10 +12,10 @@ export async function fetchActiveGames(db: DB): Promise<ActiveGame[]> {
   return await db.getAllActiveGames();
 }
 
-export async function fetchAvailableRooms<Config>(
+export async function fetchAvailableRooms<Config, Loadout>(
   db: DB,
 ): Promise<Room<Config>[]> {
-  return await db.getAllAvailableRooms<Config>();
+  return await db.getAllAvailableRooms<Config, Loadout>();
 }
 
 export function getPlayerId<Config, GameState, Outcome>(

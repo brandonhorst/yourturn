@@ -23,13 +23,13 @@ type MatchmakingEntry =
     assignmentsReader: ReadableStreamDefaultReader;
   };
 
-type ConnectionData = {
+type ConnectionData<Config> = {
   matchmakingEntry?: Readonly<MatchmakingEntry>;
   lastActiveGames: ActiveGame[];
-  lastAvailableRooms: Room<unknown>[];
+  lastAvailableRooms: Room<Config>[];
 };
 
-async function streamToSocket(
+async function streamToSocket<Config, Loadout>(
   stream: ReadableStreamDefaultReader<AssignmentStorageData>,
   socket: Socket,
 ) {
@@ -39,7 +39,7 @@ async function streamToSocket(
       break;
     }
 
-    const message: LobbySocketResponse<unknown, unknown> = {
+    const message: LobbySocketResponse<Config, Loadout> = {
       type: "GameAssignment",
       gameId: data.value.gameId,
     };
@@ -47,15 +47,15 @@ async function streamToSocket(
   }
 }
 
-export class LobbySocketStore {
-  private sockets: Map<Socket, ConnectionData> = new Map();
+export class LobbySocketStore<Config, Loadout> {
+  private sockets: Map<Socket, ConnectionData<Config>> = new Map();
   private lastActiveGames: ActiveGame[] = [];
-  private lastAvailableRooms: Room<unknown>[] = [];
+  private lastAvailableRooms: Room<Config>[] = [];
 
   constructor(
     private db: DB,
     activeGamesStream: ReadableStream<ActiveGame[]>,
-    availableRoomsStream: ReadableStream<Room<unknown>[]>,
+    availableRoomsStream: ReadableStream<Room<Config>[]>,
   ) {
     this.streamToAllSocketAndStore(activeGamesStream);
     this.streamRoomsToAllSocketAndStore(availableRoomsStream);
@@ -70,7 +70,7 @@ export class LobbySocketStore {
   initialize(
     socket: Socket,
     activeGames: ActiveGame[],
-    availableRooms: Room<unknown>[],
+    availableRooms: Room<Config>[],
   ) {
     const connectionData = this.sockets.get(socket);
     if (connectionData == null) {
@@ -114,11 +114,11 @@ export class LobbySocketStore {
   }
 
   private streamRoomsToAllSocketAndStore(
-    availableRoomsStream: ReadableStream<Room<unknown>[]>,
+    availableRoomsStream: ReadableStream<Room<Config>[]>,
   ) {
     availableRoomsStream.pipeTo(
       new WritableStream({
-        write: (availableRooms: Room<unknown>[]) => {
+        write: (availableRooms: Room<Config>[]) => {
           this.lastAvailableRooms = availableRooms;
 
           for (const socket of this.allSockets()) {
@@ -176,7 +176,7 @@ export class LobbySocketStore {
     }
   }
 
-  public async createAndJoinRoom<Config, Loadout>(
+  public async createAndJoinRoom(
     socket: Socket,
     roomConfig: { numPlayers: number; config: Config; private: boolean },
     userId: string,
@@ -184,27 +184,31 @@ export class LobbySocketStore {
     loadout: Loadout,
   ) {
     const roomId = ulid();
-    const roomData: RoomStorageData<Config> = {
-      numPlayers: roomConfig.numPlayers,
-      config: roomConfig.config,
-      private: roomConfig.private,
-      memberCount: 0,
-    };
-    await this.db.createRoom(roomId, roomConfig);
-    await this.joinRoom(
-      socket,
-      roomId,
-      roomData,
-      userId,
-      user,
-      loadout,
-    );
+    try {
+      await this.db.createRoom<Config, Loadout>(roomId, roomConfig);
+      await this.joinRoom(
+        socket,
+        roomId,
+        { config: roomConfig.config },
+        userId,
+        user,
+        loadout,
+      );
+    } catch (err) {
+      console.error("Failed to create and join room", err);
+      socket.send(JSON.stringify(
+        {
+          type: "DisplayError",
+          message: "Unable to create room.",
+        },
+      ));
+    }
   }
 
-  public async joinRoom<Config, Loadout>(
+  public async joinRoom(
     socket: Socket,
     roomId: string,
-    roomConfig: RoomStorageData<Config>,
+    roomConfig: Pick<RoomStorageData<Config, Loadout>, "config">,
     userId: string,
     user: User,
     loadout: Loadout,
@@ -214,14 +218,16 @@ export class LobbySocketStore {
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
     streamToSocket(assignmentsReader, socket);
 
-    const joinResult = await this.db.addToRoom(
-      roomId,
-      entryId,
-      userId,
-      user,
-      loadout,
-    );
-    if (joinResult !== "joined") {
+    try {
+      await this.db.addToRoom(
+        roomId,
+        entryId,
+        userId,
+        user,
+        loadout,
+      );
+    } catch (err) {
+      console.error("Failed to join room", err);
       assignmentsReader.cancel();
       assignmentsReader.releaseLock();
       return false;
@@ -265,7 +271,7 @@ export class LobbySocketStore {
         matchmakingEntry.queueId,
         matchmakingEntry.entryId,
       );
-      const message: LobbySocketResponse<unknown, unknown> = {
+      const message: LobbySocketResponse<Config, Loadout> = {
         type: "QueueLeft",
       };
       socket.send(JSON.stringify(message));
@@ -274,7 +280,7 @@ export class LobbySocketStore {
         matchmakingEntry.roomId,
         matchmakingEntry.entryId,
       );
-      const message: LobbySocketResponse<unknown, unknown> = {
+      const message: LobbySocketResponse<Config, Loadout> = {
         type: "RoomLeft",
       };
       socket.send(JSON.stringify(message));
@@ -288,16 +294,16 @@ export class LobbySocketStore {
   }
 }
 
-function updateActiveGamesIfNecessary(
+function updateActiveGamesIfNecessary<Config, Loadout>(
   socket: Socket,
-  connectionData: ConnectionData,
+  connectionData: ConnectionData<Config>,
   activeGames: ActiveGame[],
 ) {
   if (jsonEquals(connectionData.lastActiveGames, activeGames)) {
     return;
   }
 
-  const response: LobbySocketResponse<unknown, unknown> = {
+  const response: LobbySocketResponse<Config, Loadout> = {
     type: "UpdateActiveGames",
     activeGames,
   };
@@ -305,16 +311,16 @@ function updateActiveGamesIfNecessary(
   socket.send(JSON.stringify(response));
 }
 
-function updateAvailableRoomsIfNecessary(
+function updateAvailableRoomsIfNecessary<Config, Loadout>(
   socket: Socket,
-  connectionData: ConnectionData,
-  availableRooms: Room<unknown>[],
+  connectionData: ConnectionData<Config>,
+  availableRooms: Room<Config>[],
 ) {
   if (jsonEquals(connectionData.lastAvailableRooms, availableRooms)) {
     return;
   }
 
-  const response: LobbySocketResponse<unknown, unknown> = {
+  const response: LobbySocketResponse<Config, Loadout> = {
     type: "UpdateAvailableRooms",
     availableRooms,
   };

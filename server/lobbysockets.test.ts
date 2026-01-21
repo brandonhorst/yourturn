@@ -7,13 +7,17 @@ const user1 = { username: "guest-0001", isGuest: true };
 const user2 = { username: "guest-0002", isGuest: true };
 const user3 = { username: "guest-0003", isGuest: true };
 const loadout = undefined;
+type TestConfig = { mode: string } | undefined;
+type TestGameState = number;
+type TestLoadout = undefined;
+type TestOutcome = undefined;
 
 Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore(
+  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -39,10 +43,10 @@ Deno.test("registers and unregisters a socket", async () => {
 
 Deno.test("joins and leaves a queue", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore(
+  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -90,10 +94,10 @@ Deno.test("joins and leaves a queue", async () => {
 
 Deno.test("when two sockets join a queue, assignments are made", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore(
+  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -181,10 +185,10 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
 
 Deno.test("active games are broadcasted to all sockets", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore(
+  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -273,10 +277,10 @@ Deno.test("active games are broadcasted to all sockets", async () => {
 
 Deno.test("players can join a three-player queue and receive QueueJoined messages", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore(
+  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
     db,
     activeGamesStream,
     availableRoomsStream,
@@ -350,10 +354,10 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
 
 Deno.test("players can create and leave a room", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
-  const lobbySocketStore = new LobbySocketStore(
+  const lobbySocketStore = new LobbySocketStore<TestConfig, TestLoadout>(
     db,
     activeGamesStream,
     availableRoomsStream,

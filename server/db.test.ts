@@ -307,7 +307,7 @@ Deno.test("Creates rooms and lists available rooms", async () => {
   await db.createRoom(roomId, roomConfig);
   await db.addToRoom(roomId, "entry-1", "user-1", user1, loadout);
 
-  const rooms = await db.getAllAvailableRooms<{ mode: string }>();
+  const rooms = await db.getAllAvailableRooms<{ mode: string }, undefined>();
   assertEquals(rooms.length, 1);
   assertEquals(rooms[0].roomId, roomId);
   assertEquals(rooms[0].numPlayers, 2);
@@ -330,7 +330,7 @@ Deno.test("Excludes private rooms from available rooms", async () => {
   await db.createRoom(roomId, roomConfig);
   await db.addToRoom(roomId, "entry-1", "user-1", user1, loadout);
 
-  const rooms = await db.getAllAvailableRooms<{ mode: string }>();
+  const rooms = await db.getAllAvailableRooms<{ mode: string }, undefined>();
   assertEquals(rooms.length, 0);
 
   kv.close();
@@ -367,7 +367,7 @@ Deno.test("Commits room and assigns players", async () => {
   assertExists(result2.value);
   assertEquals(result1.value.gameId, result2.value.gameId);
 
-  const rooms = await db.getAllAvailableRooms<{ mode: string }>();
+  const rooms = await db.getAllAvailableRooms<{ mode: string }, undefined>();
   assertEquals(rooms.length, 0);
 
   kv.close();

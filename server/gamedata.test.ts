@@ -103,7 +103,7 @@ const testGame: Game<
 
 Deno.test("fetchActiveGames returns active games from the database", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   // Create some active games
   const id1 = ulid();
@@ -141,7 +141,7 @@ Deno.test("fetchActiveGames returns active games from the database", async () =>
 
 Deno.test("getPlayerState returns correct player state", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   // Create a game with initial value 1
   const gameId = ulid();
@@ -166,11 +166,7 @@ Deno.test("getPlayerState returns correct player state", async () => {
   await kv.set(getGameKey(gameId), gameData);
 
   for (const userId of playerUserIds) {
-    const gameData = await db.getGameStorageData<
-      TestConfig,
-      TestState,
-      TestOutcome
-    >(
+    const gameData = await db.getGameStorageData(
       gameId,
     );
     const playerId = getPlayerId(gameData, userId);
@@ -193,7 +189,7 @@ Deno.test("getPlayerState returns correct player state", async () => {
 
 Deno.test("getPlayerState handles completed games", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   // Create a completed game
   const gameId = ulid();
@@ -218,11 +214,7 @@ Deno.test("getPlayerState handles completed games", async () => {
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
-  const gameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const gameData = await db.getGameStorageData(
     gameId,
   );
   gameData.outcome = "done";
@@ -244,7 +236,7 @@ Deno.test("getPlayerState handles completed games", async () => {
 
 Deno.test("getPublicState returns correct public state", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   const gameId = ulid();
 
@@ -266,11 +258,7 @@ Deno.test("getPublicState returns correct public state", async () => {
   await kv.set(getActiveGameKey(gameId), {});
   await kv.set(getGameKey(gameId), initialGameData);
 
-  const gameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const gameData = await db.getGameStorageData(
     gameId,
   );
   const publicState = getPublicState(gameData, testGame.publicState);
@@ -283,7 +271,7 @@ Deno.test("getPublicState returns correct public state", async () => {
 
 Deno.test("getPublicState handles completed games", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   // Create a completed game
   const gameId = ulid();
@@ -307,22 +295,14 @@ Deno.test("getPublicState handles completed games", async () => {
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
-  const gameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const gameData = await db.getGameStorageData(
     gameId,
   );
   gameData.outcome = "done";
   gameData.version += 1;
   await db.updateGameStorageData(gameId, gameData);
 
-  const updatedGameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const updatedGameData = await db.getGameStorageData(
     gameId,
   );
   const publicState = getPublicState(
@@ -338,7 +318,7 @@ Deno.test("getPublicState handles completed games", async () => {
 
 Deno.test("handleMove processes valid moves and updates game state", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   // Create a game with initial value 1
   const gameId = ulid();
@@ -367,11 +347,7 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
   await handleMove(db, testGame, gameId, playerId, move);
 
   // Get the updated game state
-  const updatedGameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const updatedGameData = await db.getGameStorageData(
     gameId,
   );
 
@@ -385,7 +361,7 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
 
 Deno.test("handleMove properly marks game as complete when threshold reached", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   // Create a game with value 4 (one increment away from being complete)
   const gameId = ulid();
@@ -422,11 +398,7 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
   await handleMove(db, testGame, gameId, playerId, move);
 
   // Get the updated game state
-  const updatedGameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const updatedGameData = await db.getGameStorageData(
     gameId,
   );
 
@@ -439,7 +411,7 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
 
 Deno.test("handleMove rejects invalid moves", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   const gameId = ulid();
 
@@ -461,11 +433,7 @@ Deno.test("handleMove rejects invalid moves", async () => {
   await kv.set(getActiveGameKey(gameId), {});
   await kv.set(getGameKey(gameId), gameData);
 
-  const initialGameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const initialGameData = await db.getGameStorageData(
     gameId,
   );
 
@@ -475,11 +443,7 @@ Deno.test("handleMove rejects invalid moves", async () => {
   await handleMove(db, testGame, gameId, playerId, invalidMove);
 
   // Get the game state and verify it hasn't changed
-  const updatedGameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const updatedGameData = await db.getGameStorageData(
     gameId,
   );
 
@@ -497,7 +461,7 @@ Deno.test("handleMove rejects invalid moves", async () => {
 
 Deno.test("handleMove doesn't update completed games", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
 
   // Create a completed game
   const gameId = ulid();
@@ -521,11 +485,7 @@ Deno.test("handleMove doesn't update completed games", async () => {
   await kv.set(getGameKey(gameId), initialGameData);
 
   // Mark game as complete
-  const gameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const gameData = await db.getGameStorageData(
     gameId,
   );
   gameData.outcome = "done";
@@ -533,11 +493,7 @@ Deno.test("handleMove doesn't update completed games", async () => {
   await db.updateGameStorageData(gameId, gameData);
 
   // Store initial state
-  const completedGameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const completedGameData = await db.getGameStorageData(
     gameId,
   );
 
@@ -547,11 +503,7 @@ Deno.test("handleMove doesn't update completed games", async () => {
   await handleMove(db, testGame, gameId, playerId, move);
 
   // Get the updated game state
-  const updatedGameData = await db.getGameStorageData<
-    TestConfig,
-    TestState,
-    TestOutcome
-  >(
+  const updatedGameData = await db.getGameStorageData(
     gameId,
   );
 

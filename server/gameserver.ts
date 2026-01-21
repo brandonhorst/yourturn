@@ -38,7 +38,7 @@ export class Server<
       Loadout
     >,
     private db: DB,
-    private lobbySocketStore: LobbySocketStore,
+    private lobbySocketStore: LobbySocketStore<Config, Loadout>,
     private gameSocketStore: GameSocketStore<
       Config,
       GameState,
@@ -52,7 +52,7 @@ export class Server<
     token: string | undefined,
   ): Promise<{ props: LobbyProps<Config>; token: string }> {
     const activeGames = await fetchActiveGames(this.db);
-    const availableRooms = await fetchAvailableRooms<Config>(this.db);
+    const availableRooms = await fetchAvailableRooms<Config, Loadout>(this.db);
     let user: User | null = null;
     let lobbyToken = token;
 
@@ -232,7 +232,9 @@ export class Server<
           break;
         }
         case "JoinRoom": {
-          const room = await this.db.getRoom<Config>(parsedMessage.roomId);
+          const room = await this.db.getRoom<Config, Loadout>(
+            parsedMessage.roomId,
+          );
           if (room == null) {
             socket.send(JSON.stringify(
               {
@@ -256,7 +258,7 @@ export class Server<
             ));
             return;
           }
-          if (room.memberCount >= room.numPlayers) {
+          if (room.members.length >= room.numPlayers) {
             socket.send(JSON.stringify(
               {
                 type: "DisplayError",
@@ -284,10 +286,20 @@ export class Server<
           break;
         }
         case "CommitRoom": {
-          await this.db.commitRoom(
-            parsedMessage.roomId,
-            this.game.setup,
-          );
+          try {
+            await this.db.commitRoom(
+              parsedMessage.roomId,
+              this.game.setup,
+            );
+          } catch (err) {
+            console.error("Failed to commit room", err);
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Unable to commit room.",
+              },
+            ));
+          }
           break;
         }
         case "LeaveMatchmaking":

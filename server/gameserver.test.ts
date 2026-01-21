@@ -41,7 +41,8 @@ function buildServer(kv: Deno.Kv) {
   const db = new DB(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges<
-    TestConfig
+    TestConfig,
+    TestLoadout
   >();
   const lobbySocketStore = new LobbySocketStore(
     db,

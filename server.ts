@@ -38,9 +38,12 @@ export async function initializeServer<
 
   const activeGamesStream: ReadableStream<ActiveGame[]> = db
     .watchForActiveGameListChanges();
-  const availableRoomsStream = db.watchForAvailableRoomListChanges();
+  const availableRoomsStream = db.watchForAvailableRoomListChanges<
+    Config,
+    Loadout
+  >();
 
-  const lobbySocketStore = new LobbySocketStore(
+  const lobbySocketStore = new LobbySocketStore<Config, Loadout>(
     db,
     activeGamesStream,
     availableRoomsStream,

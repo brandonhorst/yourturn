@@ -20,14 +20,15 @@ type QueueEntryValue<Loadout> = {
   loadout: Loadout;
 };
 
-export type RoomStorageData<Config> = {
+export type RoomStorageData<Config, Loadout> = {
   numPlayers: number;
   config: Config;
   private: boolean;
-  memberCount: number;
+  members: RoomMember<Loadout>[];
 };
 
-type RoomMemberValue<Loadout> = {
+type RoomMember<Loadout> = {
+  entryId: string;
   timestamp: Date;
   userId: string;
   user: User;
@@ -47,10 +48,12 @@ export type AssignmentStorageData = {
   gameId: string;
 };
 
-async function repeatUntilSuccess(fn: () => Promise<{ ok: boolean }>) {
-  let res = { ok: false };
-  while (!res.ok) {
-    res = await fn();
+async function repeatUntilSuccess(
+  fn: () => Promise<boolean>,
+): Promise<void> {
+  let ok = false;
+  while (!ok) {
+    ok = await fn();
   }
 }
 
@@ -66,12 +69,6 @@ function getRoomPrefix() {
 }
 function getRoomKey(roomId: string) {
   return ["rooms", roomId];
-}
-function getRoomMemberPrefix(roomId: string) {
-  return ["roommembers", roomId];
-}
-function getRoomMemberKey(roomId: string, entryId: string) {
-  return ["roommembers", roomId, entryId];
 }
 function getAssignmentKey(entryId: string) {
   return ["assignments", entryId];
@@ -101,14 +98,23 @@ function getTokenKey(token: string) {
   return ["tokens", token];
 }
 
-export class DB {
+export class DB<
+  ConfigType = unknown,
+  GameStateType = unknown,
+  LoadoutType = unknown,
+  OutcomeType = unknown,
+> {
   private kv: Deno.Kv;
 
   constructor(kv: Deno.Kv) {
     this.kv = kv;
   }
 
-  public async addToQueue<Config, GameState, Loadout>(
+  public async addToQueue<
+    Config = ConfigType,
+    GameState = GameStateType,
+    Loadout = LoadoutType,
+  >(
     queueConfig: QueueConfig<Config>,
     entryId: string,
     userId: string,
@@ -118,11 +124,12 @@ export class DB {
   ): Promise<void> {
     await repeatUntilSuccess(async () => {
       const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
-      return await this.kv
+      const res = await this.kv
         .atomic()
         .check({ key: entryKey, versionstamp: null })
         .set(entryKey, { timestamp: new Date(), userId, user, loadout })
         .commit();
+      return res.ok;
     });
 
     await this.maybeGraduateFromQueue(queueConfig, setupGame);
@@ -135,152 +142,148 @@ export class DB {
     await repeatUntilSuccess(async () => {
       const entryKey = getQueueEntryKey(queueId, entryId);
 
-      return await this.kv.atomic()
+      const res = await this.kv.atomic()
         .delete(entryKey)
         .commit();
+      return res.ok;
     });
   }
 
-  public async createRoom<Config>(
+  public async createRoom<Config = ConfigType, Loadout = LoadoutType>(
     roomId: string,
     roomConfig: { numPlayers: number; config: Config; private: boolean },
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
-    const roomData: RoomStorageData<Config> = {
+    const roomData: RoomStorageData<Config, Loadout> = {
       numPlayers: roomConfig.numPlayers,
       config: roomConfig.config,
       private: roomConfig.private,
-      memberCount: 0,
+      members: [],
     };
 
     await repeatUntilSuccess(async () => {
-      return await this.kv.atomic()
+      const res = await this.kv.atomic()
         .check({ key: roomKey, versionstamp: null })
         .set(roomKey, roomData)
         .set(roomListTriggerKey, {})
         .commit();
+      return res.ok;
     });
   }
 
-  public async getRoom<Config>(
+  public async getRoom<Config = ConfigType, Loadout = LoadoutType>(
     roomId: string,
-  ): Promise<RoomStorageData<Config> | null> {
-    const entry = await this.kv.get<RoomStorageData<Config>>(
+  ): Promise<RoomStorageData<Config, Loadout> | null> {
+    const entry = await this.kv.get<RoomStorageData<Config, Loadout>>(
       getRoomKey(roomId),
     );
-    return entry.value ?? null;
+    return entry.value;
   }
 
-  public async addToRoom<Config, Loadout>(
+  public async addToRoom<Config = ConfigType, Loadout = LoadoutType>(
     roomId: string,
     entryId: string,
     userId: string,
     user: User,
     loadout: Loadout,
-  ): Promise<"joined" | "missing" | "full"> {
+  ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
-    const memberKey = getRoomMemberKey(roomId, entryId);
 
-    while (true) {
-      const roomEntry = await this.kv.get<RoomStorageData<Config>>(roomKey);
+    await repeatUntilSuccess(async () => {
+      const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
+        roomKey,
+      );
       if (roomEntry.value == null) {
-        return "missing";
+        throw new Error(`Room ${roomId} not found`);
       }
-      if (roomEntry.value.memberCount >= roomEntry.value.numPlayers) {
-        return "full";
+      const currentMembers = roomEntry.value.members;
+      if (currentMembers.length >= roomEntry.value.numPlayers) {
+        throw new Error(`Room ${roomId} is full`);
       }
 
-      const updatedRoom: RoomStorageData<Config> = {
+      const updatedRoom: RoomStorageData<Config, Loadout> = {
         ...roomEntry.value,
-        memberCount: roomEntry.value.memberCount + 1,
+        members: [
+          ...currentMembers,
+          { entryId, timestamp: new Date(), userId, user, loadout },
+        ],
       };
 
       const res = await this.kv.atomic()
         .check(roomEntry)
-        .check({ key: memberKey, versionstamp: null })
-        .set(memberKey, { timestamp: new Date(), userId, user, loadout })
         .set(roomKey, updatedRoom)
         .set(roomListTriggerKey, {})
         .commit();
 
-      if (res.ok) {
-        return "joined";
-      }
-    }
+      return res.ok;
+    });
   }
 
-  public async removeFromRoom(
+  public async removeFromRoom<Config = ConfigType, Loadout = LoadoutType>(
     roomId: string,
     entryId: string,
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
-    const memberKey = getRoomMemberKey(roomId, entryId);
 
-    while (true) {
-      const roomEntry = await this.kv.get<RoomStorageData<unknown>>(roomKey);
-      const memberEntry = await this.kv.get<RoomMemberValue<unknown>>(
-        memberKey,
+    await repeatUntilSuccess(async () => {
+      const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
+        roomKey,
       );
-      if (roomEntry.value == null || memberEntry.value == null) {
-        return;
+      if (roomEntry.value == null) {
+        return true;
+      }
+      const members = roomEntry.value.members;
+      const memberIndex = members.findIndex(
+        (member) => member.entryId === entryId,
+      );
+      if (memberIndex === -1) {
+        return true;
       }
 
-      const nextCount = roomEntry.value.memberCount - 1;
+      const nextMembers = members.toSpliced(memberIndex, 1);
       let transaction = this.kv.atomic()
         .check(roomEntry)
-        .check(memberEntry)
-        .delete(memberKey)
         .set(roomListTriggerKey, {});
 
-      if (nextCount <= 0) {
+      if (nextMembers.length === 0) {
         transaction = transaction.delete(roomKey);
       } else {
         transaction = transaction.set(roomKey, {
           ...roomEntry.value,
-          memberCount: nextCount,
+          members: nextMembers,
         });
       }
 
       const res = await transaction.commit();
-      if (res.ok) {
-        return;
-      }
-    }
+      return res.ok;
+    });
   }
 
-  private async listRoomMembers<Loadout>(
-    roomId: string,
-  ): Promise<Deno.KvEntry<RoomMemberValue<Loadout>>[]> {
-    return await Array.fromAsync(
-      this.kv.list<RoomMemberValue<Loadout>>({
-        prefix: getRoomMemberPrefix(roomId),
-      }),
-    );
-  }
-
-  public async commitRoom<Config, GameState, Loadout>(
+  public async commitRoom<
+    Config = ConfigType,
+    GameState = GameStateType,
+    Loadout = LoadoutType,
+  >(
     roomId: string,
     setupGame: (setupObject: SetupObject<Config, Loadout>) => GameState,
-  ): Promise<string | undefined> {
+  ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const activeGameTriggerKey = getActiveGameTriggerKey();
     const roomListTriggerKey = getRoomListTriggerKey();
 
-    while (true) {
-      const roomEntry = await this.kv.get<RoomStorageData<Config>>(roomKey);
+    await repeatUntilSuccess(async () => {
+      const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
+        roomKey,
+      );
       if (roomEntry.value == null) {
-        return;
+        throw new Error(`Room ${roomId} not found`);
       }
-      if (roomEntry.value.memberCount < roomEntry.value.numPlayers) {
-        return;
-      }
-
-      const roomMembers = await this.listRoomMembers<Loadout>(roomId);
-      if (roomMembers.length < roomEntry.value.numPlayers) {
-        return;
+      const members = roomEntry.value.members;
+      if (members.length < roomEntry.value.numPlayers) {
+        throw new Error(`Room ${roomId} does not have enough players`);
       }
 
       const gameId = ulid();
@@ -291,9 +294,9 @@ export class DB {
       const players: User[] = [];
       const loadouts: Loadout[] = [];
       for (let i = 0; i < roomEntry.value.numPlayers; i++) {
-        playerUserIds[i] = roomMembers[i].value.userId;
-        players[i] = roomMembers[i].value.user;
-        loadouts[i] = roomMembers[i].value.loadout;
+        playerUserIds[i] = members[i].userId;
+        players[i] = members[i].user;
+        loadouts[i] = members[i].loadout;
       }
 
       const timestamp = new Date();
@@ -324,26 +327,26 @@ export class DB {
         .delete(roomKey);
 
       for (let i = 0; i < roomEntry.value.numPlayers; i++) {
-        const memberEntry = roomMembers[i];
-        const entryId = memberEntry.key[2] as string;
+        const member = members[i];
+        const entryId = member.entryId;
         const assignmentKey = getAssignmentKey(entryId);
         const assignmentValue: AssignmentStorageData = { gameId };
 
         transaction = transaction
-          .check(memberEntry)
-          .delete(memberEntry.key)
           .check({ key: assignmentKey, versionstamp: null })
           .set(assignmentKey, assignmentValue);
       }
 
       const res = await transaction.commit();
-      if (res.ok) {
-        return gameId;
-      }
-    }
+      return res.ok;
+    });
   }
 
-  private async maybeGraduateFromQueue<Config, GameState, Loadout>(
+  private async maybeGraduateFromQueue<
+    Config = ConfigType,
+    GameState = GameStateType,
+    Loadout = LoadoutType,
+  >(
     queueConfig: QueueConfig<Config>,
     setupGame: (o: SetupObject<Config, Loadout>) => GameState,
   ): Promise<void> {
@@ -364,7 +367,7 @@ export class DB {
 
       // If the queue doesn't have enough entrants, stop
       if (queueEntries.length < queueConfig.numPlayers) {
-        return { ok: true };
+        return true;
       }
 
       // Initialize Game Storage Data
@@ -422,7 +425,8 @@ export class DB {
 
         playerId++;
       }
-      return await transaction.commit();
+      const res = await transaction.commit();
+      return res.ok;
     });
   }
 
@@ -448,7 +452,11 @@ export class DB {
    * @param gameId The ID of the game to update
    * @param gameData The updated game data
    */
-  public async updateGameStorageData<Config, GameState, Outcome>(
+  public async updateGameStorageData<
+    Config = ConfigType,
+    GameState = GameStateType,
+    Outcome = OutcomeType,
+  >(
     gameId: string,
     gameData: GameStorageData<Config, GameState, Outcome>,
   ): Promise<void> {
@@ -461,7 +469,7 @@ export class DB {
       gameKey,
     );
     if (entry.value == null) {
-      throw new Error(`Appending moves to unknown unstored ${gameId}`);
+      throw new Error(`Appending moves to unstored ${gameId}`);
     }
 
     let transaction = this.kv.atomic()
@@ -482,7 +490,11 @@ export class DB {
     }
   }
 
-  public async getGameStorageData<Config, GameState, Outcome>(
+  public async getGameStorageData<
+    Config = ConfigType,
+    GameState = GameStateType,
+    Outcome = OutcomeType,
+  >(
     gameId: string,
   ): Promise<GameStorageData<Config, GameState, Outcome>> {
     const key = getGameKey(gameId);
@@ -498,7 +510,11 @@ export class DB {
     }
   }
 
-  public watchForGameChanges<Config, GameState, Outcome>(
+  public watchForGameChanges<
+    Config = ConfigType,
+    GameState = GameStateType,
+    Outcome = OutcomeType,
+  >(
     gameId: string,
   ): ReadableStream<GameStorageData<Config, GameState, Outcome>> {
     const key = getGameKey(gameId);
@@ -545,9 +561,14 @@ export class DB {
     );
   }
 
-  public async getAllAvailableRooms<Config>(): Promise<Room<Config>[]> {
+  public async getAllAvailableRooms<
+    Config = ConfigType,
+    Loadout = LoadoutType,
+  >(): Promise<Room<Config>[]> {
     const roomPrefix = getRoomPrefix();
-    const iter = this.kv.list<RoomStorageData<Config>>({ prefix: roomPrefix });
+    const iter = this.kv.list<RoomStorageData<Config, Loadout>>(
+      { prefix: roomPrefix },
+    );
     const rooms: Room<Config>[] = [];
 
     for await (const res of iter) {
@@ -556,8 +577,7 @@ export class DB {
       if (room.private) {
         continue;
       }
-      const members = await this.listRoomMembers<unknown>(roomId);
-      const players = members.map((member) => member.value.user);
+      const players = (room.members ?? []).map((member) => member.user);
       rooms.push({
         roomId,
         numPlayers: room.numPlayers,
@@ -569,15 +589,16 @@ export class DB {
     return rooms;
   }
 
-  public watchForAvailableRoomListChanges<Config>(): ReadableStream<
-    Room<Config>[]
-  > {
+  public watchForAvailableRoomListChanges<
+    Config = ConfigType,
+    Loadout = LoadoutType,
+  >(): ReadableStream<Room<Config>[]> {
     const roomListTriggerKey = getRoomListTriggerKey();
     const stream = this.kv.watch([roomListTriggerKey]);
     return stream.pipeThrough(
       new TransformStream({
         transform: async (_events, controller) => {
-          const rooms = await this.getAllAvailableRooms<Config>();
+          const rooms = await this.getAllAvailableRooms<Config, Loadout>();
           controller.enqueue(rooms);
         },
       }),
