@@ -73,17 +73,11 @@ function getRoomKey(roomId: string) {
 function getAssignmentKey(entryId: string) {
   return ["assignments", entryId];
 }
-function getActiveGameTriggerKey() {
-  return ["activegametrigger"];
-}
 function getRoomListTriggerKey() {
   return ["roomlisttrigger"];
 }
-function getActiveGamePrefix() {
+function getActiveGamesKey() {
   return ["activegames"];
-}
-function getActiveGameKey(gameId: string) {
-  return ["activegames", gameId];
 }
 function getGameKey(gameId: string) {
   return ["games", gameId];
@@ -270,8 +264,8 @@ export class DB<Config, GameState, Loadout, Outcome> {
     ) => GameState,
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
-    const activeGameTriggerKey = getActiveGameTriggerKey();
     const roomListTriggerKey = getRoomListTriggerKey();
+    const activeGamesKey = getActiveGamesKey();
 
     await repeatUntilSuccess(async () => {
       const roomEntry = await this.kv.get<
@@ -282,6 +276,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
       if (roomEntry.value == null) {
         throw new Error(`Room ${roomId} not found`);
       }
+      const activeGamesEntry = await this.kv.get<ActiveGame[]>(
+        activeGamesKey,
+      );
       const members = roomEntry.value.members;
       if (members.length < roomEntry.value.numPlayers) {
         throw new Error(`Room ${roomId} does not have enough players`);
@@ -289,7 +286,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
       const gameId = ulid();
       const gameKey = getGameKey(gameId);
-      const activeGameKey = getActiveGameKey(gameId);
 
       const playerUserIds: string[] = [];
       const players: User[] = [];
@@ -320,12 +316,15 @@ export class DB<Config, GameState, Loadout, Outcome> {
         outcome: undefined,
         version: 0,
       };
+      const activeGames = activeGamesEntry.value ?? [];
+      const activeGamesNext = activeGames.some((game) => game.gameId === gameId)
+        ? activeGames
+        : [...activeGames, { gameId }];
 
       let transaction = this.kv.atomic()
         .check(roomEntry)
-        .set(activeGameTriggerKey, {})
-        .check({ key: activeGameKey, versionstamp: null })
-        .set(activeGameKey, {})
+        .check(activeGamesEntry)
+        .set(activeGamesKey, activeGamesNext)
         .check({ key: gameKey, versionstamp: null })
         .set(gameKey, gameStorageData)
         .set(roomListTriggerKey, {})
@@ -354,8 +353,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     const gameId = ulid();
     const queuePrefix = getQueuePrefix(queueConfig.queueId);
     const gameKey = getGameKey(gameId);
-    const activeGameKey = getActiveGameKey(gameId);
-    const activeGameTriggerKey = getActiveGameTriggerKey();
+    const activeGamesKey = getActiveGamesKey();
 
     await repeatUntilSuccess(async () => {
       // Get desired queue entries, if they exist
@@ -364,6 +362,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
           { prefix: queuePrefix },
           { limit: queueConfig.numPlayers },
         ),
+      );
+      const activeGamesEntry = await this.kv.get<ActiveGame[]>(
+        activeGamesKey,
       );
 
       // If the queue doesn't have enough entrants, stop
@@ -403,12 +404,15 @@ export class DB<Config, GameState, Loadout, Outcome> {
         outcome: undefined,
         version: 0,
       };
+      const activeGames = activeGamesEntry.value ?? [];
+      const activeGamesNext = activeGames.some((game) => game.gameId === gameId)
+        ? activeGames
+        : [...activeGames, { gameId }];
 
-      // Create a transaction that will update the ActiveGameCount, add an activeGameKey, and write the Storage Data
+      // Create a transaction that will update the active game list and write the Storage Data
       const transaction = this.kv.atomic()
-        .set(activeGameTriggerKey, {})
-        .check({ key: activeGameKey, versionstamp: null })
-        .set(activeGameKey, {})
+        .check(activeGamesEntry)
+        .set(activeGamesKey, activeGamesNext)
         .check({ key: gameKey, versionstamp: null })
         .set(gameKey, gameStorageData);
 
@@ -462,7 +466,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     gameData: GameStorageData<Config, GameState, Outcome>,
   ): Promise<void> {
     const gameKey = getGameKey(gameId);
-    const activeGameTriggerKey = getActiveGameTriggerKey();
+    const activeGamesKey = getActiveGamesKey();
 
     const entry = await this.kv.get<
       GameStorageData<Config, GameState, Outcome>
@@ -478,10 +482,16 @@ export class DB<Config, GameState, Loadout, Outcome> {
       .set(gameKey, gameData);
 
     if (gameData.outcome !== undefined) {
-      const activeGameKey = getActiveGameKey(gameId);
+      const activeGamesEntry = await this.kv.get<ActiveGame[]>(
+        activeGamesKey,
+      );
+      const activeGames = activeGamesEntry.value ?? [];
+      const activeGamesNext = activeGames.filter((game) =>
+        game.gameId !== gameId
+      );
       transaction = transaction
-        .delete(activeGameKey)
-        .set(activeGameTriggerKey, {});
+        .check(activeGamesEntry)
+        .set(activeGamesKey, activeGamesNext);
     }
 
     const res = await transaction.commit();
@@ -494,11 +504,11 @@ export class DB<Config, GameState, Loadout, Outcome> {
   public async getGameStorageData(
     gameId: string,
   ): Promise<GameStorageData<Config, GameState, Outcome>> {
-    const key = getGameKey(gameId);
+    const gameKey = getGameKey(gameId);
     const entry = await this.kv.get<
       GameStorageData<Config, GameState, Outcome>
     >(
-      key,
+      gameKey,
     );
     if (entry.value == null) {
       throw new Error(`Game ${gameId} not found`);
@@ -510,8 +520,8 @@ export class DB<Config, GameState, Loadout, Outcome> {
   public watchForGameChanges(
     gameId: string,
   ): ReadableStream<GameStorageData<Config, GameState, Outcome>> {
-    const key = getGameKey(gameId);
-    const stream = this.kv.watch([key]);
+    const gameKey = getGameKey(gameId);
+    const stream = this.kv.watch([gameKey]);
     return stream.pipeThrough(
       new TransformStream({
         transform(events, controller) {
@@ -527,28 +537,19 @@ export class DB<Config, GameState, Loadout, Outcome> {
   }
 
   public async getAllActiveGames(): Promise<ActiveGame[]> {
-    const key = getActiveGamePrefix();
-    const iter = this.kv.list<string>({ prefix: key });
-    const response: ActiveGame[] = [];
-
-    for await (const res of iter) {
-      const gameId = res.key[res.key.length - 1] as string;
-      response.push({ gameId });
-    }
-
-    return response;
+    const entry = await this.kv.get<ActiveGame[]>(getActiveGamesKey());
+    return entry.value ?? [];
   }
 
-  // Watches for changes to the activeGameTriggerKey, which is an empty key only used
-  // to trigger this method.
+  // Watches for changes to the active game list key.
   public watchForActiveGameListChanges(): ReadableStream<ActiveGame[]> {
-    const activeGameTriggerKey = getActiveGameTriggerKey();
-    const stream = this.kv.watch([activeGameTriggerKey]);
+    const activeGamesKey = getActiveGamesKey();
+    const stream = this.kv.watch([activeGamesKey]);
     return stream.pipeThrough(
       new TransformStream({
-        transform: async (_events, controller) => {
-          const allGames = await this.getAllActiveGames();
-          controller.enqueue(allGames);
+        transform: (events, controller) => {
+          const data = events[0].value as ActiveGame[] | null;
+          controller.enqueue(data ?? []);
         },
       }),
     );
