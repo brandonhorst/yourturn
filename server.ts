@@ -36,7 +36,7 @@ export async function initializeServer<
   const kv = await Deno.openKv();
   const db = new DB<Config, GameState, Loadout, Outcome>(kv);
 
-  const activeGamesStream: ReadableStream<ActiveGame[]> = db
+  const activeGamesStream: ReadableStream<ActiveGame<Config>[]> = db
     .watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
 

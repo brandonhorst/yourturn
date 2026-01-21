@@ -113,3 +113,4 @@ Each socket type has its own message protocol defined in
 
 - When making changes, ALWAYS run `deno task check` and `deno task test` and fix
   errors.
+- Do not use the `unknown` type unless instructed to do so.

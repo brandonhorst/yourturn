@@ -25,7 +25,7 @@ type MatchmakingEntry =
 
 type ConnectionData<Config> = {
   matchmakingEntry?: Readonly<MatchmakingEntry>;
-  lastActiveGames: ActiveGame[];
+  lastActiveGames: ActiveGame<Config>[];
   lastAvailableRooms: Room<Config>[];
 };
 
@@ -49,12 +49,12 @@ async function streamToSocket<Config, Loadout>(
 
 export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   private sockets: Map<Socket, ConnectionData<Config>> = new Map();
-  private lastActiveGames: ActiveGame[] = [];
+  private lastActiveGames: ActiveGame<Config>[] = [];
   private lastAvailableRooms: Room<Config>[] = [];
 
   constructor(
     private db: DB<Config, GameState, Loadout, Outcome>,
-    activeGamesStream: ReadableStream<ActiveGame[]>,
+    activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
     availableRoomsStream: ReadableStream<Room<Config>[]>,
   ) {
     this.streamToAllSocketAndStore(activeGamesStream);
@@ -69,7 +69,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
 
   initialize(
     socket: Socket,
-    activeGames: ActiveGame[],
+    activeGames: ActiveGame<Config>[],
     availableRooms: Room<Config>[],
   ) {
     const connectionData = this.sockets.get(socket);
@@ -94,11 +94,11 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
 
   // Subscribe to the activeGamesStream and send to all registered sockets
   private streamToAllSocketAndStore(
-    activeGamesStream: ReadableStream<ActiveGame[]>,
+    activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
   ) {
     activeGamesStream.pipeTo(
       new WritableStream({
-        write: (activeGames: ActiveGame[]) => {
+        write: (activeGames: ActiveGame<Config>[]) => {
           this.lastActiveGames = activeGames;
 
           for (const socket of this.allSockets()) {
@@ -297,7 +297,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
 function updateActiveGamesIfNecessary<Config, Loadout>(
   socket: Socket,
   connectionData: ConnectionData<Config>,
-  activeGames: ActiveGame[],
+  activeGames: ActiveGame<Config>[],
 ) {
   if (jsonEquals(connectionData.lastActiveGames, activeGames)) {
     return;

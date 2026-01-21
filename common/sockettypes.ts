@@ -3,7 +3,7 @@ import type { ActiveGame, Room, User } from "../types.ts";
 export type LobbySocketRequest<Config, Loadout> =
   | {
     type: "Initialize";
-    activeGames: ActiveGame[];
+    activeGames: ActiveGame<Config>[];
     availableRooms: Room<Config>[];
   }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
@@ -24,7 +24,7 @@ export type LobbySocketResponse<Config, Loadout> =
   | { type: "RoomJoined"; roomId: string; config: Config; loadout: Loadout }
   | { type: "QueueLeft" }
   | { type: "RoomLeft" }
-  | { type: "UpdateActiveGames"; activeGames: ActiveGame[] }
+  | { type: "UpdateActiveGames"; activeGames: ActiveGame<Config>[] }
   | { type: "UpdateAvailableRooms"; availableRooms: Room<Config>[] }
   | { type: "GameAssignment"; gameId: string }
   | { type: "UserUpdated"; user: User }

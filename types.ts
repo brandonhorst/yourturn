@@ -224,8 +224,11 @@ export interface Game<
     | undefined;
 }
 
-export type ActiveGame = {
+export type ActiveGame<Config> = {
   gameId: string;
+  players: User[];
+  config: Config;
+  created: Date;
 };
 
 export type Room<Config> = {
@@ -236,7 +239,7 @@ export type Room<Config> = {
 };
 
 export type LobbyProps<Config> = {
-  activeGames: ActiveGame[];
+  activeGames: ActiveGame<Config>[];
   availableRooms: Room<Config>[];
   user: User;
 };

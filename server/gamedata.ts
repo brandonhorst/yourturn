@@ -15,7 +15,7 @@ export async function fetchActiveGames<
   Outcome,
 >(
   db: DB<Config, GameState, Loadout, Outcome>,
-): Promise<ActiveGame[]> {
+): Promise<ActiveGame<Config>[]> {
   return await db.getAllActiveGames();
 }
 

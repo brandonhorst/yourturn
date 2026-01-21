@@ -249,6 +249,9 @@ Deno.test("Lists active games", async () => {
   const activeGames = await db.getAllActiveGames();
   assertExists(activeGames);
   assertEquals(activeGames[0].gameId, newGameId);
+  assertEquals(activeGames[0].players, [user1, user2]);
+  assertEquals(activeGames[0].config, queue.config);
+  assertEquals(activeGames[0].created instanceof Date, true);
 
   kv.close();
 });

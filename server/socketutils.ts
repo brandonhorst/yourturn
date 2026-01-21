@@ -5,9 +5,6 @@ export interface Socket {
 }
 
 // Returns true if the two JSON-style objects are equal
-export function jsonEquals(
-  a: JSONValue | undefined,
-  b: JSONValue | undefined,
-): boolean {
+export function jsonEquals<T extends JSONValue>(a: T, b: T): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }

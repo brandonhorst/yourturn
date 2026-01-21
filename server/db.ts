@@ -276,7 +276,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       if (roomEntry.value == null) {
         throw new Error(`Room ${roomId} not found`);
       }
-      const activeGamesEntry = await this.kv.get<ActiveGame[]>(
+      const activeGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
         activeGamesKey,
       );
       const members = roomEntry.value.members;
@@ -296,11 +296,12 @@ export class DB<Config, GameState, Loadout, Outcome> {
         loadouts[i] = members[i].loadout;
       }
 
+      const config = roomEntry.value.config;
       const timestamp = new Date();
       const setupObject = {
         timestamp,
         numPlayers: roomEntry.value.numPlayers,
-        config: roomEntry.value.config,
+        config,
         loadouts,
       };
       const gameState = setupGame(setupObject);
@@ -309,7 +310,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
         GameState,
         Outcome
       > = {
-        config: roomEntry.value.config,
+        config,
         gameState,
         playerUserIds,
         players,
@@ -319,7 +320,15 @@ export class DB<Config, GameState, Loadout, Outcome> {
       const activeGames = activeGamesEntry.value ?? [];
       const activeGamesNext = activeGames.some((game) => game.gameId === gameId)
         ? activeGames
-        : [...activeGames, { gameId }];
+        : [
+          ...activeGames,
+          {
+            gameId,
+            players,
+            config,
+            created: timestamp,
+          },
+        ];
 
       let transaction = this.kv.atomic()
         .check(roomEntry)
@@ -363,7 +372,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
           { limit: queueConfig.numPlayers },
         ),
       );
-      const activeGamesEntry = await this.kv.get<ActiveGame[]>(
+      const activeGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
         activeGamesKey,
       );
 
@@ -407,7 +416,15 @@ export class DB<Config, GameState, Loadout, Outcome> {
       const activeGames = activeGamesEntry.value ?? [];
       const activeGamesNext = activeGames.some((game) => game.gameId === gameId)
         ? activeGames
-        : [...activeGames, { gameId }];
+        : [
+          ...activeGames,
+          {
+            gameId,
+            players,
+            config: queueConfig.config,
+            created: timestamp,
+          },
+        ];
 
       // Create a transaction that will update the active game list and write the Storage Data
       const transaction = this.kv.atomic()
@@ -482,7 +499,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       .set(gameKey, gameData);
 
     if (gameData.outcome !== undefined) {
-      const activeGamesEntry = await this.kv.get<ActiveGame[]>(
+      const activeGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
         activeGamesKey,
       );
       const activeGames = activeGamesEntry.value ?? [];
@@ -536,19 +553,21 @@ export class DB<Config, GameState, Loadout, Outcome> {
     );
   }
 
-  public async getAllActiveGames(): Promise<ActiveGame[]> {
-    const entry = await this.kv.get<ActiveGame[]>(getActiveGamesKey());
+  public async getAllActiveGames(): Promise<ActiveGame<Config>[]> {
+    const entry = await this.kv.get<ActiveGame<Config>[]>(
+      getActiveGamesKey(),
+    );
     return entry.value ?? [];
   }
 
   // Watches for changes to the active game list key.
-  public watchForActiveGameListChanges(): ReadableStream<ActiveGame[]> {
+  public watchForActiveGameListChanges(): ReadableStream<ActiveGame<Config>[]> {
     const activeGamesKey = getActiveGamesKey();
     const stream = this.kv.watch([activeGamesKey]);
     return stream.pipeThrough(
       new TransformStream({
         transform: (events, controller) => {
-          const data = events[0].value as ActiveGame[] | null;
+          const data = events[0].value as ActiveGame<Config>[] | null;
           controller.enqueue(data ?? []);
         },
       }),
