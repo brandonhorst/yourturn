@@ -256,6 +256,57 @@ export class DB<Config, GameState, Loadout, Outcome> {
     });
   }
 
+  // Creates a new game record and returns the base transaction plus game id.
+  private createNewGameTransaction(
+    setupGame: (setupObject: SetupObject<Config, Loadout>) => GameState,
+    options: {
+      activeGamesKey: Deno.KvKey;
+      activeGamesEntry: Deno.KvEntryMaybe<ActiveGame<Config>[]>;
+      config: Config;
+      loadouts: Loadout[];
+      numPlayers: number;
+      playerUserIds: string[];
+      players: User[];
+    },
+  ): { transaction: Deno.AtomicOperation; gameId: string } {
+    const gameId = ulid();
+    const gameKey = getGameKey(gameId);
+    const timestamp = new Date();
+    const setupObject = {
+      timestamp,
+      numPlayers: options.numPlayers,
+      config: options.config,
+      loadouts: options.loadouts,
+    };
+    const gameState = setupGame(setupObject);
+    const gameStorageData: GameStorageData<Config, GameState, Outcome> = {
+      config: options.config,
+      gameState,
+      playerUserIds: options.playerUserIds,
+      players: options.players,
+      outcome: undefined,
+    };
+    const allActiveGames = options.activeGamesEntry.value ?? [];
+    const activeGamesNext =
+      allActiveGames.some((game) => game.gameId === gameId) ? allActiveGames : [
+        ...allActiveGames,
+        {
+          gameId,
+          players: options.players,
+          config: options.config,
+          created: timestamp,
+        },
+      ];
+
+    const transaction = this.kv.atomic()
+      .check(options.activeGamesEntry)
+      .set(options.activeGamesKey, activeGamesNext)
+      .check({ key: gameKey, versionstamp: null })
+      .set(gameKey, gameStorageData);
+
+    return { transaction, gameId };
+  }
+
   public async commitRoom(
     roomId: string,
     setupGame: (
@@ -283,9 +334,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
         throw new Error(`Room ${roomId} does not have enough players`);
       }
 
-      const gameId = ulid();
-      const gameKey = getGameKey(gameId);
-
       const playerUserIds: string[] = [];
       const players: User[] = [];
       const loadouts: Loadout[] = [];
@@ -296,46 +344,21 @@ export class DB<Config, GameState, Loadout, Outcome> {
       }
 
       const config = roomEntry.value.config;
-      const timestamp = new Date();
-      const setupObject = {
-        timestamp,
-        numPlayers: roomEntry.value.numPlayers,
-        config,
-        loadouts,
-      };
-      const gameState = setupGame(setupObject);
-      const gameStorageData: GameStorageData<
-        Config,
-        GameState,
-        Outcome
-      > = {
-        config,
-        gameState,
-        playerUserIds,
-        players,
-        outcome: undefined,
-      };
-      const allActiveGames = activeGamesEntry.value ?? [];
-      const activeGamesNext = allActiveGames.some((game) =>
-          game.gameId === gameId
-        )
-        ? allActiveGames
-        : [
-          ...allActiveGames,
-          {
-            gameId,
-            players,
-            config,
-            created: timestamp,
-          },
-        ];
+      const { transaction, gameId } = this.createNewGameTransaction(
+        setupGame,
+        {
+          activeGamesEntry,
+          activeGamesKey,
+          config,
+          loadouts,
+          numPlayers: roomEntry.value.numPlayers,
+          playerUserIds,
+          players,
+        },
+      );
 
-      let transaction = this.kv.atomic()
+      let transactionWithRoom = transaction
         .check(roomEntry)
-        .check(activeGamesEntry)
-        .set(activeGamesKey, activeGamesNext)
-        .check({ key: gameKey, versionstamp: null })
-        .set(gameKey, gameStorageData)
         .set(roomListTriggerKey, {})
         .delete(roomKey);
 
@@ -345,12 +368,12 @@ export class DB<Config, GameState, Loadout, Outcome> {
         const assignmentKey = getAssignmentKey(entryId);
         const assignmentValue: AssignmentStorageData = { gameId };
 
-        transaction = transaction
+        transactionWithRoom = transactionWithRoom
           .check({ key: assignmentKey, versionstamp: null })
           .set(assignmentKey, assignmentValue);
       }
 
-      const res = await transaction.commit();
+      const res = await transactionWithRoom.commit();
       return res.ok;
     });
   }
@@ -359,9 +382,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     queueConfig: QueueConfig<Config>,
     setupGame: (o: SetupObject<Config, Loadout>) => GameState,
   ): Promise<void> {
-    const gameId = ulid();
     const queuePrefix = getQueuePrefix(queueConfig.queueId);
-    const gameKey = getGameKey(gameId);
     const activeGamesKey = getActiveGamesKey();
 
     await repeatUntilSuccess(async () => {
@@ -389,53 +410,25 @@ export class DB<Config, GameState, Loadout, Outcome> {
         playerUserIds[i] = queueEntries[i].value.userId;
         players[i] = queueEntries[i].value.user;
       }
-      const timestamp = new Date();
       const loadouts: Loadout[] = [];
-      const setupObject = {
-        timestamp,
-        numPlayers: queueConfig.numPlayers,
-        config: queueConfig.config,
-        loadouts,
-      };
       for (let i = 0; i < queueConfig.numPlayers; i++) {
         loadouts[i] = queueEntries[i].value.loadout;
       }
-      const gameState = setupGame(setupObject);
-      const gameStorageData: GameStorageData<
-        Config,
-        GameState,
-        Outcome
-      > = {
-        config: queueConfig.config,
-        gameState,
-        playerUserIds,
-        players,
-        outcome: undefined,
-      };
-      const allActiveGames = activeGamesEntry.value ?? [];
-      const activeGamesNext = allActiveGames.some((game) =>
-          game.gameId === gameId
-        )
-        ? allActiveGames
-        : [
-          ...allActiveGames,
-          {
-            gameId,
-            players,
-            config: queueConfig.config,
-            created: timestamp,
-          },
-        ];
+      const { transaction, gameId } = this.createNewGameTransaction(
+        setupGame,
+        {
+          activeGamesEntry,
+          activeGamesKey,
+          config: queueConfig.config,
+          loadouts,
+          numPlayers: queueConfig.numPlayers,
+          playerUserIds,
+          players,
+        },
+      );
 
-      // Create a transaction that will update the active game list and write the Storage Data
-      const transaction = this.kv.atomic()
-        .check(activeGamesEntry)
-        .set(activeGamesKey, activeGamesNext)
-        .check({ key: gameKey, versionstamp: null })
-        .set(gameKey, gameStorageData);
-
-      let playerId = 0;
       // For each player
+      let transactionWithAssignments = transaction;
       for (const entry of queueEntries) {
         const entryId = entry.key[2] as string;
         const assignmentKey = getAssignmentKey(entryId);
@@ -444,15 +437,13 @@ export class DB<Config, GameState, Loadout, Outcome> {
         };
 
         // Delete their queue entry, and add an assignment
-        transaction
+        transactionWithAssignments = transactionWithAssignments
           .check(entry)
           .delete(entry.key)
           .check({ key: assignmentKey, versionstamp: null })
           .set(assignmentKey, assignmentValue);
-
-        playerId++;
       }
-      const res = await transaction.commit();
+      const res = await transactionWithAssignments.commit();
       return res.ok;
     });
   }
