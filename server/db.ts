@@ -618,7 +618,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
   ): Promise<void> {
     let transaction = this.kv.atomic()
       .set(getUserKey(userId), user)
-      .set(getUserByUsernameKey(user.username), user);
+      .set(getUserByUsernameKey(user.username), userId);
 
     if (previousUsername != null && previousUsername !== user.username) {
       transaction = transaction.delete(getUserByUsernameKey(previousUsername));
@@ -635,9 +635,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
     return entry.value;
   }
 
-  public async getUserByUsername(username: string): Promise<User | null> {
-    const entry = await this.kv.get<User>(getUserByUsernameKey(username));
-    return entry.value;
+  public async usernameExists(username: string): Promise<boolean> {
+    const entry = await this.kv.get<string>(getUserByUsernameKey(username));
+    return entry.value != null;
   }
 
   public async storeToken(token: string, tokenData: TokenData): Promise<void> {

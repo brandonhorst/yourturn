@@ -308,8 +308,8 @@ export class Server<
           if (newUsername === user.username) {
             break;
           }
-          const existingUser = await this.db.getUserByUsername(newUsername);
-          if (existingUser != null) {
+          const usernameTaken = await this.db.usernameExists(newUsername);
+          if (usernameTaken) {
             break;
           }
 
@@ -420,8 +420,8 @@ export class Server<
         "0",
       );
       const username = `guest-${suffix}`;
-      const existingUser = await this.db.getUserByUsername(username);
-      if (existingUser == null) {
+      const usernameTaken = await this.db.usernameExists(username);
+      if (!usernameTaken) {
         return { username, isGuest: true };
       }
     }
