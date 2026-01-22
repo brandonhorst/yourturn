@@ -315,11 +315,13 @@ export class DB<Config, GameState, Loadout, Outcome> {
         players,
         outcome: undefined,
       };
-      const activeGames = activeGamesEntry.value ?? [];
-      const activeGamesNext = activeGames.some((game) => game.gameId === gameId)
-        ? activeGames
+      const allActiveGames = activeGamesEntry.value ?? [];
+      const activeGamesNext = allActiveGames.some((game) =>
+          game.gameId === gameId
+        )
+        ? allActiveGames
         : [
-          ...activeGames,
+          ...allActiveGames,
           {
             gameId,
             players,
@@ -410,11 +412,13 @@ export class DB<Config, GameState, Loadout, Outcome> {
         players,
         outcome: undefined,
       };
-      const activeGames = activeGamesEntry.value ?? [];
-      const activeGamesNext = activeGames.some((game) => game.gameId === gameId)
-        ? activeGames
+      const allActiveGames = activeGamesEntry.value ?? [];
+      const activeGamesNext = allActiveGames.some((game) =>
+          game.gameId === gameId
+        )
+        ? allActiveGames
         : [
-          ...activeGames,
+          ...allActiveGames,
           {
             gameId,
             players,
@@ -499,8 +503,8 @@ export class DB<Config, GameState, Loadout, Outcome> {
       const activeGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
         activeGamesKey,
       );
-      const activeGames = activeGamesEntry.value ?? [];
-      const activeGamesNext = activeGames.filter((game) =>
+      const allActiveGames = activeGamesEntry.value ?? [];
+      const activeGamesNext = allActiveGames.filter((game) =>
         game.gameId !== gameId
       );
       transaction = transaction

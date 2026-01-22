@@ -279,13 +279,13 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   assertExists(message2);
   assertEquals(message1.type, "UpdateActiveGames");
   assertEquals(message2.type, "UpdateActiveGames");
-  assertExists(message1.activeGames);
-  assertExists(message2.activeGames);
+  assertExists(message1.allActiveGames);
+  assertExists(message2.allActiveGames);
 
   // Both sockets should have the same list of active games
   assertEquals(
-    JSON.stringify(message1.activeGames),
-    JSON.stringify(message2.activeGames),
+    JSON.stringify(message1.allActiveGames),
+    JSON.stringify(message2.allActiveGames),
   );
 
   // Clean up

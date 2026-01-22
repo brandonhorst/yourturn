@@ -21,9 +21,11 @@ export function useLobbySocket<Config, Loadout>({
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
 }): LobbyViewProps<Config, Loadout> {
-  const [activeGames, setActiveGames] = useState(initialLobbyProps.activeGames);
-  const [availableRooms, setAvailableRooms] = useState(
-    initialLobbyProps.availableRooms,
+  const [allActiveGames, setActiveGames] = useState(
+    initialLobbyProps.allActiveGames,
+  );
+  const [allAvailableRooms, setAvailableRooms] = useState(
+    initialLobbyProps.allAvailableRooms,
   );
   const [user, setUser] = useState(initialLobbyProps.user);
   const [currentMatchmaking, setCurrentMatchmaking] = useState<
@@ -52,10 +54,10 @@ export function useLobbySocket<Config, Loadout>({
         setCurrentMatchmaking(undefined);
         break;
       case "UpdateActiveGames":
-        setActiveGames(response.activeGames);
+        setActiveGames(response.allActiveGames);
         break;
       case "UpdateAvailableRooms":
-        setAvailableRooms(response.availableRooms);
+        setAvailableRooms(response.allAvailableRooms);
         break;
       case "GameAssignment":
         navigate(response.gameId);
@@ -79,7 +81,7 @@ export function useLobbySocket<Config, Loadout>({
   >(
     true,
     () => new WebSocket(socketUrl),
-    { type: "Initialize", activeGames, availableRooms },
+    { type: "Initialize", allActiveGames, allAvailableRooms },
     onUpdate,
     onClose,
   );
@@ -127,8 +129,8 @@ export function useLobbySocket<Config, Loadout>({
   }, [send]);
 
   return {
-    activeGames,
-    availableRooms,
+    allActiveGames,
+    allAvailableRooms,
     user,
     joinQueue,
     createAndJoinRoom,

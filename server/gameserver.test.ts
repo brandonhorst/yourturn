@@ -78,8 +78,8 @@ Deno.test("getInitialLobbyProps creates a guest token when missing", async () =>
   const result = await server.getInitialLobbyProps(undefined);
 
   assertExists(result.token);
-  assertEquals(result.props.activeGames, []);
-  assertEquals(result.props.availableRooms, []);
+  assertEquals(result.props.allActiveGames, []);
+  assertEquals(result.props.allAvailableRooms, []);
   assertEquals(result.props.user.isGuest, true);
   assert(result.props.user.username.startsWith("guest-"));
 
@@ -107,8 +107,8 @@ Deno.test("getInitialLobbyProps uses existing user for valid token", async () =>
 
   assertEquals(result.token, token);
   assertEquals(result.props.user, user);
-  assertEquals(result.props.activeGames, []);
-  assertEquals(result.props.availableRooms, []);
+  assertEquals(result.props.allActiveGames, []);
+  assertEquals(result.props.allAvailableRooms, []);
 
   kv.close();
 });

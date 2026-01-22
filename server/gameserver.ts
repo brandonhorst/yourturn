@@ -57,8 +57,8 @@ export class Server<
   async getInitialLobbyProps(
     token: string | undefined,
   ): Promise<{ props: LobbyProps<Config>; token: string }> {
-    const activeGames = await fetchActiveGames(this.db);
-    const availableRooms = await fetchAvailableRooms(this.db);
+    const allActiveGames = await fetchActiveGames(this.db);
+    const allAvailableRooms = await fetchAvailableRooms(this.db);
     let user: User | null = null;
     let lobbyToken = token;
 
@@ -86,7 +86,10 @@ export class Server<
       throw new Error("Missing lobby user");
     }
 
-    return { props: { activeGames, availableRooms, user }, token: lobbyToken };
+    return {
+      props: { allActiveGames, allAvailableRooms, user },
+      token: lobbyToken,
+    };
   }
 
   async getInitialGameProps(
@@ -150,8 +153,8 @@ export class Server<
         case "Initialize":
           this.lobbySocketStore.initialize(
             socket,
-            parsedMessage.activeGames,
-            parsedMessage.availableRooms,
+            parsedMessage.allActiveGames,
+            parsedMessage.allAvailableRooms,
           );
           break;
         case "JoinQueue": {

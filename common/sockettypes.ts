@@ -3,8 +3,8 @@ import type { ActiveGame, Room, User } from "../types.ts";
 export type LobbyClientMessage<Config, Loadout> =
   | {
     type: "Initialize";
-    activeGames: ActiveGame<Config>[];
-    availableRooms: Room<Config>[];
+    allActiveGames: ActiveGame<Config>[];
+    allAvailableRooms: Room<Config>[];
   }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | {
@@ -24,8 +24,8 @@ export type LobbyServerMessage<Config, Loadout> =
   | { type: "RoomJoined"; roomId: string; config: Config; loadout: Loadout }
   | { type: "QueueLeft" }
   | { type: "RoomLeft" }
-  | { type: "UpdateActiveGames"; activeGames: ActiveGame<Config>[] }
-  | { type: "UpdateAvailableRooms"; availableRooms: Room<Config>[] }
+  | { type: "UpdateActiveGames"; allActiveGames: ActiveGame<Config>[] }
+  | { type: "UpdateAvailableRooms"; allAvailableRooms: Room<Config>[] }
   | { type: "GameAssignment"; gameId: string }
   | { type: "UserUpdated"; user: User }
   | { type: "DisplayError"; message: string };

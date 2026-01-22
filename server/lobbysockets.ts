@@ -69,15 +69,15 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
 
   initialize(
     socket: Socket,
-    activeGames: ActiveGame<Config>[],
-    availableRooms: Room<Config>[],
+    allActiveGames: ActiveGame<Config>[],
+    allAvailableRooms: Room<Config>[],
   ) {
     const connectionData = this.sockets.get(socket);
     if (connectionData == null) {
       return;
     }
-    connectionData.lastActiveGames = activeGames;
-    connectionData.lastAvailableRooms = availableRooms;
+    connectionData.lastActiveGames = allActiveGames;
+    connectionData.lastAvailableRooms = allAvailableRooms;
 
     updateActiveGamesIfNecessary(socket, connectionData, this.lastActiveGames);
     updateAvailableRoomsIfNecessary(
@@ -98,14 +98,14 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   ) {
     activeGamesStream.pipeTo(
       new WritableStream({
-        write: (activeGames: ActiveGame<Config>[]) => {
-          this.lastActiveGames = activeGames;
+        write: (allActiveGames: ActiveGame<Config>[]) => {
+          this.lastActiveGames = allActiveGames;
 
           for (const socket of this.allSockets()) {
             updateActiveGamesIfNecessary(
               socket,
               this.sockets.get(socket)!,
-              activeGames,
+              allActiveGames,
             );
           }
         },
@@ -118,14 +118,14 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   ) {
     availableRoomsStream.pipeTo(
       new WritableStream({
-        write: (availableRooms: Room<Config>[]) => {
-          this.lastAvailableRooms = availableRooms;
+        write: (allAvailableRooms: Room<Config>[]) => {
+          this.lastAvailableRooms = allAvailableRooms;
 
           for (const socket of this.allSockets()) {
             updateAvailableRoomsIfNecessary(
               socket,
               this.sockets.get(socket)!,
-              availableRooms,
+              allAvailableRooms,
             );
           }
         },
@@ -297,33 +297,33 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
 function updateActiveGamesIfNecessary<Config, Loadout>(
   socket: Socket,
   connectionData: ConnectionData<Config>,
-  activeGames: ActiveGame<Config>[],
+  allActiveGames: ActiveGame<Config>[],
 ) {
-  if (jsonEquals(connectionData.lastActiveGames, activeGames)) {
+  if (jsonEquals(connectionData.lastActiveGames, allActiveGames)) {
     return;
   }
 
   const response: LobbyServerMessage<Config, Loadout> = {
     type: "UpdateActiveGames",
-    activeGames,
+    allActiveGames,
   };
-  connectionData.lastActiveGames = activeGames;
+  connectionData.lastActiveGames = allActiveGames;
   socket.send(JSON.stringify(response));
 }
 
 function updateAvailableRoomsIfNecessary<Config, Loadout>(
   socket: Socket,
   connectionData: ConnectionData<Config>,
-  availableRooms: Room<Config>[],
+  allAvailableRooms: Room<Config>[],
 ) {
-  if (jsonEquals(connectionData.lastAvailableRooms, availableRooms)) {
+  if (jsonEquals(connectionData.lastAvailableRooms, allAvailableRooms)) {
     return;
   }
 
   const response: LobbyServerMessage<Config, Loadout> = {
     type: "UpdateAvailableRooms",
-    availableRooms,
+    allAvailableRooms,
   };
-  connectionData.lastAvailableRooms = availableRooms;
+  connectionData.lastAvailableRooms = allAvailableRooms;
   socket.send(JSON.stringify(response));
 }
