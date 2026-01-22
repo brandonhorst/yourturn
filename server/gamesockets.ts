@@ -2,7 +2,7 @@ import type { DB, GameStorageData } from "./db.ts";
 import { jsonEquals, type Socket } from "./socketutils.ts";
 import type { PlayerStateObject, PublicStateObject } from "../types.ts";
 import { assert } from "@std/assert";
-import type { GameSocketResponse } from "../common/sockettypes.ts";
+import type { GameServerMessage } from "../common/sockettypes.ts";
 import { getPlayerState, getPublicState } from "./gamedata.ts";
 
 type GameSocketEntry<PlayerState, PublicState, Outcome> = {
@@ -238,7 +238,7 @@ function updateSocketIfNecessary<PlayerState, PublicState, Outcome>(
     return;
   }
 
-  const response: GameSocketResponse<PlayerState, PublicState, Outcome> = {
+  const response: GameServerMessage<PlayerState, PublicState, Outcome> = {
     type: "UpdateGameState",
     playerState,
     publicState,

@@ -4,7 +4,7 @@ import type {
   QueueConfig,
   RoomStorageData,
 } from "./db.ts";
-import type { LobbySocketResponse } from "../common/sockettypes.ts";
+import type { LobbyServerMessage } from "../common/sockettypes.ts";
 import type { ActiveGame, Room, SetupObject, User } from "../types.ts";
 import { ulid } from "@std/ulid";
 import { jsonEquals, type Socket } from "./socketutils.ts";
@@ -39,7 +39,7 @@ async function streamToSocket<Config, Loadout>(
       break;
     }
 
-    const message: LobbySocketResponse<Config, Loadout> = {
+    const message: LobbyServerMessage<Config, Loadout> = {
       type: "GameAssignment",
       gameId: data.value.gameId,
     };
@@ -149,7 +149,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
     streamToSocket(assignmentsReader, socket);
 
-    const message: LobbySocketResponse<Config, Loadout> = {
+    const message: LobbyServerMessage<Config, Loadout> = {
       type: "QueueJoined",
       queueId: queueConfig.queueId,
       loadout,
@@ -233,7 +233,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
       return false;
     }
 
-    const message: LobbySocketResponse<Config, Loadout> = {
+    const message: LobbyServerMessage<Config, Loadout> = {
       type: "RoomJoined",
       roomId,
       config: roomConfig.config,
@@ -271,7 +271,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
         matchmakingEntry.queueId,
         matchmakingEntry.entryId,
       );
-      const message: LobbySocketResponse<Config, Loadout> = {
+      const message: LobbyServerMessage<Config, Loadout> = {
         type: "QueueLeft",
       };
       socket.send(JSON.stringify(message));
@@ -280,7 +280,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
         matchmakingEntry.roomId,
         matchmakingEntry.entryId,
       );
-      const message: LobbySocketResponse<Config, Loadout> = {
+      const message: LobbyServerMessage<Config, Loadout> = {
         type: "RoomLeft",
       };
       socket.send(JSON.stringify(message));
@@ -303,7 +303,7 @@ function updateActiveGamesIfNecessary<Config, Loadout>(
     return;
   }
 
-  const response: LobbySocketResponse<Config, Loadout> = {
+  const response: LobbyServerMessage<Config, Loadout> = {
     type: "UpdateActiveGames",
     activeGames,
   };
@@ -320,7 +320,7 @@ function updateAvailableRoomsIfNecessary<Config, Loadout>(
     return;
   }
 
-  const response: LobbySocketResponse<Config, Loadout> = {
+  const response: LobbyServerMessage<Config, Loadout> = {
     type: "UpdateAvailableRooms",
     availableRooms,
   };

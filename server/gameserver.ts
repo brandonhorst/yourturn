@@ -1,7 +1,7 @@
 import type { Game, GameProps, LobbyProps, User } from "../types.ts";
 import type {
-  GameSocketRequest,
-  LobbySocketRequest,
+  GameClientMessage,
+  LobbyClientMessage,
 } from "../common/sockettypes.ts";
 import {
   fetchActiveGames,
@@ -143,7 +143,7 @@ export class Server<
     const handleLobbySocketMessage = async (event: MessageEvent) => {
       const message = event.data;
       console.log("Lobby Socket Message", message);
-      const parsedMessage: LobbySocketRequest<Config, Loadout> = JSON.parse(
+      const parsedMessage: LobbyClientMessage<Config, Loadout> = JSON.parse(
         message,
       );
       switch (parsedMessage.type) {
@@ -358,7 +358,7 @@ export class Server<
     };
 
     const handleGameSocketMessage = async (event: MessageEvent) => {
-      const request: GameSocketRequest<
+      const request: GameClientMessage<
         Move,
         PlayerState,
         PublicState

@@ -1,6 +1,6 @@
 import type { ActiveGame, Room, User } from "../types.ts";
 
-export type LobbySocketRequest<Config, Loadout> =
+export type LobbyClientMessage<Config, Loadout> =
   | {
     type: "Initialize";
     activeGames: ActiveGame<Config>[];
@@ -19,7 +19,7 @@ export type LobbySocketRequest<Config, Loadout> =
   | { type: "LeaveMatchmaking" }
   | { type: "UpdateUsername"; username: string };
 
-export type LobbySocketResponse<Config, Loadout> =
+export type LobbyServerMessage<Config, Loadout> =
   | { type: "QueueJoined"; queueId: string; loadout: Loadout }
   | { type: "RoomJoined"; roomId: string; config: Config; loadout: Loadout }
   | { type: "QueueLeft" }
@@ -30,7 +30,7 @@ export type LobbySocketResponse<Config, Loadout> =
   | { type: "UserUpdated"; user: User }
   | { type: "DisplayError"; message: string };
 
-export type GameSocketRequest<Move, PlayerState, PublicState> =
+export type GameClientMessage<Move, PlayerState, PublicState> =
   | {
     type: "Initialize";
     currentPublicState: PublicState;
@@ -38,7 +38,7 @@ export type GameSocketRequest<Move, PlayerState, PublicState> =
   }
   | { type: "Move"; move: Move };
 
-export type GameSocketResponse<PlayerState, PublicState, Outcome> = {
+export type GameServerMessage<PlayerState, PublicState, Outcome> = {
   type: "UpdateGameState";
   publicState: PublicState;
   playerState: PlayerState | undefined;

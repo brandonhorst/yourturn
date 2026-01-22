@@ -1,8 +1,8 @@
 import { useCallback, useState } from "preact/hooks";
 import { useSocket } from "../client/hookutils.ts";
 import type {
-  GameSocketRequest,
-  GameSocketResponse,
+  GameClientMessage,
+  GameServerMessage,
 } from "../common/sockettypes.ts";
 import type { GameProps, GameViewProps } from "../types.ts";
 
@@ -26,7 +26,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   );
 
   function onMessage(
-    response: GameSocketResponse<PlayerState, PublicState, Outcome>,
+    response: GameServerMessage<PlayerState, PublicState, Outcome>,
     close: () => void,
   ) {
     switch (response.type) {
@@ -42,8 +42,8 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   }
 
   const send = useSocket<
-    GameSocketRequest<Move, PlayerState, PublicState>,
-    GameSocketResponse<PlayerState, PublicState, Outcome>
+    GameClientMessage<Move, PlayerState, PublicState>,
+    GameServerMessage<PlayerState, PublicState, Outcome>
   >(
     initialGameProps.outcome === undefined,
     () => new WebSocket(socketUrl),
@@ -56,7 +56,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   );
 
   const performCallback = useCallback((move: Move) => {
-    const request: GameSocketRequest<Move, PlayerState, PublicState> = {
+    const request: GameClientMessage<Move, PlayerState, PublicState> = {
       type: "Move",
       move,
     };

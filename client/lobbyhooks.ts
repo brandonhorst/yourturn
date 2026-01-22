@@ -1,8 +1,8 @@
 import { useCallback, useState } from "preact/hooks";
 import { useSocket } from "../client/hookutils.ts";
 import type {
-  LobbySocketRequest,
-  LobbySocketResponse,
+  LobbyClientMessage,
+  LobbyServerMessage,
 } from "../common/sockettypes.ts";
 import type {
   CurrentMatchmaking,
@@ -30,7 +30,7 @@ export function useLobbySocket<Config, Loadout>({
     CurrentMatchmaking<Config, Loadout> | undefined
   >(undefined);
 
-  function onUpdate(response: LobbySocketResponse<Config, Loadout>) {
+  function onUpdate(response: LobbyServerMessage<Config, Loadout>) {
     switch (response.type) {
       case "QueueJoined":
         setCurrentMatchmaking({
@@ -74,8 +74,8 @@ export function useLobbySocket<Config, Loadout>({
   }
 
   const send = useSocket<
-    LobbySocketRequest<Config, Loadout>,
-    LobbySocketResponse<Config, Loadout>
+    LobbyClientMessage<Config, Loadout>,
+    LobbyServerMessage<Config, Loadout>
   >(
     true,
     () => new WebSocket(socketUrl),

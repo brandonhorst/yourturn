@@ -632,12 +632,12 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
   public async getUser(userId: string): Promise<User | null> {
     const entry = await this.kv.get<User>(getUserKey(userId));
-    return entry.value ?? null;
+    return entry.value;
   }
 
   public async getUserByUsername(username: string): Promise<User | null> {
     const entry = await this.kv.get<User>(getUserByUsernameKey(username));
-    return entry.value ?? null;
+    return entry.value;
   }
 
   public async storeToken(token: string, tokenData: TokenData): Promise<void> {
