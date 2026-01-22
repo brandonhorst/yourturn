@@ -115,3 +115,5 @@ Each socket type has its own message protocol defined in
   errors.
 - Ensure all functions have good comments that explain their purpose.
 - Do not use the `unknown` type unless instructed to do so.
+- Right now, this system is unlaunched and in active development. Do not worry
+  about backwards compatibility or breaking existing APIs.
