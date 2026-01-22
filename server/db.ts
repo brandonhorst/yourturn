@@ -4,7 +4,7 @@ import type {
   Room,
   SetupObject,
   TokenData,
-  User,
+  User as Player,
 } from "../types.ts";
 
 export type QueueConfig<Config> = {
@@ -16,7 +16,7 @@ export type QueueConfig<Config> = {
 type QueueEntryValue<Loadout> = {
   timestamp: Date;
   userId: string;
-  user: User;
+  user: Player;
   loadout: Loadout;
 };
 
@@ -31,7 +31,7 @@ type RoomMember<Loadout> = {
   entryId: string;
   timestamp: Date;
   userId: string;
-  user: User;
+  player: Player;
   loadout: Loadout;
 };
 
@@ -39,7 +39,7 @@ export type GameStorageData<Config, GameState, Outcome> = {
   config: Config;
   gameState: GameState;
   playerUserIds: string[];
-  players: User[];
+  players: Player[];
   outcome: Outcome | undefined;
 };
 
@@ -102,7 +102,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     queueConfig: QueueConfig<Config>,
     entryId: string,
     userId: string,
-    user: User,
+    user: Player,
     loadout: Loadout,
     setupGame: (
       setupObject: SetupObject<Config, Loadout>,
@@ -175,7 +175,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     roomId: string,
     entryId: string,
     userId: string,
-    user: User,
+    user: Player,
     loadout: Loadout,
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
@@ -199,7 +199,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
         ...roomEntry.value,
         members: [
           ...currentMembers,
-          { entryId, timestamp: new Date(), userId, user, loadout },
+          { entryId, timestamp: new Date(), userId, player: user, loadout },
         ],
       };
 
@@ -266,7 +266,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       loadouts: Loadout[];
       numPlayers: number;
       playerUserIds: string[];
-      players: User[];
+      players: Player[];
     },
   ): { transaction: Deno.AtomicOperation; gameId: string } {
     const gameId = ulid();
@@ -335,11 +335,11 @@ export class DB<Config, GameState, Loadout, Outcome> {
       }
 
       const playerUserIds: string[] = [];
-      const players: User[] = [];
+      const players: Player[] = [];
       const loadouts: Loadout[] = [];
       for (let i = 0; i < roomEntry.value.numPlayers; i++) {
         playerUserIds[i] = members[i].userId;
-        players[i] = members[i].user;
+        players[i] = members[i].player;
         loadouts[i] = members[i].loadout;
       }
 
@@ -404,7 +404,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
       // Initialize Game Storage Data
       const playerUserIds: string[] = [];
-      const players: User[] = [];
+      const players: Player[] = [];
 
       for (let i = 0; i < queueConfig.numPlayers; i++) {
         playerUserIds[i] = queueEntries[i].value.userId;
@@ -579,7 +579,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       if (room.private) {
         continue;
       }
-      const players = (room.members ?? []).map((member) => member.user);
+      const players = (room.members ?? []).map((member) => member.player);
       rooms.push({
         roomId,
         numPlayers: room.numPlayers,
@@ -608,7 +608,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
   public async storeUser(
     userId: string,
-    user: User,
+    user: Player,
     previousUsername?: string,
   ): Promise<void> {
     let transaction = this.kv.atomic()
@@ -625,8 +625,8 @@ export class DB<Config, GameState, Loadout, Outcome> {
     }
   }
 
-  public async getUser(userId: string): Promise<User | null> {
-    const entry = await this.kv.get<User>(getUserKey(userId));
+  public async getUser(userId: string): Promise<Player | null> {
+    const entry = await this.kv.get<Player>(getUserKey(userId));
     return entry.value;
   }
 
