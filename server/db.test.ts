@@ -372,3 +372,26 @@ Deno.test("Commits room and assigns players", async () => {
 
   kv.close();
 });
+
+Deno.test("usernameExists tracks stored usernames", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const db = new DB(kv);
+
+  const userId = "user-1";
+  const usernameTakenBefore = await db.usernameExists(user1.username);
+  assertEquals(usernameTakenBefore, false);
+
+  await db.storeUser(userId, user1);
+
+  const usernameTakenAfter = await db.usernameExists(user1.username);
+  assertEquals(usernameTakenAfter, true);
+
+  await db.storeUser(userId, user2, user1.username);
+
+  const oldUsernameTaken = await db.usernameExists(user1.username);
+  const newUsernameTaken = await db.usernameExists(user2.username);
+  assertEquals(oldUsernameTaken, false);
+  assertEquals(newUsernameTaken, true);
+
+  kv.close();
+});
