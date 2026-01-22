@@ -322,8 +322,8 @@ export class Server<
 
           socket.send(JSON.stringify(
             {
-              type: "UserUpdated",
-              user,
+              type: "UpdateLobbyProps",
+              lobbyProps: { user },
             },
           ));
           break;

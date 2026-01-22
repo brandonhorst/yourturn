@@ -53,17 +53,19 @@ export function useLobbySocket<Config, Loadout>({
       case "RoomLeft":
         setCurrentMatchmaking(undefined);
         break;
-      case "UpdateActiveGames":
-        setActiveGames(response.allActiveGames);
-        break;
-      case "UpdateAvailableRooms":
-        setAvailableRooms(response.allAvailableRooms);
+      case "UpdateLobbyProps":
+        if (response.lobbyProps.allActiveGames != null) {
+          setActiveGames(response.lobbyProps.allActiveGames);
+        }
+        if (response.lobbyProps.allAvailableRooms != null) {
+          setAvailableRooms(response.lobbyProps.allAvailableRooms);
+        }
+        if (response.lobbyProps.user != null) {
+          setUser(response.lobbyProps.user);
+        }
         break;
       case "GameAssignment":
         navigate(response.gameId);
-        break;
-      case "UserUpdated":
-        setUser(response.user);
         break;
       case "DisplayError":
         displayError(response.message);

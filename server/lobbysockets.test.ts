@@ -251,16 +251,16 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   // Wait to make sure the watches are sent
   await new Promise((resolve) => setTimeout(resolve, 100));
 
-  // (JoinQueue + UpdateActiveGames + GameAssignment)
+  // (JoinQueue + UpdateLobbyProps + GameAssignment)
   assertSpyCalls(socket1.send, 3);
   assertSpyCalls(socket2.send, 3);
 
-  // Find UpdateActiveGames message
+  // Find UpdateLobbyProps message
   let message1, message2;
 
   for (let i = 0; i < socket1.send.calls.length; i++) {
     const msg = JSON.parse(socket1.send.calls[i].args[0]);
-    if (msg.type === "UpdateActiveGames") {
+    if (msg.type === "UpdateLobbyProps") {
       message1 = msg;
       break;
     }
@@ -268,7 +268,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
 
   for (let i = 0; i < socket2.send.calls.length; i++) {
     const msg = JSON.parse(socket2.send.calls[i].args[0]);
-    if (msg.type === "UpdateActiveGames") {
+    if (msg.type === "UpdateLobbyProps") {
       message2 = msg;
       break;
     }
@@ -277,15 +277,15 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   // Verify the active games message was received and has game IDs
   assertExists(message1);
   assertExists(message2);
-  assertEquals(message1.type, "UpdateActiveGames");
-  assertEquals(message2.type, "UpdateActiveGames");
-  assertExists(message1.allActiveGames);
-  assertExists(message2.allActiveGames);
+  assertEquals(message1.type, "UpdateLobbyProps");
+  assertEquals(message2.type, "UpdateLobbyProps");
+  assertExists(message1.lobbyProps?.allActiveGames);
+  assertExists(message2.lobbyProps?.allActiveGames);
 
   // Both sockets should have the same list of active games
   assertEquals(
-    JSON.stringify(message1.allActiveGames),
-    JSON.stringify(message2.allActiveGames),
+    JSON.stringify(message1.lobbyProps.allActiveGames),
+    JSON.stringify(message2.lobbyProps.allActiveGames),
   );
 
   // Clean up

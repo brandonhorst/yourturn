@@ -1,4 +1,4 @@
-import type { ActiveGame, Room, User } from "../types.ts";
+import type { ActiveGame, LobbyProps, Room } from "../types.ts";
 
 export type LobbyClientMessage<Config, Loadout> =
   | {
@@ -24,10 +24,8 @@ export type LobbyServerMessage<Config, Loadout> =
   | { type: "RoomJoined"; roomId: string; config: Config; loadout: Loadout }
   | { type: "QueueLeft" }
   | { type: "RoomLeft" }
-  | { type: "UpdateActiveGames"; allActiveGames: ActiveGame<Config>[] }
-  | { type: "UpdateAvailableRooms"; allAvailableRooms: Room<Config>[] }
+  | { type: "UpdateLobbyProps"; lobbyProps: Partial<LobbyProps<Config>> }
   | { type: "GameAssignment"; gameId: string }
-  | { type: "UserUpdated"; user: User }
   | { type: "DisplayError"; message: string };
 
 export type GameClientMessage<Move, PlayerState, PublicState> =

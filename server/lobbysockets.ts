@@ -304,8 +304,8 @@ function updateActiveGamesIfNecessary<Config, Loadout>(
   }
 
   const response: LobbyServerMessage<Config, Loadout> = {
-    type: "UpdateActiveGames",
-    allActiveGames,
+    type: "UpdateLobbyProps",
+    lobbyProps: { allActiveGames },
   };
   connectionData.lastActiveGames = allActiveGames;
   socket.send(JSON.stringify(response));
@@ -321,8 +321,8 @@ function updateAvailableRoomsIfNecessary<Config, Loadout>(
   }
 
   const response: LobbyServerMessage<Config, Loadout> = {
-    type: "UpdateAvailableRooms",
-    allAvailableRooms,
+    type: "UpdateLobbyProps",
+    lobbyProps: { allAvailableRooms },
   };
   connectionData.lastAvailableRooms = allAvailableRooms;
   socket.send(JSON.stringify(response));
