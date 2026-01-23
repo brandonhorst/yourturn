@@ -1,4 +1,10 @@
-import type { Game, GameProps, LobbyProps, Player } from "../types.ts";
+import type {
+  ActiveGame,
+  Game,
+  GameProps,
+  LobbyProps,
+  Player,
+} from "../types.ts";
 import type {
   GameClientMessage,
   LobbyClientMessage,
@@ -60,6 +66,7 @@ export class Server<
     const allActiveGames = await fetchActiveGames(this.db);
     const allAvailableRooms = await fetchAvailableRooms(this.db);
     let user: Player | null = null;
+    let userActiveGames: ActiveGame<Config>[] = [];
     let lobbyToken = token;
 
     if (token != null) {
@@ -67,6 +74,7 @@ export class Server<
       if (tokenData != null && tokenData.expiration > new Date()) {
         const storedUser = await this.db.getUserStorageData(tokenData.userId);
         user = storedUser?.player ?? null;
+        userActiveGames = storedUser?.activeGames ?? [];
       }
     }
 
@@ -82,6 +90,7 @@ export class Server<
         activeGames: [],
       });
       await this.db.storeToken(lobbyToken, { userId, expiration });
+      userActiveGames = [];
     }
 
     if (lobbyToken == null) {
@@ -92,7 +101,12 @@ export class Server<
     }
 
     return {
-      props: { allActiveGames, allAvailableRooms, player: user },
+      props: {
+        allActiveGames,
+        allAvailableRooms,
+        userActiveGames,
+        player: user,
+      },
       token: lobbyToken,
     };
   }
@@ -145,7 +159,7 @@ export class Server<
 
     const handleLobbySocketOpen = () => {
       console.log("lobby socket opened");
-      this.lobbySocketStore.register(socket);
+      this.lobbySocketStore.register(socket, userId, storedUser);
     };
 
     const handleLobbySocketMessage = async (event: MessageEvent) => {
@@ -325,12 +339,6 @@ export class Server<
           await this.db.updateUserStorageData(userId, { player: updatedUser });
           user = updatedUser;
 
-          socket.send(JSON.stringify(
-            {
-              type: "UpdateLobbyProps",
-              lobbyProps: { user },
-            },
-          ));
           break;
         }
       }

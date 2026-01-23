@@ -3,9 +3,16 @@ import type {
   DB,
   QueueConfig,
   RoomStorageData,
+  UserStorageData,
 } from "./db.ts";
 import type { LobbyServerMessage } from "../common/sockettypes.ts";
-import type { ActiveGame, Player, Room, SetupObject } from "../types.ts";
+import type {
+  ActiveGame,
+  LobbyProps,
+  Player,
+  Room,
+  SetupObject,
+} from "../types.ts";
 import { ulid } from "@std/ulid";
 import { jsonEquals, type Socket } from "./socketutils.ts";
 
@@ -25,10 +32,15 @@ type MatchmakingEntry =
 
 type ConnectionData<Config> = {
   matchmakingEntry?: Readonly<MatchmakingEntry>;
+  userChangesReader?: ReadableStreamDefaultReader;
+  userId: string;
   lastActiveGames: ActiveGame<Config>[];
   lastAvailableRooms: Room<Config>[];
+  lastUserActiveGames: ActiveGame<Config>[];
+  lastPlayer: Player;
 };
 
+// Streams assignment updates to the socket until the stream ends.
 async function streamToSocket<Config, Loadout>(
   stream: ReadableStreamDefaultReader<AssignmentStorageData>,
   socket: Socket,
@@ -47,6 +59,22 @@ async function streamToSocket<Config, Loadout>(
   }
 }
 
+// Streams user changes to the socket and updates lobby props when needed.
+async function streamUserChangesToSocket<Config>(
+  stream: ReadableStreamDefaultReader<UserStorageData<Config>>,
+  socket: Socket,
+  connectionData: ConnectionData<Config>,
+) {
+  while (true) {
+    const data = await stream.read();
+    if (data.done) {
+      break;
+    }
+
+    updateUserPropsIfNecessary(socket, connectionData, data.value);
+  }
+}
+
 export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   private sockets: Map<Socket, ConnectionData<Config>> = new Map();
   private lastActiveGames: ActiveGame<Config>[] = [];
@@ -60,11 +88,19 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     this.streamToAllSocketAndStore(activeGamesStream);
     this.streamRoomsToAllSocketAndStore(availableRoomsStream);
   }
-  register(socket: Socket) {
-    this.sockets.set(socket, {
+  // Registers a socket and starts watching for user changes.
+  register(socket: Socket, userId: string, user: UserStorageData<Config>) {
+    const userChangesReader = this.db.watchForUserChanges(userId).getReader();
+    const connectionData: ConnectionData<Config> = {
+      userId,
+      userChangesReader,
       lastActiveGames: [],
       lastAvailableRooms: [],
-    });
+      lastUserActiveGames: user.activeGames,
+      lastPlayer: user.player,
+    };
+    this.sockets.set(socket, connectionData);
+    streamUserChangesToSocket(userChangesReader, socket, connectionData);
   }
 
   initialize(
@@ -89,6 +125,11 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
 
   async unregister(socket: Socket) {
     await this.leaveMatchmaking(socket);
+    const connectionData = this.sockets.get(socket);
+    if (connectionData?.userChangesReader != null) {
+      connectionData.userChangesReader.cancel();
+      connectionData.userChangesReader.releaseLock();
+    }
     this.sockets.delete(socket);
   }
 
@@ -325,5 +366,37 @@ function updateAvailableRoomsIfNecessary<Config, Loadout>(
     lobbyProps: { allAvailableRooms },
   };
   connectionData.lastAvailableRooms = allAvailableRooms;
+  socket.send(JSON.stringify(response));
+}
+
+// Sends updated user-specific lobby props when the stored user data changes.
+function updateUserPropsIfNecessary<Config, Loadout>(
+  socket: Socket,
+  connectionData: ConnectionData<Config>,
+  userData: UserStorageData<Config>,
+) {
+  const lobbyProps: Partial<LobbyProps<Config>> = {};
+  let didUpdate = false;
+
+  if (!jsonEquals(connectionData.lastUserActiveGames, userData.activeGames)) {
+    lobbyProps.userActiveGames = userData.activeGames;
+    connectionData.lastUserActiveGames = userData.activeGames;
+    didUpdate = true;
+  }
+
+  if (!jsonEquals(connectionData.lastPlayer, userData.player)) {
+    lobbyProps.player = userData.player;
+    connectionData.lastPlayer = userData.player;
+    didUpdate = true;
+  }
+
+  if (!didUpdate) {
+    return;
+  }
+
+  const response: LobbyServerMessage<Config, Loadout> = {
+    type: "UpdateLobbyProps",
+    lobbyProps,
+  };
   socket.send(JSON.stringify(response));
 }

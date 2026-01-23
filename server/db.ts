@@ -539,13 +539,13 @@ export class DB<Config, GameState, Loadout, Outcome> {
     gameId: string,
   ): ReadableStream<GameStorageData<Config, GameState, Outcome>> {
     const gameKey = getGameKey(gameId);
-    const stream = this.kv.watch([gameKey]);
+    const stream = this.kv.watch<GameStorageData<Config, GameState, Outcome>[]>(
+      [gameKey],
+    );
     return stream.pipeThrough(
       new TransformStream({
         transform(events, controller) {
-          const data = events[0].value as
-            | GameStorageData<Config, GameState, Outcome>
-            | null;
+          const data = events[0].value;
           if (data != null) {
             controller.enqueue(data);
           }
@@ -676,6 +676,24 @@ export class DB<Config, GameState, Loadout, Outcome> {
       getUserKey(userId),
     );
     return entry.value;
+  }
+
+  // Watches for changes to a single user's stored data.
+  public watchForUserChanges(
+    userId: string,
+  ): ReadableStream<UserStorageData<Config>> {
+    const userKey = getUserKey(userId);
+    const stream = this.kv.watch<UserStorageData<Config>[]>([userKey]);
+    return stream.pipeThrough(
+      new TransformStream({
+        transform(events, controller) {
+          const data = events[0].value;
+          if (data != null) {
+            controller.enqueue(data);
+          }
+        },
+      }),
+    );
   }
 
   public async usernameExists(username: string): Promise<boolean> {

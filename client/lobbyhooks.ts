@@ -27,6 +27,9 @@ export function useLobbySocket<Config, Loadout>({
   const [allAvailableRooms, setAvailableRooms] = useState(
     initialLobbyProps.allAvailableRooms,
   );
+  const [userActiveGames, setUserActiveGames] = useState(
+    initialLobbyProps.userActiveGames,
+  );
   const [player, setPlayer] = useState(initialLobbyProps.player);
   const [currentMatchmaking, setCurrentMatchmaking] = useState<
     CurrentMatchmaking<Config, Loadout> | undefined
@@ -62,6 +65,9 @@ export function useLobbySocket<Config, Loadout>({
         }
         if (response.lobbyProps.player != null) {
           setPlayer(response.lobbyProps.player);
+        }
+        if (response.lobbyProps.userActiveGames != null) {
+          setUserActiveGames(response.lobbyProps.userActiveGames);
         }
         break;
       case "GameAssignment":
@@ -133,6 +139,7 @@ export function useLobbySocket<Config, Loadout>({
   return {
     allActiveGames,
     allAvailableRooms,
+    userActiveGames,
     player,
     joinQueue,
     createAndJoinRoom,
