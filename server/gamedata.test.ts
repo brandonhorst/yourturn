@@ -7,7 +7,7 @@ import {
   getPublicState,
   handleMove,
 } from "./gamedata.ts";
-import type { Game, User } from "../types.ts";
+import type { Game, Player } from "../types.ts";
 import type { GameStorageData } from "./db.ts";
 import { ulid } from "@std/ulid";
 
@@ -47,7 +47,7 @@ type TestPublicState = {
 
 type TestOutcome = "done";
 type TestLoadout = undefined;
-const defaultPlayers: User[] = [
+const defaultPlayers: Player[] = [
   { username: "Player 1", isGuest: false },
   { username: "Player 2", isGuest: false },
 ];
@@ -240,7 +240,7 @@ Deno.test("getPublicState returns correct public state", async () => {
 
   const gameId = ulid();
 
-  const players: User[] = [
+  const players: Player[] = [
     { username: "Player 1", isGuest: false },
     { username: "Player 2", isGuest: false },
   ];
@@ -275,7 +275,7 @@ Deno.test("getPublicState handles completed games", async () => {
   // Create a completed game
   const gameId = ulid();
 
-  const players: User[] = [
+  const players: Player[] = [
     { username: "Player 1", isGuest: false },
     { username: "Player 2", isGuest: false },
   ];
@@ -320,7 +320,7 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
   // Create a game with initial value 1
   const gameId = ulid();
 
-  const players: User[] = [
+  const players: Player[] = [
     { username: "Player 1", isGuest: false },
     { username: "Player 2", isGuest: false },
   ];
@@ -361,7 +361,7 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
   // Create a game with value 4 (one increment away from being complete)
   const gameId = ulid();
 
-  const players: User[] = [
+  const players: Player[] = [
     { username: "Player 1", isGuest: false },
     { username: "Player 2", isGuest: false },
   ];
@@ -408,7 +408,7 @@ Deno.test("handleMove rejects invalid moves", async () => {
 
   const gameId = ulid();
 
-  const players: User[] = [
+  const players: Player[] = [
     { username: "Player 1", isGuest: false },
     { username: "Player 2", isGuest: false },
   ];
@@ -458,7 +458,7 @@ Deno.test("handleMove doesn't update completed games", async () => {
   // Create a completed game
   const gameId = ulid();
 
-  const players: User[] = [
+  const players: Player[] = [
     { username: "Player 1", isGuest: false },
     { username: "Player 2", isGuest: false },
   ];

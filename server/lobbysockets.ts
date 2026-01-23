@@ -5,7 +5,7 @@ import type {
   RoomStorageData,
 } from "./db.ts";
 import type { LobbyServerMessage } from "../common/sockettypes.ts";
-import type { ActiveGame, Room, SetupObject, User } from "../types.ts";
+import type { ActiveGame, Player, Room, SetupObject } from "../types.ts";
 import { ulid } from "@std/ulid";
 import { jsonEquals, type Socket } from "./socketutils.ts";
 
@@ -140,7 +140,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     socket: Socket,
     queueConfig: QueueConfig<Config>,
     userId: string,
-    user: User,
+    user: Player,
     loadout: Loadout,
     setupGame: (o: SetupObject<Config, Loadout>) => GameState,
   ) {
@@ -180,7 +180,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     socket: Socket,
     roomConfig: { numPlayers: number; config: Config; private: boolean },
     userId: string,
-    user: User,
+    user: Player,
     loadout: Loadout,
   ) {
     const roomId = ulid();
@@ -210,7 +210,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     roomId: string,
     roomConfig: Pick<RoomStorageData<Config, Loadout>, "config">,
     userId: string,
-    user: User,
+    user: Player,
     loadout: Loadout,
   ): Promise<boolean> {
     const entryId = ulid();

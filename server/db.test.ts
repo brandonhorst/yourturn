@@ -381,12 +381,12 @@ Deno.test("usernameExists tracks stored usernames", async () => {
   const usernameTakenBefore = await db.usernameExists(user1.username);
   assertEquals(usernameTakenBefore, false);
 
-  await db.storeUser(userId, user1);
+  await db.createNewUserStorageData(userId, { player: user1 });
 
   const usernameTakenAfter = await db.usernameExists(user1.username);
   assertEquals(usernameTakenAfter, true);
 
-  await db.storeUser(userId, user2, user1.username);
+  await db.updateUserStorageData(userId, { player: user2 });
 
   const oldUsernameTaken = await db.usernameExists(user1.username);
   const newUsernameTaken = await db.usernameExists(user2.username);

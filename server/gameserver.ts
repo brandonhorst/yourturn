@@ -1,4 +1,4 @@
-import type { Game, GameProps, LobbyProps, User } from "../types.ts";
+import type { Game, GameProps, LobbyProps, Player } from "../types.ts";
 import type {
   GameClientMessage,
   LobbyClientMessage,
@@ -59,13 +59,14 @@ export class Server<
   ): Promise<{ props: LobbyProps<Config>; token: string }> {
     const allActiveGames = await fetchActiveGames(this.db);
     const allAvailableRooms = await fetchAvailableRooms(this.db);
-    let user: User | null = null;
+    let user: Player | null = null;
     let lobbyToken = token;
 
     if (token != null) {
       const tokenData = await this.db.getToken(token);
       if (tokenData != null && tokenData.expiration > new Date()) {
-        user = await this.db.getUser(tokenData.userId);
+        const storedUser = await this.db.getUserStorageData(tokenData.userId);
+        user = storedUser?.player ?? null;
       }
     }
 
@@ -75,7 +76,7 @@ export class Server<
       lobbyToken = crypto.randomUUID();
       const expiration = new Date(Date.now() + tokenTtlMs);
 
-      await this.db.storeUser(userId, user);
+      await this.db.createNewUserStorageData(userId, { player: user });
       await this.db.storeToken(lobbyToken, { userId, expiration });
     }
 
@@ -130,12 +131,12 @@ export class Server<
       throw new Error("Invalid lobby auth token");
     }
 
-    const storedUser = await this.db.getUser(tokenData.userId);
+    const storedUser = await this.db.getUserStorageData(tokenData.userId);
     if (storedUser == null) {
       throw new Error("Unknown lobby user");
     }
 
-    let user = storedUser;
+    let user = storedUser.player;
     const userId = tokenData.userId;
 
     const handleLobbySocketOpen = () => {
@@ -316,8 +317,8 @@ export class Server<
             break;
           }
 
-          const updatedUser: User = { ...user, username: newUsername };
-          await this.db.storeUser(userId, updatedUser, user.username);
+          const updatedUser: Player = { ...user, username: newUsername };
+          await this.db.updateUserStorageData(userId, { player: updatedUser });
           user = updatedUser;
 
           socket.send(JSON.stringify(
@@ -416,7 +417,7 @@ export class Server<
     return tokenData.userId;
   }
 
-  private async createGuestUser(): Promise<User> {
+  private async createGuestUser(): Promise<Player> {
     for (let attempt = 0; attempt < 10000; attempt++) {
       const suffix = Math.floor(Math.random() * 10000).toString().padStart(
         4,

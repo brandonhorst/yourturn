@@ -2,10 +2,10 @@ import { assertEquals, assertExists } from "@std/assert";
 import { spy } from "@std/testing/mock";
 import { DB, type GameStorageData } from "./db.ts";
 import { GameSocketStore } from "./gamesockets.ts";
-import type { PlayerStateObject, PublicStateObject, User } from "../types.ts";
+import type { Player, PlayerStateObject, PublicStateObject } from "../types.ts";
 
-const user1: User = { username: "guest-0001", isGuest: true };
-const user2: User = { username: "guest-0002", isGuest: true };
+const user1: Player = { username: "guest-0001", isGuest: true };
+const user2: Player = { username: "guest-0002", isGuest: true };
 
 type TestConfig = undefined;
 type TestState = { value: number };

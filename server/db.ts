@@ -1,10 +1,10 @@
 import { ulid } from "@std/ulid";
 import type {
   ActiveGame,
+  Player,
   Room,
   SetupObject,
   TokenData,
-  User as Player,
 } from "../types.ts";
 
 export type QueueConfig<Config> = {
@@ -47,12 +47,16 @@ export type AssignmentStorageData = {
   gameId: string;
 };
 
+export type UserStorageData = {
+  player: Player;
+};
+
 async function repeatUntilSuccess(
-  fn: () => Promise<boolean>,
+  fn: () => Promise<{ ok: boolean }>,
 ): Promise<void> {
   let ok = false;
   while (!ok) {
-    ok = await fn();
+    ok = (await fn()).ok;
   }
 }
 
@@ -110,12 +114,11 @@ export class DB<Config, GameState, Loadout, Outcome> {
   ): Promise<void> {
     await repeatUntilSuccess(async () => {
       const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
-      const res = await this.kv
+      return await this.kv
         .atomic()
         .check({ key: entryKey, versionstamp: null })
         .set(entryKey, { timestamp: new Date(), userId, user, loadout })
         .commit();
-      return res.ok;
     });
 
     await this.maybeGraduateFromQueue(queueConfig, setupGame);
@@ -125,14 +128,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
     queueId: string,
     entryId: string,
   ): Promise<void> {
-    await repeatUntilSuccess(async () => {
-      const entryKey = getQueueEntryKey(queueId, entryId);
+    const entryKey = getQueueEntryKey(queueId, entryId);
 
-      const res = await this.kv.atomic()
-        .delete(entryKey)
-        .commit();
-      return res.ok;
-    });
+    await this.kv.delete(entryKey);
   }
 
   public async createRoom(
@@ -153,12 +151,11 @@ export class DB<Config, GameState, Loadout, Outcome> {
     };
 
     await repeatUntilSuccess(async () => {
-      const res = await this.kv.atomic()
+      return await this.kv.atomic()
         .check({ key: roomKey, versionstamp: null })
         .set(roomKey, roomData)
         .set(roomListTriggerKey, {})
         .commit();
-      return res.ok;
     });
   }
 
@@ -203,13 +200,11 @@ export class DB<Config, GameState, Loadout, Outcome> {
         ],
       };
 
-      const res = await this.kv.atomic()
+      return await this.kv.atomic()
         .check(roomEntry)
         .set(roomKey, updatedRoom)
         .set(roomListTriggerKey, {})
         .commit();
-
-      return res.ok;
     });
   }
 
@@ -227,14 +222,16 @@ export class DB<Config, GameState, Loadout, Outcome> {
         roomKey,
       );
       if (roomEntry.value == null) {
-        return true;
+        throw new Error(`Attempted to remove from non-existant room ${roomId}`);
       }
       const members = roomEntry.value.members;
       const memberIndex = members.findIndex(
         (member) => member.entryId === entryId,
       );
       if (memberIndex === -1) {
-        return true;
+        throw new Error(
+          `Attempted to remove non-existing entry ${entryId} room ${roomId}`,
+        );
       }
 
       const nextMembers = members.toSpliced(memberIndex, 1);
@@ -251,8 +248,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
         });
       }
 
-      const res = await transaction.commit();
-      return res.ok;
+      return await transaction.commit();
     });
   }
 
@@ -373,8 +369,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
           .set(assignmentKey, assignmentValue);
       }
 
-      const res = await transactionWithRoom.commit();
-      return res.ok;
+      return await transactionWithRoom.commit();
     });
   }
 
@@ -399,7 +394,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
       // If the queue doesn't have enough entrants, stop
       if (queueEntries.length < queueConfig.numPlayers) {
-        return true;
+        return { ok: true };
       }
 
       // Initialize Game Storage Data
@@ -443,8 +438,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
           .check({ key: assignmentKey, versionstamp: null })
           .set(assignmentKey, assignmentValue);
       }
-      const res = await transactionWithAssignments.commit();
-      return res.ok;
+      return await transactionWithAssignments.commit();
     });
   }
 
@@ -606,27 +600,64 @@ export class DB<Config, GameState, Loadout, Outcome> {
     );
   }
 
-  public async storeUser(
+  // Creates a new user record and username index entry if neither already exists.
+  public async createNewUserStorageData(
     userId: string,
-    user: Player,
-    previousUsername?: string,
+    data: UserStorageData,
   ): Promise<void> {
-    let transaction = this.kv.atomic()
-      .set(getUserKey(userId), user)
-      .set(getUserByUsernameKey(user.username), userId);
-
-    if (previousUsername != null && previousUsername !== user.username) {
-      transaction = transaction.delete(getUserByUsernameKey(previousUsername));
-    }
-
-    const res = await transaction.commit();
+    const userKey = getUserKey(userId);
+    const usernameKey = getUserByUsernameKey(data.player.username);
+    const res = await this.kv.atomic()
+      .check({ key: userKey, versionstamp: null })
+      .check({ key: usernameKey, versionstamp: null })
+      .set(userKey, data)
+      .set(usernameKey, userId)
+      .commit();
     if (!res.ok) {
-      throw new Error(`Failed to store user ${userId}`);
+      throw new Error(
+        `User ${userId} or username ${data.player.username} already exists`,
+      );
     }
   }
 
-  public async getUser(userId: string): Promise<Player | null> {
-    const entry = await this.kv.get<Player>(getUserKey(userId));
+  // Upserts user storage data and keeps the username index in sync.
+  public async updateUserStorageData(
+    userId: string,
+    data: Partial<UserStorageData>,
+  ): Promise<void> {
+    await repeatUntilSuccess(async () => {
+      const entry = await this.kv.get<UserStorageData>(
+        getUserKey(userId),
+      );
+      if (entry.value == null) {
+        throw new Error(`Updating unstored user ${userId}`);
+      }
+      const existingData = entry.value;
+
+      const updatedData: UserStorageData = { ...existingData, ...data };
+
+      const previousUsername = existingData.player.username;
+      const updatedUsername = updatedData.player.username;
+      const transaction = this.kv.atomic()
+        .check(entry)
+        .set(getUserKey(userId), updatedData);
+      if (previousUsername !== updatedUsername) {
+        transaction
+          .delete(getUserByUsernameKey(previousUsername))
+          .set(getUserByUsernameKey(updatedUsername), userId);
+      } else {
+        transaction.set(getUserByUsernameKey(previousUsername), userId);
+      }
+
+      return await transaction.commit();
+    });
+  }
+
+  // Fetches the stored user data for a userId, if present.
+  public async getUserStorageData(
+    userId: string,
+  ): Promise<UserStorageData | null> {
+    const entry = await this.kv.get<UserStorageData>(getUserKey(userId));
     return entry.value;
   }
 

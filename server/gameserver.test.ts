@@ -73,7 +73,7 @@ function buildServer(kv: Deno.Kv) {
 
 Deno.test("getInitialLobbyProps creates a guest token when missing", async () => {
   const kv = await Deno.openKv(":memory:");
-  const { db, server } = await buildServer(kv);
+  const { db, server } = buildServer(kv);
 
   const result = await server.getInitialLobbyProps(undefined);
 
@@ -85,22 +85,23 @@ Deno.test("getInitialLobbyProps creates a guest token when missing", async () =>
 
   const tokenData = await db.getToken(result.token);
   assertExists(tokenData);
-  const storedUser = await db.getUser(tokenData.userId);
+  const storedUser = await db.getUserStorageData(tokenData.userId);
   assertExists(storedUser);
+  assertExists(storedUser.player);
 
   kv.close();
 });
 
 Deno.test("getInitialLobbyProps uses existing user for valid token", async () => {
   const kv = await Deno.openKv(":memory:");
-  const { db, server } = await buildServer(kv);
+  const { db, server } = buildServer(kv);
 
   const userId = "user-123";
   const user = { username: "tester", isGuest: false };
   const token = "token-123";
   const expiration = new Date(Date.now() + 60_000);
 
-  await db.storeUser(userId, user);
+  await db.createNewUserStorageData(userId, { player: user });
   await db.storeToken(token, { userId, expiration });
 
   const result = await server.getInitialLobbyProps(token);
@@ -115,7 +116,7 @@ Deno.test("getInitialLobbyProps uses existing user for valid token", async () =>
 
 Deno.test("getInitialGameProps returns player state for matching token", async () => {
   const kv = await Deno.openKv(":memory:");
-  const { db, server } = await buildServer(kv);
+  const { db, server } = buildServer(kv);
 
   const userId = "user-1";
   const token = "token-1";

@@ -44,7 +44,7 @@ export type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
 
-export type User = {
+export type Player = {
   username: string;
   isGuest: boolean;
 };
@@ -226,7 +226,7 @@ export interface Game<
 
 export type ActiveGame<Config> = {
   gameId: string;
-  players: User[];
+  players: Player[];
   config: Config;
   created: Date;
 };
@@ -234,18 +234,18 @@ export type ActiveGame<Config> = {
 export type Room<Config> = {
   roomId: string;
   numPlayers: number;
-  players: User[];
+  players: Player[];
   config: Config;
 };
 
 export type LobbyProps<Config> = {
   allActiveGames: ActiveGame<Config>[];
   allAvailableRooms: Room<Config>[];
-  user: User;
+  user: Player;
 };
 
 type CompletePlayerProps<PlayerState, PublicState, Outcome> = {
-  players: User[];
+  players: Player[];
   publicState: PublicState;
   playerId: number;
   playerState: PlayerState;
@@ -253,7 +253,7 @@ type CompletePlayerProps<PlayerState, PublicState, Outcome> = {
 };
 
 type IncompletePlayerProps<PlayerState, PublicState> = {
-  players: User[];
+  players: Player[];
   publicState: PublicState;
   playerId: number;
   playerState: PlayerState;
@@ -261,7 +261,7 @@ type IncompletePlayerProps<PlayerState, PublicState> = {
 };
 
 type CompleteObserverProps<PublicState, Outcome> = {
-  players: User[];
+  players: Player[];
   publicState: PublicState;
   playerId: undefined;
   playerState: undefined;
@@ -269,7 +269,7 @@ type CompleteObserverProps<PublicState, Outcome> = {
 };
 
 type IncompleteObserverProps<PublicState> = {
-  players: User[];
+  players: Player[];
   publicState: PublicState;
   playerId: undefined;
   playerState: undefined;
