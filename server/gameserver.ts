@@ -76,7 +76,11 @@ export class Server<
       lobbyToken = crypto.randomUUID();
       const expiration = new Date(Date.now() + tokenTtlMs);
 
-      await this.db.createNewUserStorageData(userId, { player: user });
+      // TODO combine these into one call
+      await this.db.createNewUserStorageData(userId, {
+        player: user,
+        activeGames: [],
+      });
       await this.db.storeToken(lobbyToken, { userId, expiration });
     }
 
@@ -88,7 +92,7 @@ export class Server<
     }
 
     return {
-      props: { allActiveGames, allAvailableRooms, user },
+      props: { allActiveGames, allAvailableRooms, player: user },
       token: lobbyToken,
     };
   }

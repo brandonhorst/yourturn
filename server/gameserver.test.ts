@@ -80,8 +80,8 @@ Deno.test("getInitialLobbyProps creates a guest token when missing", async () =>
   assertExists(result.token);
   assertEquals(result.props.allActiveGames, []);
   assertEquals(result.props.allAvailableRooms, []);
-  assertEquals(result.props.user.isGuest, true);
-  assert(result.props.user.username.startsWith("guest-"));
+  assertEquals(result.props.player.isGuest, true);
+  assert(result.props.player.username.startsWith("guest-"));
 
   const tokenData = await db.getToken(result.token);
   assertExists(tokenData);
@@ -101,13 +101,16 @@ Deno.test("getInitialLobbyProps uses existing user for valid token", async () =>
   const token = "token-123";
   const expiration = new Date(Date.now() + 60_000);
 
-  await db.createNewUserStorageData(userId, { player: user });
+  await db.createNewUserStorageData(userId, {
+    player: user,
+    activeGames: [],
+  });
   await db.storeToken(token, { userId, expiration });
 
   const result = await server.getInitialLobbyProps(token);
 
   assertEquals(result.token, token);
-  assertEquals(result.props.user, user);
+  assertEquals(result.props.player, user);
   assertEquals(result.props.allActiveGames, []);
   assertEquals(result.props.allAvailableRooms, []);
 
@@ -135,7 +138,7 @@ Deno.test("getInitialGameProps returns player state for matching token", async (
   > = {
     config: { mode: "standard" },
     gameState: { value: 7 },
-    playerUserIds: [userId, "user-2"],
+    userIds: [userId, "user-2"],
     players,
     outcome: undefined,
   };

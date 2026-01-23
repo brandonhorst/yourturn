@@ -241,7 +241,7 @@ export type Room<Config> = {
 export type LobbyProps<Config> = {
   allActiveGames: ActiveGame<Config>[];
   allAvailableRooms: Room<Config>[];
-  user: Player;
+  player: Player;
 };
 
 type CompletePlayerProps<PlayerState, PublicState, Outcome> = {

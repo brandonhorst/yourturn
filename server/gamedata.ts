@@ -34,7 +34,7 @@ export function getPlayerId<Config, GameState, Outcome>(
   gameData: GameStorageData<Config, GameState, Outcome>,
   userId: string,
 ): number | undefined {
-  const playerId = gameData.playerUserIds.indexOf(userId);
+  const playerId = gameData.userIds.indexOf(userId);
   if (playerId === -1) {
     return undefined;
   }
@@ -50,7 +50,7 @@ export function getPlayerState<Config, GameState, PlayerState, Outcome>(
   playerId: number,
 ): PlayerState {
   const state = gameData.gameState;
-  const numPlayers = gameData.playerUserIds.length;
+  const numPlayers = gameData.userIds.length;
   const playerStateObject: PlayerStateObject<Config> = {
     config: gameData.config,
     playerId,
@@ -69,7 +69,7 @@ export function getPublicState<Config, GameState, PublicState, Outcome>(
   ) => PublicState,
 ): PublicState {
   const state = gameData.gameState;
-  const numPlayers = gameData.playerUserIds.length;
+  const numPlayers = gameData.userIds.length;
   const publicStateObject: PublicStateObject<Config> = {
     config: gameData.config,
     numPlayers,
@@ -115,7 +115,7 @@ async function updateGameState<
 
   const outcomeObject: OutcomeObject<Config> = {
     config: gameData.config,
-    numPlayers: gameData.playerUserIds.length,
+    numPlayers: gameData.userIds.length,
   };
   const outcome = game.outcome(newState, outcomeObject);
 
@@ -157,7 +157,7 @@ export async function handleMove<
       timestamp: new Date(),
       move,
       config: gameData.config,
-      numPlayers: gameData.playerUserIds.length,
+      numPlayers: gameData.userIds.length,
     };
 
     const state = gameData.gameState;

@@ -7,6 +7,19 @@ const loadout = undefined;
 const user1 = { username: "guest-0001", isGuest: true };
 const user2 = { username: "guest-0002", isGuest: true };
 
+// Creates user records for tests that need to attach games to users.
+async function seedUsers<Config, GameState, Loadout, Outcome>(
+  db: DB<Config, GameState, Loadout, Outcome>,
+  users: Array<{ userId: string; player: typeof user1 }>,
+): Promise<void> {
+  for (const user of users) {
+    await db.createNewUserStorageData(user.userId, {
+      player: user.player,
+      activeGames: [],
+    });
+  }
+}
+
 Deno.test("Adds to queue, graduates, and assigns", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
@@ -14,6 +27,11 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
   const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
   const entryId = "test-entry";
   const entryId2 = "test-entry-2";
+
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
 
   const assignmentStream = db.watchForAssignments(entryId);
   const assignmentStream2 = db.watchForAssignments(entryId2);
@@ -48,6 +66,8 @@ Deno.test("Removes from queue", async () => {
   };
   const entryId = "test-entry-remove";
 
+  await seedUsers(db, [{ userId: "user-1", player: user1 }]);
+
   await db.addToQueue(queue, entryId, "user-1", user1, loadout, setupGame);
   await db.removeFromQueue(queue.queueId, entryId);
 
@@ -69,6 +89,11 @@ Deno.test("Creates game and retrieves it", async () => {
   const entryId1 = "test-entry-game-1";
   const entryId2 = "test-entry-game-2";
 
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
+
   const assignmentStream = db.watchForAssignments(entryId1);
   await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
   await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
@@ -83,7 +108,7 @@ Deno.test("Creates game and retrieves it", async () => {
   const gameData = await db.getGameStorageData(gameId);
   assertExists(gameData);
   assertEquals(gameData.gameState, 1);
-  assertExists(gameData.playerUserIds);
+  assertExists(gameData.userIds);
 
   kv.close();
 });
@@ -100,6 +125,11 @@ Deno.test("Updates game data", async () => {
   };
   const entryId1 = "test-entry-update-1";
   const entryId2 = "test-entry-update-2";
+
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
 
   const assignmentStream = db.watchForAssignments(entryId1);
   await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
@@ -141,6 +171,11 @@ Deno.test("Watches for game changes", async () => {
   };
   const entryId1 = "test-entry-watch-1";
   const entryId2 = "test-entry-watch-2";
+
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
 
   const assignmentStream = db.watchForAssignments(entryId1);
   await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
@@ -190,6 +225,11 @@ Deno.test("Completes game", async () => {
   const entryId1 = "test-entry-complete-1";
   const entryId2 = "test-entry-complete-2";
 
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
+
   const assignmentStream = db.watchForAssignments(entryId1);
   await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
   await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
@@ -232,6 +272,11 @@ Deno.test("Lists active games", async () => {
   const entryId1 = "test-entry-active-1";
   const entryId2 = "test-entry-active-2";
 
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
+
   const assignmentStream = db.watchForAssignments(entryId1);
   await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
   await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
@@ -268,6 +313,11 @@ Deno.test("Watches for active game count changes", async () => {
   };
   const entryId1 = "test-entry-count-1";
   const entryId2 = "test-entry-count-2";
+
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
 
   await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
   await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
@@ -348,6 +398,12 @@ Deno.test("Commits room and assigns players", async () => {
   };
 
   await db.createRoom(roomId, roomConfig);
+
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
+
   await db.addToRoom(roomId, "entry-1", "user-1", user1, loadout);
   await db.addToRoom(roomId, "entry-2", "user-2", user2, loadout);
 
@@ -381,7 +437,10 @@ Deno.test("usernameExists tracks stored usernames", async () => {
   const usernameTakenBefore = await db.usernameExists(user1.username);
   assertEquals(usernameTakenBefore, false);
 
-  await db.createNewUserStorageData(userId, { player: user1 });
+  await db.createNewUserStorageData(userId, {
+    player: user1,
+    activeGames: [],
+  });
 
   const usernameTakenAfter = await db.usernameExists(user1.username);
   assertEquals(usernameTakenAfter, true);

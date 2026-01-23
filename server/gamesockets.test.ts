@@ -25,7 +25,7 @@ function buildGameData(
   return {
     config: undefined,
     gameState: { value },
-    playerUserIds: ["user-1", "user-2"],
+    userIds: ["user-1", "user-2"],
     players: [user1, user2],
     outcome,
   };

@@ -12,6 +12,19 @@ type TestGameState = number;
 type TestLoadout = undefined;
 type TestOutcome = undefined;
 
+// Creates user records for tests that need to attach games to users.
+async function seedUsers<Config, GameState, Loadout, Outcome>(
+  db: DB<Config, GameState, Loadout, Outcome>,
+  users: Array<{ userId: string; player: typeof user1 }>,
+): Promise<void> {
+  for (const user of users) {
+    await db.createNewUserStorageData(user.userId, {
+      player: user.player,
+      activeGames: [],
+    });
+  }
+}
+
 Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
@@ -63,6 +76,8 @@ Deno.test("joins and leaves a queue", async () => {
   );
 
   const setupGame = () => 1;
+
+  await seedUsers(db, [{ userId: "user-1", player: user1 }]);
 
   // Create a socket and register it
   const socket = { send: spy() };
@@ -119,6 +134,11 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   );
 
   const setupGame = () => 1;
+
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
 
   // Create two sockets and register them
   const socket1 = { send: spy() };
@@ -215,6 +235,11 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   );
 
   const setupGame = () => 1;
+
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+  ]);
 
   // Create and register sockets
   const socket1 = { send: spy() };
@@ -313,6 +338,12 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
 
   // Create a simple setup function (not a spy anymore)
   const setupGame = () => 1;
+
+  await seedUsers(db, [
+    { userId: "user-1", player: user1 },
+    { userId: "user-2", player: user2 },
+    { userId: "user-3", player: user3 },
+  ]);
 
   // Create three sockets and register them
   const socket1 = { send: spy() };
