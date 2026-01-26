@@ -30,40 +30,192 @@ type MatchmakingEntry =
     assignmentsReader: ReadableStreamDefaultReader;
   };
 
-type ConnectionData<Config> = {
-  matchmakingEntry?: Readonly<MatchmakingEntry>;
-  userChangesReader?: ReadableStreamDefaultReader;
-  userId: string;
-  lastActiveGames: ActiveGame<Config>[];
-  lastAvailableRooms: Room<Config>[];
-  lastUserActiveGames: ActiveGame<Config>[];
-  lastPlayer: Player;
-};
+/**
+ * Represents a connected lobby socket with cached state for change detection.
+ * Owns the underlying WebSocket and contains the "last" values used to detect
+ * changes and avoid sending unnecessary updates.
+ */
+class LobbySocket<Config, Loadout> {
+  private lastActiveGames: ActiveGame<Config>[] = [];
+  private lastAvailableRooms: Room<Config>[] = [];
+  private lastUserActiveGames: ActiveGame<Config>[] = [];
+  private lastPlayer: Player;
 
-// Streams assignment updates to the socket until the stream ends.
-async function streamToSocket<Config, Loadout>(
-  stream: ReadableStreamDefaultReader<AssignmentStorageData>,
-  socket: Socket,
-) {
-  while (true) {
-    const data = await stream.read();
-    if (data.done) {
-      break;
-    }
+  constructor(
+    private socket: Socket,
+    public readonly userId: string,
+    initialPlayer: Player,
+    initialActiveGames: ActiveGame<Config>[],
+  ) {
+    this.lastPlayer = initialPlayer;
+    this.lastUserActiveGames = initialActiveGames;
+  }
 
+  /**
+   * Sends a message through the underlying socket.
+   */
+  private send(message: string): void {
+    this.socket.send(message);
+  }
+
+  /**
+   * Initializes the cached values without sending updates.
+   * Used when a socket first connects to establish the baseline state.
+   */
+  initialize(
+    allActiveGames: ActiveGame<Config>[],
+    allAvailableRooms: Room<Config>[],
+  ): void {
+    this.lastActiveGames = allActiveGames;
+    this.lastAvailableRooms = allAvailableRooms;
+  }
+
+  /**
+   * Sends a game assignment notification to the client.
+   */
+  sendGameAssignment(gameId: string): void {
     const message: LobbyServerMessage<Config, Loadout> = {
       type: "GameAssignment",
-      gameId: data.value.gameId,
+      gameId,
     };
-    socket.send(JSON.stringify(message));
+    this.send(JSON.stringify(message));
+  }
+
+  /**
+   * Sends a queue joined confirmation to the client.
+   */
+  sendQueueJoined(queueId: string, loadout: Loadout): void {
+    const message: LobbyServerMessage<Config, Loadout> = {
+      type: "QueueJoined",
+      queueId,
+      loadout,
+    };
+    this.send(JSON.stringify(message));
+  }
+
+  /**
+   * Sends a room joined confirmation to the client.
+   */
+  sendRoomJoined(roomId: string, config: Config, loadout: Loadout): void {
+    const message: LobbyServerMessage<Config, Loadout> = {
+      type: "RoomJoined",
+      roomId,
+      config,
+      loadout,
+    };
+    this.send(JSON.stringify(message));
+  }
+
+  /**
+   * Sends a queue left confirmation to the client.
+   */
+  sendQueueLeft(): void {
+    const message: LobbyServerMessage<Config, Loadout> = {
+      type: "QueueLeft",
+    };
+    this.send(JSON.stringify(message));
+  }
+
+  /**
+   * Sends a room left confirmation to the client.
+   */
+  sendRoomLeft(): void {
+    const message: LobbyServerMessage<Config, Loadout> = {
+      type: "RoomLeft",
+    };
+    this.send(JSON.stringify(message));
+  }
+
+  /**
+   * Sends a display error message to the client.
+   */
+  sendDisplayError(errorMessage: string): void {
+    const message: LobbyServerMessage<Config, Loadout> = {
+      type: "DisplayError",
+      message: errorMessage,
+    };
+    this.send(JSON.stringify(message));
+  }
+
+  /**
+   * Updates all active games if they have changed since the last update.
+   */
+  updateActiveGamesIfNecessary(allActiveGames: ActiveGame<Config>[]): void {
+    if (jsonEquals(this.lastActiveGames, allActiveGames)) {
+      return;
+    }
+
+    const response: LobbyServerMessage<Config, Loadout> = {
+      type: "UpdateLobbyProps",
+      lobbyProps: { allActiveGames },
+    };
+    this.lastActiveGames = allActiveGames;
+    this.send(JSON.stringify(response));
+  }
+
+  /**
+   * Updates available rooms if they have changed since the last update.
+   */
+  updateAvailableRoomsIfNecessary(allAvailableRooms: Room<Config>[]): void {
+    if (jsonEquals(this.lastAvailableRooms, allAvailableRooms)) {
+      return;
+    }
+
+    const response: LobbyServerMessage<Config, Loadout> = {
+      type: "UpdateLobbyProps",
+      lobbyProps: { allAvailableRooms },
+    };
+    this.lastAvailableRooms = allAvailableRooms;
+    this.send(JSON.stringify(response));
+  }
+
+  /**
+   * Updates user-specific lobby props when the stored user data changes.
+   */
+  updateUserPropsIfNecessary(userData: UserStorageData<Config>): void {
+    const lobbyProps: Partial<LobbyProps<Config>> = {};
+    let didUpdate = false;
+
+    if (!jsonEquals(this.lastUserActiveGames, userData.activeGames)) {
+      lobbyProps.userActiveGames = userData.activeGames;
+      this.lastUserActiveGames = userData.activeGames;
+      didUpdate = true;
+    }
+
+    if (!jsonEquals(this.lastPlayer, userData.player)) {
+      lobbyProps.player = userData.player;
+      this.lastPlayer = userData.player;
+      didUpdate = true;
+    }
+
+    if (!didUpdate) {
+      return;
+    }
+
+    const response: LobbyServerMessage<Config, Loadout> = {
+      type: "UpdateLobbyProps",
+      lobbyProps,
+    };
+    this.send(JSON.stringify(response));
   }
 }
 
-// Streams user changes to the socket and updates lobby props when needed.
-async function streamUserChangesToSocket<Config>(
-  stream: ReadableStreamDefaultReader<UserStorageData<Config>>,
-  socket: Socket,
-  connectionData: ConnectionData<Config>,
+/**
+ * Connection state for a lobby socket.
+ * Contains the LobbySocket instance and the readers managed by the store.
+ */
+type ConnectionState<Config, Loadout> = {
+  lobbySocket: LobbySocket<Config, Loadout>;
+  matchmakingEntry?: Readonly<MatchmakingEntry>;
+  userChangesReader?: ReadableStreamDefaultReader;
+};
+
+/**
+ * Streams assignment updates to the lobby socket until the stream ends.
+ */
+async function streamAssignmentsToSocket<Config, Loadout>(
+  stream: ReadableStreamDefaultReader<AssignmentStorageData>,
+  lobbySocket: LobbySocket<Config, Loadout>,
 ) {
   while (true) {
     const data = await stream.read();
@@ -71,36 +223,56 @@ async function streamUserChangesToSocket<Config>(
       break;
     }
 
-    updateUserPropsIfNecessary(socket, connectionData, data.value);
+    lobbySocket.sendGameAssignment(data.value.gameId);
+  }
+}
+
+/**
+ * Streams user changes to the lobby socket and updates lobby props when needed.
+ */
+async function streamUserChangesToSocket<Config, Loadout>(
+  stream: ReadableStreamDefaultReader<UserStorageData<Config>>,
+  lobbySocket: LobbySocket<Config, Loadout>,
+) {
+  while (true) {
+    const data = await stream.read();
+    if (data.done) {
+      break;
+    }
+
+    lobbySocket.updateUserPropsIfNecessary(data.value);
   }
 }
 
 export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
-  private sockets: Map<Socket, ConnectionData<Config>> = new Map();
-  private lastActiveGames: ActiveGame<Config>[] = [];
-  private lastAvailableRooms: Room<Config>[] = [];
+  private sockets: Map<Socket, ConnectionState<Config, Loadout>> = new Map();
 
   constructor(
     private db: DB<Config, GameState, Loadout, Outcome>,
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
     availableRoomsStream: ReadableStream<Room<Config>[]>,
   ) {
-    this.streamToAllSocketAndStore(activeGamesStream);
-    this.streamRoomsToAllSocketAndStore(availableRoomsStream);
+    this.streamToAllSockets(activeGamesStream);
+    this.streamRoomsToAllSockets(availableRoomsStream);
   }
-  // Registers a socket and starts watching for user changes.
+
+  /**
+   * Registers a socket and starts watching for user changes.
+   */
   register(socket: Socket, userId: string, user: UserStorageData<Config>) {
     const userChangesReader = this.db.watchForUserChanges(userId).getReader();
-    const connectionData: ConnectionData<Config> = {
+    const lobbySocket = new LobbySocket(
+      socket,
       userId,
+      user.player,
+      user.activeGames,
+    );
+    const connectionState: ConnectionState<Config, Loadout> = {
+      lobbySocket,
       userChangesReader,
-      lastActiveGames: [],
-      lastAvailableRooms: [],
-      lastUserActiveGames: user.activeGames,
-      lastPlayer: user.player,
     };
-    this.sockets.set(socket, connectionData);
-    streamUserChangesToSocket(userChangesReader, socket, connectionData);
+    this.sockets.set(socket, connectionState);
+    streamUserChangesToSocket(userChangesReader, lobbySocket);
   }
 
   initialize(
@@ -108,44 +280,35 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     allActiveGames: ActiveGame<Config>[],
     allAvailableRooms: Room<Config>[],
   ) {
-    const connectionData = this.sockets.get(socket);
-    if (connectionData == null) {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
       return;
     }
-    connectionData.lastActiveGames = allActiveGames;
-    connectionData.lastAvailableRooms = allAvailableRooms;
 
-    updateActiveGamesIfNecessary(socket, connectionData, this.lastActiveGames);
-    updateAvailableRoomsIfNecessary(
-      socket,
-      connectionData,
-      this.lastAvailableRooms,
-    );
+    connectionState.lobbySocket.initialize(allActiveGames, allAvailableRooms);
   }
 
   async unregister(socket: Socket) {
     await this.leaveMatchmaking(socket);
-    const connectionData = this.sockets.get(socket);
-    if (connectionData?.userChangesReader != null) {
-      connectionData.userChangesReader.cancel();
-      connectionData.userChangesReader.releaseLock();
+    const connectionState = this.sockets.get(socket);
+    if (connectionState?.userChangesReader != null) {
+      connectionState.userChangesReader.cancel();
+      connectionState.userChangesReader.releaseLock();
     }
     this.sockets.delete(socket);
   }
 
-  // Subscribe to the activeGamesStream and send to all registered sockets
-  private streamToAllSocketAndStore(
+  /**
+   * Subscribe to the activeGamesStream and send to all registered sockets.
+   */
+  private streamToAllSockets(
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
   ) {
     activeGamesStream.pipeTo(
       new WritableStream({
         write: (allActiveGames: ActiveGame<Config>[]) => {
-          this.lastActiveGames = allActiveGames;
-
-          for (const socket of this.allSockets()) {
-            updateActiveGamesIfNecessary(
-              socket,
-              this.sockets.get(socket)!,
+          for (const connectionState of this.sockets.values()) {
+            connectionState.lobbySocket.updateActiveGamesIfNecessary(
               allActiveGames,
             );
           }
@@ -154,18 +317,14 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     );
   }
 
-  private streamRoomsToAllSocketAndStore(
+  private streamRoomsToAllSockets(
     availableRoomsStream: ReadableStream<Room<Config>[]>,
   ) {
     availableRoomsStream.pipeTo(
       new WritableStream({
         write: (allAvailableRooms: Room<Config>[]) => {
-          this.lastAvailableRooms = allAvailableRooms;
-
-          for (const socket of this.allSockets()) {
-            updateAvailableRoomsIfNecessary(
-              socket,
-              this.sockets.get(socket)!,
+          for (const connectionState of this.sockets.values()) {
+            connectionState.lobbySocket.updateAvailableRoomsIfNecessary(
               allAvailableRooms,
             );
           }
@@ -174,9 +333,11 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     );
   }
 
-  // Creates a new queue entry, assigns it to the given queue in the database,
-  // and stores the socket. Watches for assignments, and when an assignment is
-  // made, sends it to the socket.
+  /**
+   * Creates a new queue entry, assigns it to the given queue in the database,
+   * and stores the socket. Watches for assignments, and when an assignment is
+   * made, sends it to the socket.
+   */
   public async joinQueue(
     socket: Socket,
     queueConfig: QueueConfig<Config>,
@@ -185,17 +346,17 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     loadout: Loadout,
     setupGame: (o: SetupObject<Config, Loadout>) => GameState,
   ) {
+    const connectionState = this.sockets.get(socket);
+    if (!connectionState) {
+      return;
+    }
+
     const entryId = ulid();
 
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
-    streamToSocket(assignmentsReader, socket);
+    streamAssignmentsToSocket(assignmentsReader, connectionState.lobbySocket);
 
-    const message: LobbyServerMessage<Config, Loadout> = {
-      type: "QueueJoined",
-      queueId: queueConfig.queueId,
-      loadout,
-    };
-    socket.send(JSON.stringify(message));
+    connectionState.lobbySocket.sendQueueJoined(queueConfig.queueId, loadout);
 
     await this.db.addToQueue(
       queueConfig,
@@ -206,15 +367,12 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
       setupGame,
     );
 
-    const connectionData = this.sockets.get(socket);
-    if (connectionData) {
-      connectionData.matchmakingEntry = {
-        type: "queue",
-        queueId: queueConfig.queueId,
-        entryId,
-        assignmentsReader,
-      };
-    }
+    connectionState.matchmakingEntry = {
+      type: "queue",
+      queueId: queueConfig.queueId,
+      entryId,
+      assignmentsReader,
+    };
   }
 
   public async createAndJoinRoom(
@@ -236,13 +394,11 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
         loadout,
       );
     } catch (err) {
-      console.error("Failed to create and join room", err);
-      socket.send(JSON.stringify(
-        {
-          type: "DisplayError",
-          message: "Unable to create room.",
-        },
-      ));
+      const connectionState = this.sockets.get(socket);
+      if (connectionState) {
+        console.error("Failed to create and join room", err);
+        connectionState.lobbySocket.sendDisplayError("Unable to create room.");
+      }
     }
   }
 
@@ -254,10 +410,15 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     user: Player,
     loadout: Loadout,
   ): Promise<boolean> {
+    const connectionState = this.sockets.get(socket);
+    if (!connectionState) {
+      return false;
+    }
+
     const entryId = ulid();
 
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
-    streamToSocket(assignmentsReader, socket);
+    streamAssignmentsToSocket(assignmentsReader, connectionState.lobbySocket);
 
     try {
       await this.db.addToRoom(
@@ -274,33 +435,30 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
       return false;
     }
 
-    const message: LobbyServerMessage<Config, Loadout> = {
-      type: "RoomJoined",
+    connectionState.lobbySocket.sendRoomJoined(
       roomId,
-      config: roomConfig.config,
+      roomConfig.config,
       loadout,
-    };
-    socket.send(JSON.stringify(message));
+    );
 
-    const connectionData = this.sockets.get(socket);
-    if (connectionData) {
-      connectionData.matchmakingEntry = {
-        type: "room",
-        roomId,
-        entryId,
-        assignmentsReader,
-      };
-    }
+    connectionState.matchmakingEntry = {
+      type: "room",
+      roomId,
+      entryId,
+      assignmentsReader,
+    };
 
     return true;
   }
 
-  // Removes the matchmaking entry from the database and stops watching assignments.
+  /**
+   * Removes the matchmaking entry from the database and stops watching assignments.
+   */
   async leaveMatchmaking(socket: Socket) {
-    const connectionData = this.sockets.get(socket);
-    const matchmakingEntry = connectionData?.matchmakingEntry;
+    const connectionState = this.sockets.get(socket);
+    const matchmakingEntry = connectionState?.matchmakingEntry;
 
-    if (matchmakingEntry == null) {
+    if (matchmakingEntry == null || connectionState == null) {
       return;
     }
 
@@ -312,91 +470,15 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
         matchmakingEntry.queueId,
         matchmakingEntry.entryId,
       );
-      const message: LobbyServerMessage<Config, Loadout> = {
-        type: "QueueLeft",
-      };
-      socket.send(JSON.stringify(message));
+      connectionState.lobbySocket.sendQueueLeft();
     } else {
       await this.db.removeFromRoom(
         matchmakingEntry.roomId,
         matchmakingEntry.entryId,
       );
-      const message: LobbyServerMessage<Config, Loadout> = {
-        type: "RoomLeft",
-      };
-      socket.send(JSON.stringify(message));
+      connectionState.lobbySocket.sendRoomLeft();
     }
 
-    delete connectionData?.matchmakingEntry;
+    delete connectionState.matchmakingEntry;
   }
-
-  allSockets(): Socket[] {
-    return [...this.sockets.keys()];
-  }
-}
-
-function updateActiveGamesIfNecessary<Config, Loadout>(
-  socket: Socket,
-  connectionData: ConnectionData<Config>,
-  allActiveGames: ActiveGame<Config>[],
-) {
-  if (jsonEquals(connectionData.lastActiveGames, allActiveGames)) {
-    return;
-  }
-
-  const response: LobbyServerMessage<Config, Loadout> = {
-    type: "UpdateLobbyProps",
-    lobbyProps: { allActiveGames },
-  };
-  connectionData.lastActiveGames = allActiveGames;
-  socket.send(JSON.stringify(response));
-}
-
-function updateAvailableRoomsIfNecessary<Config, Loadout>(
-  socket: Socket,
-  connectionData: ConnectionData<Config>,
-  allAvailableRooms: Room<Config>[],
-) {
-  if (jsonEquals(connectionData.lastAvailableRooms, allAvailableRooms)) {
-    return;
-  }
-
-  const response: LobbyServerMessage<Config, Loadout> = {
-    type: "UpdateLobbyProps",
-    lobbyProps: { allAvailableRooms },
-  };
-  connectionData.lastAvailableRooms = allAvailableRooms;
-  socket.send(JSON.stringify(response));
-}
-
-// Sends updated user-specific lobby props when the stored user data changes.
-function updateUserPropsIfNecessary<Config, Loadout>(
-  socket: Socket,
-  connectionData: ConnectionData<Config>,
-  userData: UserStorageData<Config>,
-) {
-  const lobbyProps: Partial<LobbyProps<Config>> = {};
-  let didUpdate = false;
-
-  if (!jsonEquals(connectionData.lastUserActiveGames, userData.activeGames)) {
-    lobbyProps.userActiveGames = userData.activeGames;
-    connectionData.lastUserActiveGames = userData.activeGames;
-    didUpdate = true;
-  }
-
-  if (!jsonEquals(connectionData.lastPlayer, userData.player)) {
-    lobbyProps.player = userData.player;
-    connectionData.lastPlayer = userData.player;
-    didUpdate = true;
-  }
-
-  if (!didUpdate) {
-    return;
-  }
-
-  const response: LobbyServerMessage<Config, Loadout> = {
-    type: "UpdateLobbyProps",
-    lobbyProps,
-  };
-  socket.send(JSON.stringify(response));
 }
