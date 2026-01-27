@@ -5,20 +5,141 @@ import { assert } from "@std/assert";
 import type { GameServerMessage } from "../common/sockettypes.ts";
 import { getPlayerState, getPublicState } from "./gamedata.ts";
 
-type GameSocketEntry<PlayerState, PublicState, Outcome> = {
-  playerId: number | undefined;
-  lastPlayerState: PlayerState | undefined;
-  lastPublicState: PublicState | undefined;
-  lastOutcome: Outcome | undefined;
-  socket: Socket;
-};
+/**
+ * Represents a connected game socket with cached state for change detection.
+ * Owns the underlying WebSocket and contains the "last" values used to detect
+ * changes and avoid sending unnecessary updates.
+ */
+class GameSocket<PlayerState, PublicState, Outcome> {
+  private lastPlayerState: PlayerState | undefined = undefined;
+  private lastPublicState: PublicState | undefined = undefined;
+  private lastOutcome: Outcome | undefined = undefined;
 
+  constructor(
+    private socket: Socket,
+    public readonly playerId: number | undefined,
+  ) {}
+
+  /**
+   * Sends a message through the underlying socket.
+   */
+  private send(message: string): void {
+    this.socket.send(message);
+  }
+
+  /**
+   * Initializes the cached values without sending updates.
+   * Used when a socket first connects to establish the baseline state.
+   */
+  initialize(
+    playerState: PlayerState | undefined,
+    publicState: PublicState,
+    outcome: Outcome | undefined,
+  ): void {
+    this.lastPlayerState = playerState;
+    this.lastPublicState = publicState;
+    this.lastOutcome = outcome;
+  }
+
+  /**
+   * Updates the game state if it has changed since the last update.
+   */
+  updateGameStateIfNecessary(
+    playerState: PlayerState | undefined,
+    publicState: PublicState,
+    outcome: Outcome | undefined,
+  ): void {
+    if (
+      jsonEquals(this.lastPlayerState, playerState) &&
+      jsonEquals(this.lastPublicState, publicState) &&
+      jsonEquals(this.lastOutcome, outcome)
+    ) {
+      return;
+    }
+
+    const response: GameServerMessage<PlayerState, PublicState, Outcome> = {
+      type: "UpdateGameState",
+      playerState,
+      publicState,
+      outcome,
+    };
+    this.lastPlayerState = playerState;
+    this.lastPublicState = publicState;
+    this.lastOutcome = outcome;
+    this.send(JSON.stringify(response));
+  }
+}
+
+/**
+ * Connection state for a game.
+ * Contains all GameSocket instances for the game and the change stream reader.
+ */
 type GameConnection<Config, GameState, PlayerState, PublicState, Outcome> = {
-  sockets: GameSocketEntry<PlayerState, PublicState, Outcome>[];
+  gameSockets: Map<Socket, GameSocket<PlayerState, PublicState, Outcome>>;
   changesReader: ReadableStreamDefaultReader<
     GameStorageData<Config, GameState, Outcome>
   >;
 };
+
+/**
+ * Streams game state changes to all connected sockets for a game.
+ */
+async function streamGameChangesToSockets<
+  Config,
+  GameState,
+  PlayerState,
+  PublicState,
+  Outcome,
+>(
+  gameId: string,
+  playerStateLogic: (
+    s: GameState,
+    o: PlayerStateObject<Config>,
+  ) => PlayerState,
+  publicStateLogic: (
+    s: GameState,
+    o: PublicStateObject<Config>,
+  ) => PublicState,
+  stream: ReadableStreamDefaultReader<
+    GameStorageData<Config, GameState, Outcome>
+  >,
+  getConnection: (
+    gameId: string,
+  ) => GameConnection<Config, GameState, PlayerState, PublicState, Outcome>,
+) {
+  while (true) {
+    const data = await stream.read();
+    if (data.done) {
+      break;
+    }
+
+    const connection = getConnection(gameId);
+    const state = data.value.gameState;
+    const outcome = data.value.outcome;
+    const timestamp = new Date();
+
+    const publicState = publicStateLogic(state, {
+      config: data.value.config,
+      numPlayers: data.value.userIds.length,
+      timestamp,
+    });
+
+    for (const gameSocket of connection.gameSockets.values()) {
+      let playerState: PlayerState | undefined;
+
+      if (gameSocket.playerId != null) {
+        playerState = playerStateLogic(state, {
+          playerId: gameSocket.playerId,
+          config: data.value.config,
+          numPlayers: data.value.userIds.length,
+          timestamp,
+        });
+      }
+
+      gameSocket.updateGameStateIfNecessary(playerState, publicState, outcome);
+    }
+  }
+}
 
 export class GameSocketStore<
   Config,
@@ -35,6 +156,9 @@ export class GameSocketStore<
 
   constructor(private db: DB<Config, GameState, Loadout, Outcome>) {}
 
+  /**
+   * Registers a socket for a game and starts watching for game changes.
+   */
   register(
     socket: Socket,
     gameId: string,
@@ -54,6 +178,9 @@ export class GameSocketStore<
     this.addSocket(gameId, socket, playerId);
   }
 
+  /**
+   * Initializes the cached state for a socket and sends an update if the state has changed.
+   */
   async initialize(
     socket: Socket,
     gameId: string,
@@ -69,11 +196,10 @@ export class GameSocketStore<
     ) => PublicState,
   ) {
     const connection = this.getConnection(gameId);
-    const gameSocket = connection.sockets.find((s) => s.socket === socket);
+    const gameSocket = connection.gameSockets.get(socket);
     assert(gameSocket != null);
-    gameSocket.lastPlayerState = playerState;
-    gameSocket.lastPublicState = publicState;
-    gameSocket.lastOutcome = undefined;
+
+    gameSocket.initialize(playerState, publicState, undefined);
 
     const gameData = await this.db.getGameStorageData(gameId);
     const newPlayerState = gameSocket.playerId == null
@@ -88,15 +214,16 @@ export class GameSocketStore<
       publicStateLogic,
     );
 
-    updateSocketIfNecessary(
-      gameSocket,
+    gameSocket.updateGameStateIfNecessary(
       newPlayerState,
       newPublicState,
       gameData.outcome,
     );
-    return;
   }
 
+  /**
+   * Unregisters a socket from a game.
+   */
   unregister(socket: Socket, gameId: string) {
     this.deleteSocket(gameId, socket);
   }
@@ -105,59 +232,9 @@ export class GameSocketStore<
     return this.connections.has(gameId);
   }
 
-  private async streamToAllSockets(
-    gameId: string,
-    playerStateLogic: (
-      s: GameState,
-      o: PlayerStateObject<Config>,
-    ) => PlayerState,
-    publicStateLogic: (
-      s: GameState,
-      o: PublicStateObject<Config>,
-    ) => PublicState,
-    stream: ReadableStreamDefaultReader<
-      GameStorageData<Config, GameState, Outcome>
-    >,
-  ) {
-    while (true) {
-      const data = await stream.read();
-      if (data.done) {
-        break;
-      }
-
-      const connection = this.getConnection(gameId);
-      const state = data.value.gameState;
-
-      const outcome = data.value.outcome;
-      const timestamp = new Date();
-
-      const publicState = publicStateLogic(state, {
-        config: data.value.config,
-        numPlayers: data.value.userIds.length,
-        timestamp,
-      });
-
-      for (const socket of connection.sockets) {
-        let playerState: PlayerState | undefined;
-
-        if (socket.playerId != null) {
-          playerState = playerStateLogic(state, {
-            playerId: socket.playerId,
-            config: data.value.config,
-            numPlayers: data.value.userIds.length,
-            timestamp,
-          });
-        }
-        updateSocketIfNecessary(
-          socket,
-          playerState,
-          publicState,
-          outcome,
-        );
-      }
-    }
-  }
-
+  /**
+   * Creates a game connection and starts streaming game state changes to all sockets.
+   */
   private createGame(
     gameId: string,
     playerStateLogic: (
@@ -170,11 +247,12 @@ export class GameSocketStore<
     ) => PublicState,
   ): void {
     const changesReader = this.db.watchForGameChanges(gameId).getReader();
-    this.streamToAllSockets(
+    streamGameChangesToSockets(
       gameId,
       playerStateLogic,
       publicStateLogic,
       changesReader,
+      this.getConnection.bind(this),
     );
 
     const connection: GameConnection<
@@ -184,31 +262,35 @@ export class GameSocketStore<
       PublicState,
       Outcome
     > = {
-      sockets: [],
+      gameSockets: new Map(),
       changesReader,
     };
     this.connections.set(gameId, connection);
   }
 
+  /**
+   * Adds a socket to a game connection.
+   */
   private addSocket(
     gameId: string,
     socket: Socket,
     playerId: number | undefined = undefined,
   ): void {
     const connection = this.getConnection(gameId);
-    connection.sockets.push({
+    const gameSocket = new GameSocket<PlayerState, PublicState, Outcome>(
       socket,
       playerId,
-      lastPlayerState: undefined,
-      lastPublicState: undefined,
-      lastOutcome: undefined,
-    });
+    );
+    connection.gameSockets.set(socket, gameSocket);
   }
 
+  /**
+   * Removes a socket from a game connection and cleans up if no sockets remain.
+   */
   private deleteSocket(gameId: string, socket: Socket): void {
     const connection = this.getConnection(gameId);
-    connection.sockets = connection.sockets.filter((s) => s.socket !== socket);
-    if (connection.sockets.length === 0) {
+    connection.gameSockets.delete(socket);
+    if (connection.gameSockets.size === 0) {
       connection.changesReader.cancel();
       connection.changesReader.releaseLock();
       this.connections.delete(gameId);
@@ -222,31 +304,4 @@ export class GameSocketStore<
     assert(connection != null);
     return connection;
   }
-}
-
-function updateSocketIfNecessary<PlayerState, PublicState, Outcome>(
-  socket: GameSocketEntry<PlayerState, PublicState, Outcome>,
-  playerState: PlayerState | undefined,
-  publicState: PublicState,
-  outcome: Outcome | undefined,
-) {
-  if (
-    jsonEquals(socket.lastPlayerState, playerState) &&
-    jsonEquals(socket.lastPublicState, publicState) &&
-    jsonEquals(socket.lastOutcome, outcome)
-  ) {
-    return;
-  }
-
-  const response: GameServerMessage<PlayerState, PublicState, Outcome> = {
-    type: "UpdateGameState",
-    playerState,
-    publicState,
-    outcome,
-  };
-  socket.lastPlayerState = playerState;
-  socket.lastPublicState = publicState;
-  socket.lastOutcome = outcome;
-  socket.socket.send(JSON.stringify(response));
-  return;
 }
