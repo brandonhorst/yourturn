@@ -16,6 +16,8 @@ async function seedUsers<Config, GameState, Loadout, Outcome>(
     await db.createNewUserStorageData(user.userId, {
       player: user.player,
       activeGames: [],
+      roomEntries: [],
+      queueEntries: [],
     });
   }
 }
@@ -347,6 +349,8 @@ Deno.test("Creates rooms and lists available rooms", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
 
+  await seedUsers(db, [{ userId: "user-1", player: user1 }]);
+
   const roomId = "room-1";
   const roomConfig = {
     numPlayers: 2,
@@ -369,6 +373,8 @@ Deno.test("Creates rooms and lists available rooms", async () => {
 Deno.test("Excludes private rooms from available rooms", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB(kv);
+
+  await seedUsers(db, [{ userId: "user-1", player: user1 }]);
 
   const roomId = "room-private";
   const roomConfig = {
@@ -440,6 +446,8 @@ Deno.test("usernameExists tracks stored usernames", async () => {
   await db.createNewUserStorageData(userId, {
     player: user1,
     activeGames: [],
+    roomEntries: [],
+    queueEntries: [],
   });
 
   const usernameTakenAfter = await db.usernameExists(user1.username);

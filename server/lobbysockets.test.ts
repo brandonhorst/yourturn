@@ -21,6 +21,8 @@ async function seedUsers<Config, GameState, Loadout, Outcome>(
     await db.createNewUserStorageData(user.userId, {
       player: user.player,
       activeGames: [],
+      roomEntries: [],
+      queueEntries: [],
     });
   }
 }
@@ -30,6 +32,8 @@ function buildUserStorageData(player: typeof user1) {
   return {
     player,
     activeGames: [],
+    roomEntries: [],
+    queueEntries: [],
   };
 }
 
@@ -107,7 +111,7 @@ Deno.test("joins and leaves a queue", async () => {
   // We can't directly access the private fields, but we can test functionality
 
   // Leave the queue
-  await lobbySocketStore.leaveMatchmaking(socket);
+  await lobbySocketStore.leaveQueue(socket, queue.queueId);
 
   // Verify we can join again (which would fail if not properly removed)
   await lobbySocketStore.joinQueue(
@@ -120,7 +124,7 @@ Deno.test("joins and leaves a queue", async () => {
   );
 
   // Clean up
-  await lobbySocketStore.leaveMatchmaking(socket);
+  await lobbySocketStore.leaveQueue(socket, queue.queueId);
   await lobbySocketStore.unregister(socket);
 
   kv.close();
@@ -285,16 +289,12 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   // Wait to make sure the watches are sent
   await new Promise((resolve) => setTimeout(resolve, 100));
 
-  // (JoinQueue + UpdateLobbyProps + UpdateLobbyProps + GameAssignment)
-  assertSpyCalls(socket1.send, 4);
-  assertSpyCalls(socket2.send, 4);
-
-  // Find UpdateLobbyProps message
+  // Find UpdateLobbyProps message with allActiveGames
   let message1, message2;
 
   for (let i = 0; i < socket1.send.calls.length; i++) {
     const msg = JSON.parse(socket1.send.calls[i].args[0]);
-    if (msg.type === "UpdateLobbyProps") {
+    if (msg.type === "UpdateLobbyProps" && msg.lobbyProps?.allActiveGames) {
       message1 = msg;
       break;
     }
@@ -302,7 +302,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
 
   for (let i = 0; i < socket2.send.calls.length; i++) {
     const msg = JSON.parse(socket2.send.calls[i].args[0]);
-    if (msg.type === "UpdateLobbyProps") {
+    if (msg.type === "UpdateLobbyProps" && msg.lobbyProps?.allActiveGames) {
       message2 = msg;
       break;
     }
@@ -329,7 +329,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   kv.close();
 });
 
-Deno.test("players can join a three-player queue and receive QueueJoined messages", async () => {
+Deno.test("players can join a three-player queue and graduate to a game", async () => {
   const kv = await Deno.openKv(":memory:");
   const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
   const activeGamesStream = db.watchForActiveGameListChanges();
@@ -396,18 +396,27 @@ Deno.test("players can join a three-player queue and receive QueueJoined message
     setupGame,
   );
 
-  // Verify QueueJoined messages were sent to all sockets
-  assertExists(socket1.send.calls[0]);
-  assertExists(socket2.send.calls[0]);
-  assertExists(socket3.send.calls[0]);
+  // Wait a bit for updates to propagate (graduation happens asynchronously)
+  await new Promise((resolve) => setTimeout(resolve, 150));
 
-  const message1 = JSON.parse(socket1.send.calls[0].args[0]);
-  const message2 = JSON.parse(socket2.send.calls[0].args[0]);
-  const message3 = JSON.parse(socket3.send.calls[0].args[0]);
+  // Verify that all players graduated from the queue (queueEntries should be empty)
+  const userData1 = await db.getUserStorageData("user-1");
+  const userData2 = await db.getUserStorageData("user-2");
+  const userData3 = await db.getUserStorageData("user-3");
 
-  assertEquals(message1.type, "QueueJoined");
-  assertEquals(message2.type, "QueueJoined");
-  assertEquals(message3.type, "QueueJoined");
+  assertExists(userData1);
+  assertExists(userData2);
+  assertExists(userData3);
+
+  // All players should have graduated from the queue
+  assertEquals(userData1.queueEntries.length, 0);
+  assertEquals(userData2.queueEntries.length, 0);
+  assertEquals(userData3.queueEntries.length, 0);
+
+  // Verify a game was created
+  const allActiveGames = await db.getAllActiveGames();
+  assertEquals(allActiveGames.length, 1);
+  assertEquals(allActiveGames[0].players.length, 3);
 
   // Clean up
   await lobbySocketStore.unregister(socket1);
@@ -438,6 +447,7 @@ Deno.test("players can create and leave a room", async () => {
   const socket = { send: spy() };
   lobbySocketStore.register(socket, "user-1", buildUserStorageData(user1));
 
+  // Create a room and get its ID by checking the available rooms
   await lobbySocketStore.createAndJoinRoom(
     socket,
     { numPlayers: 2, config: { mode: "test" }, private: false },
@@ -446,31 +456,30 @@ Deno.test("players can create and leave a room", async () => {
     loadout,
   );
 
-  let joinedMessage;
-  for (const call of socket.send.calls) {
-    const message = JSON.parse(call.args[0]);
-    if (message.type === "RoomJoined") {
-      joinedMessage = message;
-      break;
-    }
-  }
+  // Wait a bit for the room to be created
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
-  assertExists(joinedMessage);
-  assertEquals(joinedMessage.type, "RoomJoined");
+  // Get the room ID from available rooms
+  const rooms = await db.getAllAvailableRooms();
+  assertEquals(rooms.length, 1);
+  const roomId = rooms[0].roomId;
 
-  await lobbySocketStore.leaveMatchmaking(socket);
+  // Verify user's roomEntries was updated
+  const userData = await db.getUserStorageData("user-1");
+  assertExists(userData);
+  assertEquals(userData.roomEntries.length, 1);
+  assertEquals(userData.roomEntries[0].roomId, roomId);
 
-  let leftMessage;
-  for (const call of socket.send.calls) {
-    const message = JSON.parse(call.args[0]);
-    if (message.type === "RoomLeft") {
-      leftMessage = message;
-      break;
-    }
-  }
+  // Leave the room
+  await lobbySocketStore.leaveRoom(socket, roomId);
 
-  assertExists(leftMessage);
-  assertEquals(leftMessage.type, "RoomLeft");
+  // Wait a bit for the update
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Verify user's roomEntries was cleared
+  const updatedUserData = await db.getUserStorageData("user-1");
+  assertExists(updatedUserData);
+  assertEquals(updatedUserData.roomEntries.length, 0);
 
   await lobbySocketStore.unregister(socket);
   kv.close();

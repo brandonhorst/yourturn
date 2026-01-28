@@ -4,6 +4,8 @@ import type {
   GameProps,
   LobbyProps,
   Player,
+  QueueEntry,
+  RoomEntry,
 } from "../types.ts";
 import type {
   GameClientMessage,
@@ -62,11 +64,13 @@ export class Server<
 
   async getInitialLobbyProps(
     token: string | undefined,
-  ): Promise<{ props: LobbyProps<Config>; token: string }> {
+  ): Promise<{ props: LobbyProps<Config, Loadout>; token: string }> {
     const allActiveGames = await fetchActiveGames(this.db);
     const allAvailableRooms = await fetchAvailableRooms(this.db);
     let user: Player | null = null;
     let userActiveGames: ActiveGame<Config>[] = [];
+    let roomEntries: RoomEntry<Config, Loadout>[] = [];
+    let queueEntries: QueueEntry<Loadout>[] = [];
     let lobbyToken = token;
 
     if (token != null) {
@@ -75,6 +79,8 @@ export class Server<
         const storedUser = await this.db.getUserStorageData(tokenData.userId);
         user = storedUser?.player ?? null;
         userActiveGames = storedUser?.activeGames ?? [];
+        roomEntries = storedUser?.roomEntries ?? [];
+        queueEntries = storedUser?.queueEntries ?? [];
       }
     }
 
@@ -88,9 +94,13 @@ export class Server<
       await this.db.createNewUserStorageData(userId, {
         player: user,
         activeGames: [],
+        roomEntries: [],
+        queueEntries: [],
       });
       await this.db.storeToken(lobbyToken, { userId, expiration });
       userActiveGames = [];
+      roomEntries = [];
+      queueEntries = [];
     }
 
     if (lobbyToken == null) {
@@ -106,6 +116,8 @@ export class Server<
         allAvailableRooms,
         userActiveGames,
         player: user,
+        roomEntries,
+        queueEntries,
       },
       token: lobbyToken,
     };
@@ -322,8 +334,11 @@ export class Server<
           }
           break;
         }
-        case "LeaveMatchmaking":
-          await this.lobbySocketStore.leaveMatchmaking(socket);
+        case "LeaveQueue":
+          await this.lobbySocketStore.leaveQueue(socket, parsedMessage.queueId);
+          break;
+        case "LeaveRoom":
+          await this.lobbySocketStore.leaveRoom(socket, parsedMessage.roomId);
           break;
         case "UpdateUsername": {
           const newUsername = parsedMessage.username;

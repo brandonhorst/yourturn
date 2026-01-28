@@ -8,9 +8,11 @@ import type {
 import type { LobbyServerMessage } from "../common/sockettypes.ts";
 import type {
   ActiveGame,
+  AvailableRoom,
   LobbyProps,
   Player,
-  Room,
+  QueueEntry,
+  RoomEntry,
   SetupObject,
 } from "../types.ts";
 import { ulid } from "@std/ulid";
@@ -37,18 +39,24 @@ type MatchmakingEntry =
  */
 class LobbySocket<Config, Loadout> {
   private lastActiveGames: ActiveGame<Config>[] = [];
-  private lastAvailableRooms: Room<Config>[] = [];
+  private lastAvailableRooms: AvailableRoom<Config>[] = [];
   private lastUserActiveGames: ActiveGame<Config>[] = [];
   private lastPlayer: Player;
+  private lastRoomEntries: RoomEntry<Config, Loadout>[] = [];
+  private lastQueueEntries: QueueEntry<Loadout>[] = [];
 
   constructor(
     private socket: Socket,
     public readonly userId: string,
     initialPlayer: Player,
     initialActiveGames: ActiveGame<Config>[],
+    initialRoomEntries: RoomEntry<Config, Loadout>[],
+    initialQueueEntries: QueueEntry<Loadout>[],
   ) {
     this.lastPlayer = initialPlayer;
     this.lastUserActiveGames = initialActiveGames;
+    this.lastRoomEntries = initialRoomEntries;
+    this.lastQueueEntries = initialQueueEntries;
   }
 
   /**
@@ -64,7 +72,7 @@ class LobbySocket<Config, Loadout> {
    */
   initialize(
     allActiveGames: ActiveGame<Config>[],
-    allAvailableRooms: Room<Config>[],
+    allAvailableRooms: AvailableRoom<Config>[],
   ): void {
     this.lastActiveGames = allActiveGames;
     this.lastAvailableRooms = allAvailableRooms;
@@ -77,51 +85,6 @@ class LobbySocket<Config, Loadout> {
     const message: LobbyServerMessage<Config, Loadout> = {
       type: "GameAssignment",
       gameId,
-    };
-    this.send(JSON.stringify(message));
-  }
-
-  /**
-   * Sends a queue joined confirmation to the client.
-   */
-  sendQueueJoined(queueId: string, loadout: Loadout): void {
-    const message: LobbyServerMessage<Config, Loadout> = {
-      type: "QueueJoined",
-      queueId,
-      loadout,
-    };
-    this.send(JSON.stringify(message));
-  }
-
-  /**
-   * Sends a room joined confirmation to the client.
-   */
-  sendRoomJoined(roomId: string, config: Config, loadout: Loadout): void {
-    const message: LobbyServerMessage<Config, Loadout> = {
-      type: "RoomJoined",
-      roomId,
-      config,
-      loadout,
-    };
-    this.send(JSON.stringify(message));
-  }
-
-  /**
-   * Sends a queue left confirmation to the client.
-   */
-  sendQueueLeft(): void {
-    const message: LobbyServerMessage<Config, Loadout> = {
-      type: "QueueLeft",
-    };
-    this.send(JSON.stringify(message));
-  }
-
-  /**
-   * Sends a room left confirmation to the client.
-   */
-  sendRoomLeft(): void {
-    const message: LobbyServerMessage<Config, Loadout> = {
-      type: "RoomLeft",
     };
     this.send(JSON.stringify(message));
   }
@@ -156,7 +119,9 @@ class LobbySocket<Config, Loadout> {
   /**
    * Updates available rooms if they have changed since the last update.
    */
-  updateAvailableRoomsIfNecessary(allAvailableRooms: Room<Config>[]): void {
+  updateAvailableRoomsIfNecessary(
+    allAvailableRooms: AvailableRoom<Config>[],
+  ): void {
     if (jsonEquals(this.lastAvailableRooms, allAvailableRooms)) {
       return;
     }
@@ -172,8 +137,8 @@ class LobbySocket<Config, Loadout> {
   /**
    * Updates user-specific lobby props when the stored user data changes.
    */
-  updateUserPropsIfNecessary(userData: UserStorageData<Config>): void {
-    const lobbyProps: Partial<LobbyProps<Config>> = {};
+  updateUserPropsIfNecessary(userData: UserStorageData<Config, Loadout>): void {
+    const lobbyProps: Partial<LobbyProps<Config, Loadout>> = {};
     let didUpdate = false;
 
     if (!jsonEquals(this.lastUserActiveGames, userData.activeGames)) {
@@ -185,6 +150,18 @@ class LobbySocket<Config, Loadout> {
     if (!jsonEquals(this.lastPlayer, userData.player)) {
       lobbyProps.player = userData.player;
       this.lastPlayer = userData.player;
+      didUpdate = true;
+    }
+
+    if (!jsonEquals(this.lastRoomEntries, userData.roomEntries)) {
+      lobbyProps.roomEntries = userData.roomEntries;
+      this.lastRoomEntries = userData.roomEntries;
+      didUpdate = true;
+    }
+
+    if (!jsonEquals(this.lastQueueEntries, userData.queueEntries)) {
+      lobbyProps.queueEntries = userData.queueEntries;
+      this.lastQueueEntries = userData.queueEntries;
       didUpdate = true;
     }
 
@@ -206,7 +183,7 @@ class LobbySocket<Config, Loadout> {
  */
 type ConnectionState<Config, Loadout> = {
   lobbySocket: LobbySocket<Config, Loadout>;
-  matchmakingEntry?: Readonly<MatchmakingEntry>;
+  matchmakingEntries?: Readonly<MatchmakingEntry>[];
   userChangesReader?: ReadableStreamDefaultReader;
 };
 
@@ -231,7 +208,7 @@ async function streamAssignmentsToSocket<Config, Loadout>(
  * Streams user changes to the lobby socket and updates lobby props when needed.
  */
 async function streamUserChangesToSocket<Config, Loadout>(
-  stream: ReadableStreamDefaultReader<UserStorageData<Config>>,
+  stream: ReadableStreamDefaultReader<UserStorageData<Config, Loadout>>,
   lobbySocket: LobbySocket<Config, Loadout>,
 ) {
   while (true) {
@@ -250,7 +227,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   constructor(
     private db: DB<Config, GameState, Loadout, Outcome>,
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
-    availableRoomsStream: ReadableStream<Room<Config>[]>,
+    availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
   ) {
     this.streamToAllSockets(activeGamesStream);
     this.streamRoomsToAllSockets(availableRoomsStream);
@@ -259,13 +236,19 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   /**
    * Registers a socket and starts watching for user changes.
    */
-  register(socket: Socket, userId: string, user: UserStorageData<Config>) {
+  register(
+    socket: Socket,
+    userId: string,
+    user: UserStorageData<Config, Loadout>,
+  ) {
     const userChangesReader = this.db.watchForUserChanges(userId).getReader();
     const lobbySocket = new LobbySocket(
       socket,
       userId,
       user.player,
       user.activeGames,
+      user.roomEntries,
+      user.queueEntries,
     );
     const connectionState: ConnectionState<Config, Loadout> = {
       lobbySocket,
@@ -278,7 +261,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   initialize(
     socket: Socket,
     allActiveGames: ActiveGame<Config>[],
-    allAvailableRooms: Room<Config>[],
+    allAvailableRooms: AvailableRoom<Config>[],
   ) {
     const connectionState = this.sockets.get(socket);
     if (connectionState == null) {
@@ -289,9 +272,25 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   }
 
   async unregister(socket: Socket) {
-    await this.leaveMatchmaking(socket);
     const connectionState = this.sockets.get(socket);
-    if (connectionState?.userChangesReader != null) {
+    if (connectionState == null) {
+      return;
+    }
+
+    // Clean up all matchmaking entries
+    const entries = connectionState.matchmakingEntries ?? [];
+    for (const entry of entries) {
+      entry.assignmentsReader.cancel();
+      entry.assignmentsReader.releaseLock();
+
+      if (entry.type === "queue") {
+        await this.db.removeFromQueue(entry.queueId, entry.entryId);
+      } else {
+        await this.db.removeFromRoom(entry.roomId, entry.entryId);
+      }
+    }
+
+    if (connectionState.userChangesReader != null) {
       connectionState.userChangesReader.cancel();
       connectionState.userChangesReader.releaseLock();
     }
@@ -318,11 +317,11 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   }
 
   private streamRoomsToAllSockets(
-    availableRoomsStream: ReadableStream<Room<Config>[]>,
+    availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
   ) {
     availableRoomsStream.pipeTo(
       new WritableStream({
-        write: (allAvailableRooms: Room<Config>[]) => {
+        write: (allAvailableRooms: AvailableRoom<Config>[]) => {
           for (const connectionState of this.sockets.values()) {
             connectionState.lobbySocket.updateAvailableRoomsIfNecessary(
               allAvailableRooms,
@@ -356,8 +355,6 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
     streamAssignmentsToSocket(assignmentsReader, connectionState.lobbySocket);
 
-    connectionState.lobbySocket.sendQueueJoined(queueConfig.queueId, loadout);
-
     await this.db.addToQueue(
       queueConfig,
       entryId,
@@ -367,12 +364,17 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
       setupGame,
     );
 
-    connectionState.matchmakingEntry = {
-      type: "queue",
-      queueId: queueConfig.queueId,
-      entryId,
-      assignmentsReader,
-    };
+    // Track this entry so we can clean it up if needed
+    const existingEntries = connectionState.matchmakingEntries ?? [];
+    connectionState.matchmakingEntries = [
+      ...existingEntries,
+      {
+        type: "queue",
+        queueId: queueConfig.queueId,
+        entryId,
+        assignmentsReader,
+      },
+    ];
   }
 
   public async createAndJoinRoom(
@@ -405,7 +407,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
   public async joinRoom(
     socket: Socket,
     roomId: string,
-    roomConfig: Pick<RoomStorageData<Config, Loadout>, "config">,
+    _roomConfig: Pick<RoomStorageData<Config, Loadout>, "config">,
     userId: string,
     user: Player,
     loadout: Loadout,
@@ -435,50 +437,80 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
       return false;
     }
 
-    connectionState.lobbySocket.sendRoomJoined(
-      roomId,
-      roomConfig.config,
-      loadout,
-    );
-
-    connectionState.matchmakingEntry = {
-      type: "room",
-      roomId,
-      entryId,
-      assignmentsReader,
-    };
+    // Track this entry so we can clean it up if needed
+    const existingEntries = connectionState.matchmakingEntries ?? [];
+    connectionState.matchmakingEntries = [
+      ...existingEntries,
+      {
+        type: "room",
+        roomId,
+        entryId,
+        assignmentsReader,
+      },
+    ];
 
     return true;
   }
 
   /**
-   * Removes the matchmaking entry from the database and stops watching assignments.
+   * Leaves a specific queue.
    */
-  async leaveMatchmaking(socket: Socket) {
+  async leaveQueue(socket: Socket, queueId: string) {
     const connectionState = this.sockets.get(socket);
-    const matchmakingEntry = connectionState?.matchmakingEntry;
-
-    if (matchmakingEntry == null || connectionState == null) {
+    if (connectionState == null) {
       return;
     }
 
-    matchmakingEntry.assignmentsReader.cancel();
-    matchmakingEntry.assignmentsReader.releaseLock();
+    const entries = connectionState.matchmakingEntries ?? [];
+    const queueEntry = entries.find(
+      (e) => e.type === "queue" && e.queueId === queueId,
+    );
 
-    if (matchmakingEntry.type === "queue") {
-      await this.db.removeFromQueue(
-        matchmakingEntry.queueId,
-        matchmakingEntry.entryId,
-      );
-      connectionState.lobbySocket.sendQueueLeft();
-    } else {
-      await this.db.removeFromRoom(
-        matchmakingEntry.roomId,
-        matchmakingEntry.entryId,
-      );
-      connectionState.lobbySocket.sendRoomLeft();
+    if (queueEntry == null || queueEntry.type !== "queue") {
+      return;
     }
 
-    delete connectionState.matchmakingEntry;
+    queueEntry.assignmentsReader.cancel();
+    queueEntry.assignmentsReader.releaseLock();
+
+    await this.db.removeFromQueue(
+      queueEntry.queueId,
+      queueEntry.entryId,
+    );
+
+    // Remove this entry from the list
+    connectionState.matchmakingEntries = entries.filter((e) =>
+      e !== queueEntry
+    );
+  }
+
+  /**
+   * Leaves a specific room.
+   */
+  async leaveRoom(socket: Socket, roomId: string) {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
+      return;
+    }
+
+    const entries = connectionState.matchmakingEntries ?? [];
+    const roomEntry = entries.find(
+      (e) => e.type === "room" && e.roomId === roomId,
+    );
+
+    if (roomEntry == null || roomEntry.type !== "room") {
+      return;
+    }
+
+    roomEntry.assignmentsReader.cancel();
+    roomEntry.assignmentsReader.releaseLock();
+
+    await this.db.removeFromRoom(
+      roomEntry.roomId,
+      roomEntry.entryId,
+    );
+
+    // Remove this entry from the list
+    connectionState.matchmakingEntries = entries.filter((e) => e !== roomEntry);
   }
 }

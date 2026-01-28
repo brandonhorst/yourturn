@@ -1,11 +1,11 @@
 import type { DB, GameStorageData } from "./db.ts";
 import type {
   ActiveGame,
+  AvailableRoom,
   Game,
   OutcomeObject,
   PlayerStateObject,
   PublicStateObject,
-  Room,
 } from "../types.ts";
 
 export async function fetchActiveGames<
@@ -26,7 +26,7 @@ export async function fetchAvailableRooms<
   Outcome,
 >(
   db: DB<Config, GameState, Loadout, Outcome>,
-): Promise<Room<Config>[]> {
+): Promise<AvailableRoom<Config>[]> {
   return await db.getAllAvailableRooms();
 }
 

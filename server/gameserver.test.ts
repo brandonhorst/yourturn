@@ -113,6 +113,8 @@ Deno.test("getInitialLobbyProps uses existing user for valid token", async () =>
   await db.createNewUserStorageData(userId, {
     player: user,
     activeGames: userActiveGames,
+    roomEntries: [],
+    queueEntries: [],
   });
   await db.storeToken(token, { userId, expiration });
 

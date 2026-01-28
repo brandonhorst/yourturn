@@ -231,18 +231,33 @@ export type ActiveGame<Config> = {
   created: Date;
 };
 
-export type Room<Config> = {
+export type AvailableRoom<Config> = {
   roomId: string;
   numPlayers: number;
   players: Player[];
   config: Config;
 };
 
-export type LobbyProps<Config> = {
+export type RoomEntry<Config, Loadout> = {
+  roomId: string;
+  numPlayers: number;
+  players: Player[];
+  config: Config;
+  loadout: Loadout;
+};
+
+export type QueueEntry<Loadout> = {
+  queueId: string;
+  loadout: Loadout;
+};
+
+export type LobbyProps<Config, Loadout> = {
   allActiveGames: ActiveGame<Config>[];
-  allAvailableRooms: Room<Config>[];
+  allAvailableRooms: AvailableRoom<Config>[];
   userActiveGames: ActiveGame<Config>[];
   player: Player;
+  roomEntries: RoomEntry<Config, Loadout>[];
+  queueEntries: QueueEntry<Loadout>[];
 };
 
 type CompletePlayerProps<PlayerState, PublicState, Outcome> = {
@@ -305,12 +320,8 @@ export type GameViewProps<Move, PlayerState, PublicState, Outcome> =
   | IncompletePlayerViewProps<Move, PlayerState, PublicState>
   | ObserveViewProps<PublicState, Outcome>;
 
-export type CurrentMatchmaking<Config, Loadout> =
-  | { type: "queue"; queueId: string; loadout: Loadout }
-  | { type: "room"; roomId: string; config: Config; loadout: Loadout };
-
 export type LobbyViewProps<Config, Loadout> =
-  & LobbyProps<Config>
+  & LobbyProps<Config, Loadout>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     createAndJoinRoom: (
@@ -319,7 +330,7 @@ export type LobbyViewProps<Config, Loadout> =
     ) => void;
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
     commitRoom: (roomId: string) => void;
-    currentMatchmaking: CurrentMatchmaking<Config, Loadout> | undefined;
-    leaveMatchmaking: () => void;
+    leaveQueue: (queueId: string) => void;
+    leaveRoom: (roomId: string) => void;
     updateUsername: (username: string) => void;
   };
