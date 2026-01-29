@@ -349,10 +349,10 @@ export class DB<Config, GameState, Loadout, Outcome> {
     });
   }
 
-  // Creates a new game record, updates global and user-specific active game lists, and
-  // returns the base transaction. Returns as an object because Deno.AtomicOperation
-  // is thennable, which breaks async/await.
-  private async createNewGameTransaction(
+  // Creates a new game record and updates global and user-specific active game lists
+  // by mutating the provided transaction.
+  private async createNewGameOnOperation(
+    transaction: Deno.AtomicOperation,
     setupGame: (setupObject: SetupObject<Config, Loadout>) => GameState,
     options: {
       activeGamesKey: Deno.KvKey;
@@ -361,7 +361,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       loadouts: Loadout[];
       userIds: string[];
     },
-  ): Promise<{ transaction: Deno.AtomicOperation }> {
+  ): Promise<void> {
     const gameKey = getGameKey(options.gameId);
     const timestamp = new Date();
     // Fetch active games and user records needed to build the new game state.
@@ -403,8 +403,8 @@ export class DB<Config, GameState, Loadout, Outcome> {
     };
     const activeGamesNext = [...allActiveGames, activeGame];
 
-    // Assemble a single atomic transaction for game + active lists + user updates.
-    const transaction = this.kv.atomic()
+    // Mutate the provided transaction with game + active lists + user updates.
+    transaction
       .check(activeGamesEntry)
       .set(options.activeGamesKey, activeGamesNext)
       .check({ key: gameKey, versionstamp: null })
@@ -425,8 +425,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
         .check(userEntry)
         .set(userEntry.key, updatedUser);
     }
-
-    return { transaction };
   }
 
   public async commitRoom(
@@ -460,7 +458,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
       const config = roomEntry.value.config;
       const gameId = ulid();
-      const { transaction } = await this.createNewGameTransaction(
+      const transaction = this.kv.atomic();
+      await this.createNewGameOnOperation(
+        transaction,
         setupGame,
         {
           activeGamesKey,
@@ -544,7 +544,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
         loadouts[i] = queueEntries[i].value.loadout;
       }
       const gameId = ulid();
-      const { transaction } = await this.createNewGameTransaction(
+      const transaction = this.kv.atomic();
+      await this.createNewGameOnOperation(
+        transaction,
         setupGame,
         {
           activeGamesKey,
