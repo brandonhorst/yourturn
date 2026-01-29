@@ -57,15 +57,6 @@ export type UserStorageData<Config, Loadout> = {
   queueEntries: QueueEntry<Loadout>[];
 };
 
-async function repeatUntilSuccess(
-  fn: () => Promise<{ ok: boolean }>,
-): Promise<void> {
-  let ok = false;
-  while (!ok) {
-    ok = (await fn()).ok;
-  }
-}
-
 function getQueuePrefix(queueId: string) {
   return ["queueentry", queueId];
 }
@@ -108,6 +99,24 @@ export class DB<Config, GameState, Loadout, Outcome> {
     this.kv = kv;
   }
 
+  /**
+   * Repeats a transaction operation until it succeeds.
+   * Creates a new Deno.AtomicOperation and passes it to the provided function.
+   * The function should build up operations on the transaction by mutating it.
+   * The function may be async to perform reads before building the transaction.
+   * This will keep retrying until the transaction commits successfully.
+   */
+  private async repeatUntilTransactionSucceeds(
+    fn: (transaction: Deno.AtomicOperation) => void | Promise<void>,
+  ): Promise<void> {
+    let ok = false;
+    while (!ok) {
+      const transaction = this.kv.atomic();
+      await fn(transaction);
+      ok = (await transaction.commit()).ok;
+    }
+  }
+
   public async addToQueue(
     queueConfig: QueueConfig<Config>,
     entryId: string,
@@ -118,7 +127,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       setupObject: SetupObject<Config, Loadout>,
     ) => GameState,
   ): Promise<void> {
-    await repeatUntilSuccess(async () => {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
       const userEntry = await this.kv.get<UserStorageData<Config, Loadout>>(
         getUserKey(userId),
@@ -136,13 +145,11 @@ export class DB<Config, GameState, Loadout, Outcome> {
         queueEntries: [...userEntry.value.queueEntries, queueEntry],
       };
 
-      return await this.kv
-        .atomic()
+      transaction
         .check({ key: entryKey, versionstamp: null })
         .set(entryKey, { timestamp: new Date(), userId, user, loadout })
         .check(userEntry)
-        .set(getUserKey(userId), updatedUser)
-        .commit();
+        .set(getUserKey(userId), updatedUser);
     });
 
     await this.maybeGraduateFromQueue(queueConfig, setupGame);
@@ -163,7 +170,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
     const userId = entry.value.userId;
 
-    await repeatUntilSuccess(async () => {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const userEntry = await this.kv.get<UserStorageData<Config, Loadout>>(
         getUserKey(userId),
       );
@@ -179,11 +186,10 @@ export class DB<Config, GameState, Loadout, Outcome> {
         queueEntries: updatedQueues,
       };
 
-      return await this.kv.atomic()
+      transaction
         .delete(entryKey)
         .check(userEntry)
-        .set(getUserKey(userId), updatedUser)
-        .commit();
+        .set(getUserKey(userId), updatedUser);
     });
   }
 
@@ -204,12 +210,11 @@ export class DB<Config, GameState, Loadout, Outcome> {
       members: [],
     };
 
-    await repeatUntilSuccess(async () => {
-      return await this.kv.atomic()
+    await this.repeatUntilTransactionSucceeds((transaction) => {
+      transaction
         .check({ key: roomKey, versionstamp: null })
         .set(roomKey, roomData)
-        .set(roomListTriggerKey, {})
-        .commit();
+        .set(roomListTriggerKey, {});
     });
   }
 
@@ -232,7 +237,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
 
-    await repeatUntilSuccess(async () => {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const roomEntry = await this.kv.get<
         RoomStorageData<Config, Loadout>
       >(
@@ -275,13 +280,12 @@ export class DB<Config, GameState, Loadout, Outcome> {
         roomEntries: [...userEntry.value.roomEntries, roomEntry2],
       };
 
-      return await this.kv.atomic()
+      transaction
         .check(roomEntry)
         .set(roomKey, updatedRoom)
         .set(roomListTriggerKey, {})
         .check(userEntry)
-        .set(getUserKey(userId), updatedUser)
-        .commit();
+        .set(getUserKey(userId), updatedUser);
     });
   }
 
@@ -292,7 +296,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
 
-    await repeatUntilSuccess(async () => {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const roomEntry = await this.kv.get<
         RoomStorageData<Config, Loadout>
       >(
@@ -330,22 +334,20 @@ export class DB<Config, GameState, Loadout, Outcome> {
         roomEntries: updatedRooms,
       };
 
-      let transaction = this.kv.atomic()
+      transaction
         .check(roomEntry)
         .set(roomListTriggerKey, {})
         .check(userEntry)
         .set(getUserKey(userId), updatedUser);
 
       if (nextMembers.length === 0) {
-        transaction = transaction.delete(roomKey);
+        transaction.delete(roomKey);
       } else {
-        transaction = transaction.set(roomKey, {
+        transaction.set(roomKey, {
           ...roomEntry.value,
           members: nextMembers,
         });
       }
-
-      return await transaction.commit();
     });
   }
 
@@ -437,7 +439,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     const roomListTriggerKey = getRoomListTriggerKey();
     const activeGamesKey = getActiveGamesKey();
 
-    await repeatUntilSuccess(async () => {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
         roomKey,
       );
@@ -458,7 +460,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
       const config = roomEntry.value.config;
       const gameId = ulid();
-      const transaction = this.kv.atomic();
       await this.createNewGameOnOperation(
         transaction,
         setupGame,
@@ -508,8 +509,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
           .check(userEntry)
           .set(userKeys[i], updatedUser);
       }
-
-      return await transaction.commit();
     });
   }
 
@@ -520,7 +519,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     const queuePrefix = getQueuePrefix(queueConfig.queueId);
     const activeGamesKey = getActiveGamesKey();
 
-    await repeatUntilSuccess(async () => {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
       // Get desired queue entries, if they exist
       const queueEntries = await Array.fromAsync(
         this.kv.list<QueueEntryValue<Loadout>>(
@@ -530,7 +529,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       );
       // If the queue doesn't have enough entrants, stop
       if (queueEntries.length < queueConfig.numPlayers) {
-        return { ok: true };
+        return; // Nothing to do
       }
 
       // Initialize Game Storage Data
@@ -544,7 +543,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
         loadouts[i] = queueEntries[i].value.loadout;
       }
       const gameId = ulid();
-      const transaction = this.kv.atomic();
       await this.createNewGameOnOperation(
         transaction,
         setupGame,
@@ -595,7 +593,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
           .check(userEntry)
           .set(userKeys[i], updatedUser);
       }
-      return await transaction.commit();
     });
   }
 
@@ -782,7 +779,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
     userId: string,
     data: Partial<UserStorageData<Config, Loadout>>,
   ): Promise<void> {
-    await repeatUntilSuccess(async () => {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entry = await this.kv.get<UserStorageData<Config, Loadout>>(
         getUserKey(userId),
       );
@@ -798,7 +795,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
       const previousUsername = existingData.player.username;
       const updatedUsername = updatedData.player.username;
-      const transaction = this.kv.atomic()
+      transaction
         .check(entry)
         .set(getUserKey(userId), updatedData);
       if (previousUsername !== updatedUsername) {
@@ -808,8 +805,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
       } else {
         transaction.set(getUserByUsernameKey(previousUsername), userId);
       }
-
-      return await transaction.commit();
     });
   }
 
