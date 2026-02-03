@@ -1,15 +1,30 @@
 import { assertEquals, assertExists, assertRejects } from "@std/assert";
 import { DB } from "./db.ts";
+import type { Game, QueueConfig } from "../types.ts";
 
-// Mock game implementation for testing
-const setupGame = () => 1;
+type TestConfig = { mode: string } | undefined;
+type TestGameState = number;
+type TestMove = { delta: number };
+type TestPlayerState = number;
+type TestPublicState = number;
+type TestOutcome = string | undefined;
+type TestLoadout = undefined;
+
 const loadout = undefined;
 const user1 = { username: "guest-0001", isGuest: true };
 const user2 = { username: "guest-0002", isGuest: true };
 
 // Creates user records for tests that need to attach games to users.
-async function seedUsers<Config, GameState, Loadout, Outcome>(
-  db: DB<Config, GameState, Loadout, Outcome>,
+async function seedUsers<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  PublicState,
+  Loadout,
+  Outcome,
+>(
+  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
   users: Array<{ userId: string; player: typeof user1 }>,
 ): Promise<void> {
   for (const user of users) {
@@ -23,11 +38,44 @@ async function seedUsers<Config, GameState, Loadout, Outcome>(
   }
 }
 
+// Builds a minimal game stub with the provided queues for queue-based tests.
+function buildTestGame(
+  queues: Record<string, QueueConfig<TestConfig>> = {},
+): Game<
+  TestConfig,
+  TestGameState,
+  TestMove,
+  TestPlayerState,
+  TestPublicState,
+  TestOutcome,
+  TestLoadout
+> {
+  return {
+    queues,
+    setup: () => 1,
+    isValidMove: () => true,
+    processMove: (state) => state,
+    playerState: () => 1,
+    publicState: () => 1,
+    outcome: () => undefined,
+  };
+}
+
 Deno.test("Adds to queue, graduates, and assigns", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
   const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const entryId = "test-entry";
   const entryId2 = "test-entry-2";
 
@@ -38,8 +86,8 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
 
   const assignmentStream = db.watchForAssignments(entryId);
   const assignmentStream2 = db.watchForAssignments(entryId2);
-  await db.addToQueue(queue, entryId, "user-1", user1, loadout, setupGame);
-  await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId, "user-1", user1, loadout);
+  await db.addToQueue(queue.queueId, entryId2, "user-2", user2, loadout);
 
   // Check for assignment after queue graduation
   const reader = assignmentStream.getReader();
@@ -60,35 +108,55 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
 
 Deno.test("Removes from queue", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
   const queue = {
     queueId: "test-queue-remove",
     numPlayers: 2,
     config: undefined,
   };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const entryId = "test-entry-remove";
 
   await seedUsers(db, [{ userId: "user-1", player: user1 }]);
 
-  await db.addToQueue(queue, entryId, "user-1", user1, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId, "user-1", user1, loadout);
   await db.removeFromQueue(queue.queueId, entryId);
 
   // Verify the entry is removed (this will implicitly check through the next test succeeding)
-  await db.addToQueue(queue, entryId, "user-1", user1, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId, "user-1", user1, loadout);
 
   kv.close();
 });
 
 Deno.test("Creates game and retrieves it", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
   const queue = {
     queueId: "test-queue-game",
     numPlayers: 2,
     config: undefined,
   };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const entryId1 = "test-entry-game-1";
   const entryId2 = "test-entry-game-2";
 
@@ -98,8 +166,8 @@ Deno.test("Creates game and retrieves it", async () => {
   ]);
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
-  await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId1, "user-1", user1, loadout);
+  await db.addToQueue(queue.queueId, entryId2, "user-2", user2, loadout);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -118,14 +186,24 @@ Deno.test("Creates game and retrieves it", async () => {
 
 Deno.test("Updates game data", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
   // Create a game first
   const queue = {
     queueId: "test-queue-update",
     numPlayers: 2,
     config: undefined,
   };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const entryId1 = "test-entry-update-1";
   const entryId2 = "test-entry-update-2";
 
@@ -135,8 +213,8 @@ Deno.test("Updates game data", async () => {
   ]);
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
-  await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId1, "user-1", user1, loadout);
+  await db.addToQueue(queue.queueId, entryId2, "user-2", user2, loadout);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -164,14 +242,24 @@ Deno.test("Updates game data", async () => {
 
 Deno.test("Watches for game changes", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
   // Create a game first
   const queue = {
     queueId: "test-queue-watch",
     numPlayers: 2,
     config: undefined,
   };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const entryId1 = "test-entry-watch-1";
   const entryId2 = "test-entry-watch-2";
 
@@ -181,8 +269,8 @@ Deno.test("Watches for game changes", async () => {
   ]);
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
-  await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId1, "user-1", user1, loadout);
+  await db.addToQueue(queue.queueId, entryId2, "user-2", user2, loadout);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -217,14 +305,24 @@ Deno.test("Watches for game changes", async () => {
 
 Deno.test("Completes game", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
   // Create a game first
   const queue = {
     queueId: "test-queue-complete",
     numPlayers: 2,
     config: undefined,
   };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const entryId1 = "test-entry-complete-1";
   const entryId2 = "test-entry-complete-2";
 
@@ -234,8 +332,8 @@ Deno.test("Completes game", async () => {
   ]);
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
-  await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId1, "user-1", user1, loadout);
+  await db.addToQueue(queue.queueId, entryId2, "user-2", user2, loadout);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -264,14 +362,24 @@ Deno.test("Completes game", async () => {
 
 Deno.test("Lists active games", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
   // Create a game
   const queue = {
     queueId: "test-queue-active",
     numPlayers: 2,
     config: undefined,
   };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const entryId1 = "test-entry-active-1";
   const entryId2 = "test-entry-active-2";
 
@@ -281,8 +389,8 @@ Deno.test("Lists active games", async () => {
   ]);
 
   const assignmentStream = db.watchForAssignments(entryId1);
-  await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
-  await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId1, "user-1", user1, loadout);
+  await db.addToQueue(queue.queueId, entryId2, "user-2", user2, loadout);
 
   const reader = assignmentStream.getReader();
   const result = await reader.read();
@@ -303,17 +411,27 @@ Deno.test("Lists active games", async () => {
 
 Deno.test("Watches for active game count changes", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
-
-  const countStream = db.watchForActiveGameListChanges();
-  const reader = countStream.getReader();
-
-  // Create a new game to trigger a count change
   const queue = {
     queueId: "test-queue-count",
     numPlayers: 2,
     config: undefined,
   };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
+  const countStream = db.watchForActiveGameListChanges();
+  const reader = countStream.getReader();
+
+  // Create a new game to trigger a count change
   const entryId1 = "test-entry-count-1";
   const entryId2 = "test-entry-count-2";
 
@@ -322,8 +440,8 @@ Deno.test("Watches for active game count changes", async () => {
     { userId: "user-2", player: user2 },
   ]);
 
-  await db.addToQueue(queue, entryId1, "user-1", user1, loadout, setupGame);
-  await db.addToQueue(queue, entryId2, "user-2", user2, loadout, setupGame);
+  await db.addToQueue(queue.queueId, entryId1, "user-1", user1, loadout);
+  await db.addToQueue(queue.queueId, entryId2, "user-2", user2, loadout);
 
   const result = await reader.read();
   await reader.cancel();
@@ -335,7 +453,16 @@ Deno.test("Watches for active game count changes", async () => {
 
 Deno.test("Handles errors for non-existent games", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const game = buildTestGame();
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
 
   await assertRejects(
     () => db.getGameStorageData("non-existent-game-id"),
@@ -348,7 +475,16 @@ Deno.test("Handles errors for non-existent games", async () => {
 
 Deno.test("Creates rooms and lists available rooms", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const game = buildTestGame();
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
 
   await seedUsers(db, [{ userId: "user-1", player: user1 }]);
 
@@ -373,7 +509,16 @@ Deno.test("Creates rooms and lists available rooms", async () => {
 
 Deno.test("Excludes private rooms from available rooms", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const game = buildTestGame();
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
 
   await seedUsers(db, [{ userId: "user-1", player: user1 }]);
 
@@ -395,7 +540,16 @@ Deno.test("Excludes private rooms from available rooms", async () => {
 
 Deno.test("Commits room and assigns players", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const game = buildTestGame();
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
 
   const roomId = "room-commit";
   const roomConfig = {
@@ -417,7 +571,7 @@ Deno.test("Commits room and assigns players", async () => {
   const assignmentStream1 = db.watchForAssignments("entry-1");
   const assignmentStream2 = db.watchForAssignments("entry-2");
 
-  await db.commitRoom(roomId, setupGame);
+  await db.commitRoom(roomId);
 
   const reader1 = assignmentStream1.getReader();
   const reader2 = assignmentStream2.getReader();
@@ -438,7 +592,16 @@ Deno.test("Commits room and assigns players", async () => {
 
 Deno.test("usernameExists tracks stored usernames", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB(kv);
+  const game = buildTestGame();
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
 
   const userId = "user-1";
   const usernameTakenBefore = await db.usernameExists(user1.username);

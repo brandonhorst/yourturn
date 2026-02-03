@@ -1,7 +1,6 @@
 import type {
   AssignmentStorageData,
   DB,
-  QueueConfig,
   RoomStorageData,
   UserStorageData,
 } from "./db.ts";
@@ -14,7 +13,6 @@ import type {
   QueueEntry,
   RoomEntry,
   RoomInvitation,
-  SetupObject,
 } from "../types.ts";
 import { ulid } from "@std/ulid";
 import { jsonEquals, type Socket } from "./socketutils.ts";
@@ -231,11 +229,27 @@ async function streamUserChangesToSocket<Config, Loadout>(
   }
 }
 
-export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
+export class LobbySocketStore<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  PublicState,
+  Outcome,
+  Loadout,
+> {
   private sockets: Map<Socket, ConnectionState<Config, Loadout>> = new Map();
 
   constructor(
-    private db: DB<Config, GameState, Loadout, Outcome>,
+    private db: DB<
+      Config,
+      GameState,
+      Move,
+      PlayerState,
+      PublicState,
+      Outcome,
+      Loadout
+    >,
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
     availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
   ) {
@@ -350,11 +364,10 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
    */
   public async joinQueue(
     socket: Socket,
-    queueConfig: QueueConfig<Config>,
+    queueId: string,
     userId: string,
     user: Player,
     loadout: Loadout,
-    setupGame: (o: SetupObject<Config, Loadout>) => GameState,
   ) {
     const connectionState = this.sockets.get(socket);
     if (!connectionState) {
@@ -366,14 +379,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
     streamAssignmentsToSocket(assignmentsReader, connectionState.lobbySocket);
 
-    await this.db.addToQueue(
-      queueConfig,
-      entryId,
-      userId,
-      user,
-      loadout,
-      setupGame,
-    );
+    await this.db.addToQueue(queueId, entryId, userId, user, loadout);
 
     // Track this entry so we can clean it up if needed
     const existingEntries = connectionState.matchmakingEntries ?? [];
@@ -381,7 +387,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
       ...existingEntries,
       {
         type: "queue",
-        queueId: queueConfig.queueId,
+        queueId,
         entryId,
         assignmentsReader,
       },

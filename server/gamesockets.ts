@@ -161,6 +161,7 @@ async function streamGameChangesToSockets<
 export class GameSocketStore<
   Config,
   GameState,
+  Move,
   PlayerState,
   PublicState,
   Outcome,
@@ -171,7 +172,17 @@ export class GameSocketStore<
     GameConnection<Config, GameState, PlayerState, PublicState, Outcome>
   > = new Map();
 
-  constructor(private db: DB<Config, GameState, Loadout, Outcome>) {}
+  constructor(
+    private db: DB<
+      Config,
+      GameState,
+      Move,
+      PlayerState,
+      PublicState,
+      Outcome,
+      Loadout
+    >,
+  ) {}
 
   /**
    * Registers a socket for a game and starts watching for game changes.

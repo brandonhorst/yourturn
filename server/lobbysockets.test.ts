@@ -2,6 +2,7 @@ import { assertEquals, assertExists } from "@std/assert";
 import { DB } from "./db.ts";
 import { LobbySocketStore } from "./lobbysockets.ts";
 import { assertSpyCalls, spy } from "@std/testing/mock";
+import type { Game, QueueConfig } from "../types.ts";
 
 const user1 = { username: "guest-0001", isGuest: true };
 const user2 = { username: "guest-0002", isGuest: true };
@@ -9,12 +10,23 @@ const user3 = { username: "guest-0003", isGuest: true };
 const loadout = undefined;
 type TestConfig = { mode: string } | undefined;
 type TestGameState = number;
+type TestMove = { delta: number };
+type TestPlayerState = number;
+type TestPublicState = number;
 type TestLoadout = undefined;
 type TestOutcome = undefined;
 
 // Creates user records for tests that need to attach games to users.
-async function seedUsers<Config, GameState, Loadout, Outcome>(
-  db: DB<Config, GameState, Loadout, Outcome>,
+async function seedUsers<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  PublicState,
+  Loadout,
+  Outcome,
+>(
+  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
   users: Array<{ userId: string; player: typeof user1 }>,
 ): Promise<void> {
   for (const user of users) {
@@ -39,16 +51,51 @@ function buildUserStorageData(player: typeof user1) {
   };
 }
 
+// Builds a minimal game stub with the provided queues for queue-based tests.
+function buildTestGame(
+  queues: Record<string, QueueConfig<TestConfig>> = {},
+): Game<
+  TestConfig,
+  TestGameState,
+  TestMove,
+  TestPlayerState,
+  TestPublicState,
+  TestOutcome,
+  TestLoadout
+> {
+  return {
+    queues,
+    setup: () => 1,
+    isValidMove: () => true,
+    processMove: (state) => state,
+    playerState: () => 1,
+    publicState: () => 1,
+    outcome: () => undefined,
+  };
+}
+
 Deno.test("registers and unregisters a socket", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
+  const game = buildTestGame();
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
   const lobbySocketStore = new LobbySocketStore<
     TestConfig,
     TestGameState,
-    TestLoadout,
-    TestOutcome
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
   >(
     db,
     activeGamesStream,
@@ -76,21 +123,34 @@ Deno.test("registers and unregisters a socket", async () => {
 
 Deno.test("joins and leaves a queue", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
+  const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
   const lobbySocketStore = new LobbySocketStore<
     TestConfig,
     TestGameState,
-    TestLoadout,
-    TestOutcome
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
   >(
     db,
     activeGamesStream,
     availableRoomsStream,
   );
-
-  const setupGame = () => 1;
 
   await seedUsers(db, [{ userId: "user-1", player: user1 }]);
 
@@ -99,14 +159,12 @@ Deno.test("joins and leaves a queue", async () => {
   lobbySocketStore.register(socket, "user-1", buildUserStorageData(user1));
 
   // Join a queue
-  const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
   await lobbySocketStore.joinQueue(
     socket,
-    queue,
+    queue.queueId,
     "user-1",
     user1,
     loadout,
-    setupGame,
   );
 
   // Verify the socket has a queue entry associated with it
@@ -118,11 +176,10 @@ Deno.test("joins and leaves a queue", async () => {
   // Verify we can join again (which would fail if not properly removed)
   await lobbySocketStore.joinQueue(
     socket,
-    queue,
+    queue.queueId,
     "user-1",
     user1,
     loadout,
-    setupGame,
   );
 
   // Clean up
@@ -134,21 +191,38 @@ Deno.test("joins and leaves a queue", async () => {
 
 Deno.test("when two sockets join a queue, assignments are made", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
+  const queue = {
+    queueId: "test-queue-assignments",
+    numPlayers: 2,
+    config: undefined,
+  };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
   const lobbySocketStore = new LobbySocketStore<
     TestConfig,
     TestGameState,
-    TestLoadout,
-    TestOutcome
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
   >(
     db,
     activeGamesStream,
     availableRoomsStream,
   );
-
-  const setupGame = () => 1;
 
   await seedUsers(db, [
     { userId: "user-1", player: user1 },
@@ -163,29 +237,21 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   lobbySocketStore.register(socket2, "user-2", buildUserStorageData(user2));
 
   // Join the same queue with both sockets
-  const queue = {
-    queueId: "test-queue-assignments",
-    numPlayers: 2,
-    config: undefined,
-  };
-
   // Use Promise.all to join both queues concurrently
   await Promise.all([
     lobbySocketStore.joinQueue(
       socket1,
-      queue,
+      queue.queueId,
       "user-1",
       user1,
       loadout,
-      setupGame,
     ),
     lobbySocketStore.joinQueue(
       socket2,
-      queue,
+      queue.queueId,
       "user-2",
       user2,
       loadout,
-      setupGame,
     ),
   ]);
 
@@ -235,21 +301,38 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
 
 Deno.test("active games are broadcasted to all sockets", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
+  const queue = {
+    queueId: "test-queue-broadcast",
+    numPlayers: 2,
+    config: undefined,
+  };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
   const lobbySocketStore = new LobbySocketStore<
     TestConfig,
     TestGameState,
-    TestLoadout,
-    TestOutcome
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
   >(
     db,
     activeGamesStream,
     availableRoomsStream,
   );
-
-  const setupGame = () => 1;
 
   await seedUsers(db, [
     { userId: "user-1", player: user1 },
@@ -264,27 +347,20 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   lobbySocketStore.register(socket2, "user-2", buildUserStorageData(user2));
 
   // Create a game by having two sockets join a queue
-  const queue = {
-    queueId: "test-queue-broadcast",
-    numPlayers: 2,
-    config: undefined,
-  };
   await Promise.all([
     lobbySocketStore.joinQueue(
       socket1,
-      queue,
+      queue.queueId,
       "user-1",
       user1,
       loadout,
-      setupGame,
     ),
     lobbySocketStore.joinQueue(
       socket2,
-      queue,
+      queue.queueId,
       "user-2",
       user2,
       loadout,
-      setupGame,
     ),
   ]);
 
@@ -333,22 +409,38 @@ Deno.test("active games are broadcasted to all sockets", async () => {
 
 Deno.test("players can join a three-player queue and graduate to a game", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
+  const queue = {
+    queueId: "test-queue-three-players",
+    numPlayers: 3,
+    config: undefined,
+  };
+  const game = buildTestGame({
+    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+  });
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
   const lobbySocketStore = new LobbySocketStore<
     TestConfig,
     TestGameState,
-    TestLoadout,
-    TestOutcome
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
   >(
     db,
     activeGamesStream,
     availableRoomsStream,
   );
-
-  // Create a simple setup function (not a spy anymore)
-  const setupGame = () => 1;
 
   await seedUsers(db, [
     { userId: "user-1", player: user1 },
@@ -366,36 +458,27 @@ Deno.test("players can join a three-player queue and graduate to a game", async 
   lobbySocketStore.register(socket3, "user-3", buildUserStorageData(user3));
 
   // Join the same queue with all three sockets
-  const queue = {
-    queueId: "test-queue-three-players",
-    numPlayers: 3,
-    config: undefined,
-  };
-
   // Join queues
   await lobbySocketStore.joinQueue(
     socket1,
-    queue,
+    queue.queueId,
     "user-1",
     user1,
     loadout,
-    setupGame,
   );
   await lobbySocketStore.joinQueue(
     socket2,
-    queue,
+    queue.queueId,
     "user-2",
     user2,
     loadout,
-    setupGame,
   );
   await lobbySocketStore.joinQueue(
     socket3,
-    queue,
+    queue.queueId,
     "user-3",
     user3,
     loadout,
-    setupGame,
   );
 
   // Wait a bit for updates to propagate (graduation happens asynchronously)
@@ -430,14 +513,26 @@ Deno.test("players can join a three-player queue and graduate to a game", async 
 
 Deno.test("players can create and leave a room", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
+  const game = buildTestGame();
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
   const lobbySocketStore = new LobbySocketStore<
     TestConfig,
     TestGameState,
-    TestLoadout,
-    TestOutcome
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
   >(
     db,
     activeGamesStream,

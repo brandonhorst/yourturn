@@ -38,14 +38,25 @@ function getGameKey(gameId: string) {
 }
 
 function buildServer(kv: Deno.Kv) {
-  const db = new DB<TestConfig, TestGameState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestGameState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
   const activeGamesStream = db.watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
   const lobbySocketStore = new LobbySocketStore<
     TestConfig,
     TestGameState,
-    TestLoadout,
-    TestOutcome
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
   >(
     db,
     activeGamesStream,
@@ -54,6 +65,7 @@ function buildServer(kv: Deno.Kv) {
   const gameSocketStore = new GameSocketStore<
     TestConfig,
     TestGameState,
+    TestMove,
     TestPlayerState,
     TestPublicState,
     TestOutcome,

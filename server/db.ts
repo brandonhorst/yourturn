@@ -3,20 +3,15 @@ import type {
   ActiveGame,
   AvailableRoom,
   ChatMessage,
+  Game,
   Player,
+  QueueConfig,
   QueueEntry,
   RoomEntry,
   RoomInvitation,
-  SetupObject,
   TokenData,
 } from "../types.ts";
 import { assert } from "@std/assert";
-
-export type QueueConfig<Config> = {
-  queueId: string;
-  numPlayers: number;
-  config: Config;
-};
 
 type QueueEntryValue<Loadout> = {
   timestamp: Date;
@@ -100,11 +95,40 @@ function getTokenKey(token: string) {
   return ["tokens", token];
 }
 
-export class DB<Config, GameState, Loadout, Outcome> {
+export class DB<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  PublicState,
+  Outcome,
+  Loadout,
+> {
   private kv: Deno.Kv;
+  private game: Game<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Loadout
+  >;
 
-  constructor(kv: Deno.Kv) {
+  constructor(
+    kv: Deno.Kv,
+    game: Game<
+      Config,
+      GameState,
+      Move,
+      PlayerState,
+      PublicState,
+      Outcome,
+      Loadout
+    >,
+  ) {
     this.kv = kv;
+    this.game = game;
   }
 
   /**
@@ -125,18 +149,27 @@ export class DB<Config, GameState, Loadout, Outcome> {
     }
   }
 
+  /**
+   * Fetches queue configuration for a queue ID or throws if it is missing.
+   */
+  private getQueueConfig(queueId: string): QueueConfig<Config> {
+    const queueConfig = this.game.queues[queueId];
+    if (queueConfig == null) {
+      throw new Error(`Queue ${queueId} not found`);
+    }
+    return queueConfig;
+  }
+
   public async addToQueue(
-    queueConfig: QueueConfig<Config>,
+    queueId: string,
     entryId: string,
     userId: string,
     user: Player,
     loadout: Loadout,
-    setupGame: (
-      setupObject: SetupObject<Config, Loadout>,
-    ) => GameState,
   ): Promise<void> {
+    const queueConfig = this.getQueueConfig(queueId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entryKey = getQueueEntryKey(queueConfig.queueId, entryId);
+      const entryKey = getQueueEntryKey(queueId, entryId);
       const userEntry = await this.kv.get<UserStorageData<Config, Loadout>>(
         getUserKey(userId),
       );
@@ -145,7 +178,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       }
 
       const queueEntry: QueueEntry<Loadout> = {
-        queueId: queueConfig.queueId,
+        queueId,
         loadout,
       };
       const updatedUser: UserStorageData<Config, Loadout> = {
@@ -160,7 +193,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
         .set(getUserKey(userId), updatedUser);
     });
 
-    await this.maybeGraduateFromQueue(queueConfig, setupGame);
+    await this.maybeGraduateFromQueue(queueId, queueConfig);
   }
 
   public async removeFromQueue(
@@ -604,7 +637,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
   // by mutating the provided transaction.
   private async createNewGameOnOperation(
     transaction: Deno.AtomicOperation,
-    setupGame: (setupObject: SetupObject<Config, Loadout>) => GameState,
     options: {
       activeGamesKey: Deno.KvKey;
       config: Config;
@@ -635,7 +667,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       config: options.config,
       loadouts: options.loadouts,
     };
-    const gameState = setupGame(setupObject);
+    const gameState = this.game.setup(setupObject);
     const gameStorageData: GameStorageData<Config, GameState, Outcome> = {
       config: options.config,
       gameState,
@@ -681,9 +713,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
   public async commitRoom(
     roomId: string,
-    setupGame: (
-      setupObject: SetupObject<Config, Loadout>,
-    ) => GameState,
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
@@ -712,7 +741,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
       const gameId = ulid();
       await this.createNewGameOnOperation(
         transaction,
-        setupGame,
         {
           activeGamesKey,
           config,
@@ -763,10 +791,10 @@ export class DB<Config, GameState, Loadout, Outcome> {
   }
 
   private async maybeGraduateFromQueue(
+    queueId: string,
     queueConfig: QueueConfig<Config>,
-    setupGame: (o: SetupObject<Config, Loadout>) => GameState,
   ): Promise<void> {
-    const queuePrefix = getQueuePrefix(queueConfig.queueId);
+    const queuePrefix = getQueuePrefix(queueId);
     const activeGamesKey = getActiveGamesKey();
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
@@ -795,7 +823,6 @@ export class DB<Config, GameState, Loadout, Outcome> {
       const gameId = ulid();
       await this.createNewGameOnOperation(
         transaction,
-        setupGame,
         {
           activeGamesKey,
           config: queueConfig.config,
@@ -827,7 +854,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
 
         // Remove this queue from the user's queueEntries
         const updatedQueues = userEntry.value.queueEntries.filter(
-          (q) => q.queueId !== queueConfig.queueId,
+          (q) => q.queueId !== queueId,
         );
         const updatedUser: UserStorageData<Config, Loadout> = {
           ...userEntry.value,

@@ -113,7 +113,15 @@ const testGame: Game<
 
 Deno.test("fetchActiveGames returns active games from the database", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   // Create some active games
   const id1 = ulid();
@@ -152,7 +160,15 @@ Deno.test("fetchActiveGames returns active games from the database", async () =>
 
 Deno.test("getPlayerState returns correct player state", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   // Create a game with initial value 1
   const gameId = ulid();
@@ -197,7 +213,15 @@ Deno.test("getPlayerState returns correct player state", async () => {
 
 Deno.test("getPlayerState handles completed games", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   // Create a completed game
   const gameId = ulid();
@@ -240,7 +264,15 @@ Deno.test("getPlayerState handles completed games", async () => {
 
 Deno.test("getPublicState returns correct public state", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   const gameId = ulid();
 
@@ -275,7 +307,15 @@ Deno.test("getPublicState returns correct public state", async () => {
 
 Deno.test("getPublicState handles completed games", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   // Create a completed game
   const gameId = ulid();
@@ -321,7 +361,15 @@ Deno.test("getPublicState handles completed games", async () => {
 
 Deno.test("handleMove processes valid moves and updates game state", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   // Create a game with initial value 1
   const gameId = ulid();
@@ -363,7 +411,15 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
 
 Deno.test("handleMove properly marks game as complete when threshold reached", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   // Create a game with value 4 (one increment away from being complete)
   const gameId = ulid();
@@ -412,7 +468,15 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
 
 Deno.test("handleMove rejects invalid moves", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   const gameId = ulid();
 
@@ -462,7 +526,15 @@ Deno.test("handleMove rejects invalid moves", async () => {
 
 Deno.test("handleMove doesn't update completed games", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   // Create a completed game
   const gameId = ulid();
@@ -523,7 +595,15 @@ Deno.test("handleMove doesn't update completed games", async () => {
 
 Deno.test("handleChatMessage appends messages to game chat", async () => {
   const kv = await Deno.openKv(":memory:");
-  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+  const db = new DB<
+    TestConfig,
+    TestState,
+    TestMove,
+    TestPlayerState,
+    TestPublicState,
+    TestOutcome,
+    TestLoadout
+  >(kv, testGame);
 
   const gameId = ulid();
   const userId = "user-1";

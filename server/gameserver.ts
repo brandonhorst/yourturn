@@ -46,16 +46,28 @@ export class Server<
       Outcome,
       Loadout
     >,
-    private db: DB<Config, GameState, Loadout, Outcome>,
+    private db: DB<
+      Config,
+      GameState,
+      Move,
+      PlayerState,
+      PublicState,
+      Outcome,
+      Loadout
+    >,
     private lobbySocketStore: LobbySocketStore<
       Config,
       GameState,
-      Loadout,
-      Outcome
+      Move,
+      PlayerState,
+      PublicState,
+      Outcome,
+      Loadout
     >,
     private gameSocketStore: GameSocketStore<
       Config,
       GameState,
+      Move,
       PlayerState,
       PublicState,
       Outcome,
@@ -248,11 +260,10 @@ export class Server<
           };
           await this.lobbySocketStore.joinQueue(
             socket,
-            queueConfig,
+            queueConfig.queueId,
             userId,
             user,
             parsedMessage.loadout,
-            this.game.setup,
           );
           break;
         }
@@ -375,7 +386,6 @@ export class Server<
           try {
             await this.db.commitRoom(
               parsedMessage.roomId,
-              this.game.setup,
             );
           } catch (err) {
             console.error("Failed to commit room", err);

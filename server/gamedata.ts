@@ -12,10 +12,13 @@ import type {
 export async function fetchActiveGames<
   Config,
   GameState,
+  Move,
+  PlayerState,
+  PublicState,
   Loadout,
   Outcome,
 >(
-  db: DB<Config, GameState, Loadout, Outcome>,
+  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
 ): Promise<ActiveGame<Config>[]> {
   return await db.getAllActiveGames();
 }
@@ -23,10 +26,13 @@ export async function fetchActiveGames<
 export async function fetchAvailableRooms<
   Config,
   GameState,
+  Move,
+  PlayerState,
+  PublicState,
   Loadout,
   Outcome,
 >(
-  db: DB<Config, GameState, Loadout, Outcome>,
+  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
 ): Promise<AvailableRoom<Config>[]> {
   return await db.getAllAvailableRooms();
 }
@@ -89,7 +95,7 @@ async function updateGameState<
   Outcome,
   Loadout,
 >(
-  db: DB<Config, GameState, Loadout, Outcome>,
+  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
   game: Game<
     Config,
     GameState,
@@ -138,7 +144,7 @@ export async function handleMove<
   Outcome,
   Loadout,
 >(
-  db: DB<Config, GameState, Loadout, Outcome>,
+  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
   game: Game<
     Config,
     GameState,
@@ -176,10 +182,13 @@ export async function handleMove<
 export async function handleChatMessage<
   Config,
   GameState,
+  Move,
+  PlayerState,
+  PublicState,
   Outcome,
   Loadout,
 >(
-  db: DB<Config, GameState, Loadout, Outcome>,
+  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
   gameId: string,
   userId: string,
   message: string,
