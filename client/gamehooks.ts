@@ -15,6 +15,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
 ): GameViewProps<Move, PlayerState, PublicState, Outcome> {
   const playerId = initialGameProps.playerId;
   const players = initialGameProps.players;
+  const [chat, setChat] = useState(initialGameProps.chat);
   const [playerState, setPlayerState] = useState<PlayerState | undefined>(
     initialGameProps.playerState,
   );
@@ -34,6 +35,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
         setOutcome(response.outcome);
         setPublicState(response.publicState);
         setPlayerState(response.playerState);
+        setChat(response.chat);
         if (response.outcome !== undefined) {
           close();
         }
@@ -51,6 +53,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
       type: "Initialize",
       currentPublicState: publicState,
       currentPlayerState: playerState,
+      currentChat: chat,
     },
     onMessage,
   );
@@ -64,12 +67,22 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   }, [send]);
   const perform = playerId == null ? undefined : performCallback;
 
+  const sendChatMessage = useCallback((message: string) => {
+    const request: GameClientMessage<Move, PlayerState, PublicState> = {
+      type: "ChatMessage",
+      message,
+    };
+    send(request);
+  }, [send]);
+
   return {
     players: players,
     publicState: publicState,
     playerId: initialGameProps.playerId,
     playerState: playerState,
+    chat,
     perform,
+    sendChatMessage,
     outcome: outcome,
   } as GameViewProps<Move, PlayerState, PublicState, Outcome>;
 }

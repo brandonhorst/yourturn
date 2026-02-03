@@ -49,6 +49,11 @@ export type Player = {
   isGuest: boolean;
 };
 
+export type ChatMessage = {
+  player: Player;
+  message: string;
+};
+
 export type TokenData = {
   userId: string;
   expiration: Date;
@@ -276,6 +281,7 @@ type CompletePlayerProps<PlayerState, PublicState, Outcome> = {
   playerId: number;
   playerState: PlayerState;
   outcome: Outcome;
+  chat: ChatMessage[];
 };
 
 type IncompletePlayerProps<PlayerState, PublicState> = {
@@ -284,6 +290,7 @@ type IncompletePlayerProps<PlayerState, PublicState> = {
   playerId: number;
   playerState: PlayerState;
   outcome: undefined;
+  chat: ChatMessage[];
 };
 
 type CompleteObserverProps<PublicState, Outcome> = {
@@ -292,6 +299,7 @@ type CompleteObserverProps<PublicState, Outcome> = {
   playerId: undefined;
   playerState: undefined;
   outcome: Outcome;
+  chat: ChatMessage[];
 };
 
 type IncompleteObserverProps<PublicState> = {
@@ -300,6 +308,7 @@ type IncompleteObserverProps<PublicState> = {
   playerId: undefined;
   playerState: undefined;
   outcome: undefined;
+  chat: ChatMessage[];
 };
 
 export type GameProps<PlayerState, PublicState, Outcome> =
@@ -310,11 +319,14 @@ export type GameProps<PlayerState, PublicState, Outcome> =
 
 type IncompletePlayerViewProps<Move, PlayerState, PublicState> =
   & IncompletePlayerProps<PlayerState, PublicState>
-  & { perform: (move: Move) => void };
+  & {
+    perform: (move: Move) => void;
+    sendChatMessage: (message: string) => void;
+  };
 
 type CompletePlayerViewProps<PlayerState, PublicState, Outcome> =
   & CompletePlayerProps<PlayerState, PublicState, Outcome>
-  & { perform: undefined };
+  & { perform: undefined; sendChatMessage: (message: string) => void };
 
 type ObserveViewProps<PublicState, Outcome> =
   & (
@@ -323,7 +335,7 @@ type ObserveViewProps<PublicState, Outcome> =
       PublicState
     >
   )
-  & { perform: undefined };
+  & { perform: undefined; sendChatMessage: (message: string) => void };
 
 export type GameViewProps<Move, PlayerState, PublicState, Outcome> =
   | CompletePlayerViewProps<PlayerState, PublicState, Outcome>

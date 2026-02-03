@@ -2,6 +2,7 @@ import type { DB, GameStorageData } from "./db.ts";
 import type {
   ActiveGame,
   AvailableRoom,
+  ChatMessage,
   Game,
   OutcomeObject,
   PlayerStateObject,
@@ -167,4 +168,41 @@ export async function handleMove<
 
     return game.processMove(state, moveData);
   });
+}
+
+/**
+ * Appends a chat message to the game's chat log.
+ */
+export async function handleChatMessage<
+  Config,
+  GameState,
+  Outcome,
+  Loadout,
+>(
+  db: DB<Config, GameState, Loadout, Outcome>,
+  gameId: string,
+  userId: string,
+  message: string,
+): Promise<void> {
+  const [gameData, userData] = await Promise.all([
+    db.getGameStorageData(gameId),
+    db.getUserStorageData(userId),
+  ]);
+
+  if (userData == null) {
+    return;
+  }
+
+  const chatMessage: ChatMessage = {
+    player: userData.player,
+    message,
+  };
+
+  const updatedChat = [...gameData.chat, chatMessage];
+  const newGameData: GameStorageData<Config, GameState, Outcome> = {
+    ...gameData,
+    chat: updatedChat,
+  };
+
+  await db.updateGameStorageData(gameId, newGameData);
 }

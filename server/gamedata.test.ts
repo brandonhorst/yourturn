@@ -5,6 +5,7 @@ import {
   getPlayerId,
   getPlayerState,
   getPublicState,
+  handleChatMessage,
   handleMove,
 } from "./gamedata.ts";
 import type { Game, Player } from "../types.ts";
@@ -129,6 +130,7 @@ Deno.test("fetchActiveGames returns active games from the database", async () =>
       userIds: [],
       players,
       outcome: undefined,
+      chat: [],
     };
 
     await kv.set(getGameKey(gameId), gameData);
@@ -164,6 +166,7 @@ Deno.test("getPlayerState returns correct player state", async () => {
     userIds,
     players,
     outcome: undefined,
+    chat: [],
   };
 
   // Set up active game list and game data
@@ -208,6 +211,7 @@ Deno.test("getPlayerState handles completed games", async () => {
     userIds,
     players,
     outcome: undefined,
+    chat: [],
   };
 
   // Set up active game list and game data
@@ -251,6 +255,7 @@ Deno.test("getPublicState returns correct public state", async () => {
     userIds: [],
     players,
     outcome: undefined,
+    chat: [],
   };
 
   // Set up active game list and game data
@@ -286,6 +291,7 @@ Deno.test("getPublicState handles completed games", async () => {
     userIds: [],
     players,
     outcome: undefined,
+    chat: [],
   };
 
   // Set up active game list and game data
@@ -331,6 +337,7 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
     userIds: [],
     players,
     outcome: undefined,
+    chat: [],
   };
 
   // Set up active game list and game data
@@ -380,6 +387,7 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
     userIds: [],
     players,
     outcome: undefined,
+    chat: [],
   };
 
   // Set up active game list and game data
@@ -419,6 +427,7 @@ Deno.test("handleMove rejects invalid moves", async () => {
     userIds: [],
     players,
     outcome: undefined,
+    chat: [],
   };
 
   // Set up active game list and game data
@@ -469,6 +478,7 @@ Deno.test("handleMove doesn't update completed games", async () => {
     userIds: [],
     players,
     outcome: undefined,
+    chat: [],
   };
 
   // Set up active game list and game data
@@ -507,6 +517,44 @@ Deno.test("handleMove doesn't update completed games", async () => {
     completedGameData.gameState.moveHistory.length,
   );
   assertEquals(updatedGameData.outcome, "done");
+
+  kv.close();
+});
+
+Deno.test("handleChatMessage appends messages to game chat", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const db = new DB<TestConfig, TestState, TestLoadout, TestOutcome>(kv);
+
+  const gameId = ulid();
+  const userId = "user-1";
+  const user = { username: "Player 1", isGuest: false };
+
+  await db.createNewUserStorageData(userId, {
+    player: user,
+    activeGames: [],
+    roomEntries: [],
+    queueEntries: [],
+    roomInvitations: [],
+  });
+
+  const gameData: GameStorageData<TestConfig, TestState, TestOutcome> = {
+    config: undefined,
+    gameState: { value: 0, moveHistory: [] },
+    userIds: [userId],
+    players: [user],
+    outcome: undefined,
+    chat: [],
+  };
+
+  await kv.set(getGameKey(gameId), gameData);
+
+  await handleChatMessage(db, gameId, userId, "Hello world");
+
+  const updatedGameData = await db.getGameStorageData(gameId);
+
+  assertEquals(updatedGameData.chat.length, 1);
+  assertEquals(updatedGameData.chat[0].player, user);
+  assertEquals(updatedGameData.chat[0].message, "Hello world");
 
   kv.close();
 });

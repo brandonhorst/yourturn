@@ -28,6 +28,7 @@ function buildGameData(
     userIds: ["user-1", "user-2"],
     players: [user1, user2],
     outcome,
+    chat: [],
   };
 }
 
@@ -75,6 +76,7 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
     gameId,
     { value: -1 },
     { playerId: 0, value: -1 },
+    [],
     playerStateLogic,
     publicStateLogic,
   );
@@ -92,6 +94,7 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
   assertEquals(updateMessage.playerState?.value, 0);
   assertEquals(updateMessage.publicState.value, 0);
   assertEquals(updateMessage.outcome, undefined);
+  assertEquals(updateMessage.chat, []);
 
   gameSocketStore.unregister(socket, gameId);
   kv.close();
@@ -135,6 +138,7 @@ Deno.test("streams updates to player and observer sockets", async () => {
       gameId,
       { value: 0 },
       { playerId: 0, value: 0 },
+      [],
       playerStateLogic,
       publicStateLogic,
     ),
@@ -143,6 +147,7 @@ Deno.test("streams updates to player and observer sockets", async () => {
       gameId,
       { value: 0 },
       undefined,
+      [],
       playerStateLogic,
       publicStateLogic,
     ),
@@ -177,6 +182,8 @@ Deno.test("streams updates to player and observer sockets", async () => {
   assertEquals(observerUpdate.outcome, "done");
   assertEquals(playerUpdate.playerState.value, 5);
   assertEquals(observerUpdate.playerState, undefined);
+  assertEquals(playerUpdate.chat, []);
+  assertEquals(observerUpdate.chat, []);
 
   gameSocketStore.unregister(playerSocket, gameId);
   gameSocketStore.unregister(observerSocket, gameId);
@@ -212,6 +219,7 @@ Deno.test("unregister stops streaming updates", async () => {
     gameId,
     { value: 0 },
     { playerId: 0, value: 0 },
+    [],
     playerStateLogic,
     publicStateLogic,
   );

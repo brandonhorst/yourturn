@@ -2,6 +2,7 @@ import { ulid } from "@std/ulid";
 import type {
   ActiveGame,
   AvailableRoom,
+  ChatMessage,
   Player,
   QueueEntry,
   RoomEntry,
@@ -45,6 +46,7 @@ export type GameStorageData<Config, GameState, Outcome> = {
   userIds: string[];
   players: Player[];
   outcome: Outcome | undefined;
+  chat: ChatMessage[];
 };
 
 export type AssignmentStorageData = {
@@ -640,6 +642,7 @@ export class DB<Config, GameState, Loadout, Outcome> {
       userIds: options.userIds,
       players,
       outcome: undefined,
+      chat: [],
     };
 
     // Build the new allActiveGames

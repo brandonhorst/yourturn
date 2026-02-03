@@ -1,4 +1,9 @@
-import type { ActiveGame, AvailableRoom, LobbyProps } from "../types.ts";
+import type {
+  ActiveGame,
+  AvailableRoom,
+  ChatMessage,
+  LobbyProps,
+} from "../types.ts";
 
 export type LobbyClientMessage<Config, Loadout> =
   | {
@@ -35,12 +40,15 @@ export type GameClientMessage<Move, PlayerState, PublicState> =
     type: "Initialize";
     currentPublicState: PublicState;
     currentPlayerState?: PlayerState;
+    currentChat: ChatMessage[];
   }
-  | { type: "Move"; move: Move };
+  | { type: "Move"; move: Move }
+  | { type: "ChatMessage"; message: string };
 
 export type GameServerMessage<PlayerState, PublicState, Outcome> = {
   type: "UpdateGameState";
   publicState: PublicState;
   playerState: PlayerState | undefined;
   outcome: Outcome | undefined;
+  chat: ChatMessage[];
 };

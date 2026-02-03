@@ -154,6 +154,7 @@ Deno.test("getInitialGameProps returns player state for matching token", async (
     userIds: [userId, "user-2"],
     players,
     outcome: undefined,
+    chat: [],
   };
 
   await kv.set(getGameKey(gameId), gameData);
@@ -164,6 +165,7 @@ Deno.test("getInitialGameProps returns player state for matching token", async (
   assertEquals(result.publicState, { value: 7 });
   assertEquals(result.playerState, { playerId: 0, value: 7 });
   assertEquals(result.players, players);
+  assertEquals(result.chat, []);
 
   kv.close();
 });
