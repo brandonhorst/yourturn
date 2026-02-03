@@ -1,8 +1,8 @@
 import { assertEquals, assertExists } from "@std/assert";
-import { DB } from "./db.ts";
-import { LobbySocketStore } from "./lobbysockets.ts";
+import { DB } from "../../server/db.ts";
+import { LobbySocketStore } from "../../server/lobbysockets.ts";
 import { assertSpyCalls, spy } from "@std/testing/mock";
-import type { Game, QueueConfig } from "../types.ts";
+import type { Game, QueueConfig } from "../../types.ts";
 
 const user1 = { username: "guest-0001", isGuest: true };
 const user2 = { username: "guest-0002", isGuest: true };

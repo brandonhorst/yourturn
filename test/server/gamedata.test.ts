@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { DB } from "./db.ts";
+import { DB } from "../../server/db.ts";
 import {
   fetchActiveGames,
   getPlayerId,
@@ -7,16 +7,17 @@ import {
   getPublicState,
   handleChatMessage,
   handleMove,
-} from "./gamedata.ts";
-import type { Game, Player } from "../types.ts";
-import type { GameStorageData } from "./db.ts";
+} from "../../server/gamedata.ts";
+import type { Game, Player } from "../../types.ts";
+import type { GameStorageData } from "../../server/db.ts";
 import { ulid } from "@std/ulid";
 
-// Helper functions for test use only
+// Helper functions for test use only.
 function getActiveGamesKey() {
   return ["activegames"];
 }
 
+// Builds the KV key for a stored game record.
 function getGameKey(gameId: string) {
   return ["games", gameId];
 }
@@ -54,6 +55,7 @@ const defaultPlayers: Player[] = [
 ];
 const defaultCreated = new Date("2020-01-01T00:00:00Z");
 
+// Creates a minimal active game record for lobby list checks.
 function buildActiveGame(gameId: string, players = defaultPlayers) {
   return { gameId, players, config: undefined, created: defaultCreated };
 }

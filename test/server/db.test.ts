@@ -1,6 +1,6 @@
 import { assertEquals, assertExists, assertRejects } from "@std/assert";
-import { DB } from "./db.ts";
-import type { Game, QueueConfig } from "../types.ts";
+import { DB } from "../../server/db.ts";
+import type { Game, QueueConfig } from "../../types.ts";
 
 type TestConfig = { mode: string } | undefined;
 type TestGameState = number;

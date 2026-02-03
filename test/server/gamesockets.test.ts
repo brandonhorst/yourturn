@@ -1,13 +1,13 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { spy } from "@std/testing/mock";
-import { DB, type GameStorageData } from "./db.ts";
-import { GameSocketStore } from "./gamesockets.ts";
+import { DB, type GameStorageData } from "../../server/db.ts";
+import { GameSocketStore } from "../../server/gamesockets.ts";
 import type {
   Game,
   Player,
   PlayerStateObject,
   PublicStateObject,
-} from "../types.ts";
+} from "../../types.ts";
 
 const user1: Player = { username: "guest-0001", isGuest: true };
 const user2: Player = { username: "guest-0002", isGuest: true };
@@ -41,10 +41,12 @@ function buildTestGame(): Game<
   };
 }
 
+// Builds the KV key for a stored game record.
 function getGameKey(gameId: string) {
   return ["games", gameId];
 }
 
+// Builds a game storage record with optional outcome for socket tests.
 function buildGameData(
   value: number,
   outcome?: TestOutcome,
@@ -59,6 +61,7 @@ function buildGameData(
   };
 }
 
+// Derives per-player state for test game updates.
 const playerStateLogic = (
   state: TestState,
   o: PlayerStateObject<TestConfig>,
@@ -67,6 +70,7 @@ const playerStateLogic = (
   value: state.value,
 });
 
+// Derives public state for test game updates.
 const publicStateLogic = (
   state: TestState,
   _o: PublicStateObject<TestConfig>,

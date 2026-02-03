@@ -1,9 +1,9 @@
 import { assert, assertEquals, assertExists } from "@std/assert";
-import type { Game } from "../types.ts";
-import { DB, type GameStorageData } from "./db.ts";
-import { GameSocketStore } from "./gamesockets.ts";
-import { LobbySocketStore } from "./lobbysockets.ts";
-import { Server } from "./gameserver.ts";
+import type { Game } from "../../types.ts";
+import { DB, type GameStorageData } from "../../server/db.ts";
+import { GameSocketStore } from "../../server/gamesockets.ts";
+import { LobbySocketStore } from "../../server/lobbysockets.ts";
+import { Server } from "../../server/gameserver.ts";
 
 type TestConfig = { mode: string };
 type TestGameState = { value: number };
@@ -33,10 +33,12 @@ const testGame: Game<
   outcome: () => undefined,
 };
 
+// Builds the KV key for a stored game record.
 function getGameKey(gameId: string) {
   return ["games", gameId];
 }
 
+// Builds a server bundle with socket stores for integration-style tests.
 function buildServer(kv: Deno.Kv) {
   const db = new DB<
     TestConfig,
