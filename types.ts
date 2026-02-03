@@ -239,6 +239,7 @@ export type AvailableRoom<Config> = {
 };
 
 export type RoomInvitation<Config> = {
+  invitationId: string;
   roomId: string;
   numPlayers: number;
   config: Config;
@@ -337,6 +338,7 @@ export type LobbyViewProps<Config, Loadout> =
       options: { config: Config; numPlayers: number; private: boolean },
       player: { loadout: Loadout },
     ) => void;
+    createInvitation: (roomId: string) => string;
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
     inviteUser: (roomId: string, userId: string) => void;
     commitRoom: (roomId: string) => void;

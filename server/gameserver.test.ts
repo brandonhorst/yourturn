@@ -75,7 +75,7 @@ Deno.test("getInitialLobbyProps creates a guest token when missing", async () =>
   const kv = await Deno.openKv(":memory:");
   const { db, server } = buildServer(kv);
 
-  const result = await server.getInitialLobbyProps(undefined);
+  const result = await server.getInitialLobbyProps(undefined, undefined);
 
   assertExists(result.token);
   assertEquals(result.props.allActiveGames, []);
@@ -119,7 +119,7 @@ Deno.test("getInitialLobbyProps uses existing user for valid token", async () =>
   });
   await db.storeToken(token, { userId, expiration });
 
-  const result = await server.getInitialLobbyProps(token);
+  const result = await server.getInitialLobbyProps(token, undefined);
 
   assertEquals(result.token, token);
   assertEquals(result.props.player, user);
@@ -164,6 +164,47 @@ Deno.test("getInitialGameProps returns player state for matching token", async (
   assertEquals(result.publicState, { value: 7 });
   assertEquals(result.playerState, { playerId: 0, value: 7 });
   assertEquals(result.players, players);
+
+  kv.close();
+});
+
+Deno.test("getInitialLobbyProps adds URL invitation to roomInvitations", async () => {
+  const kv = await Deno.openKv(":memory:");
+  const { db, server } = buildServer(kv);
+
+  const userId = "user-1";
+  const user = { username: "inviter", isGuest: false };
+  const token = "token-1";
+  const expiration = new Date(Date.now() + 60_000);
+  await db.createNewUserStorageData(userId, {
+    player: user,
+    activeGames: [],
+    roomEntries: [],
+    queueEntries: [],
+    roomInvitations: [],
+  });
+  await db.storeToken(token, { userId, expiration });
+
+  const roomId = "room-1";
+  await db.createRoom(roomId, {
+    numPlayers: 2,
+    config: { mode: "standard" },
+    private: true,
+  });
+  await db.addToRoom(roomId, "entry-1", userId, user, { color: "red" });
+
+  const invitationId = "invite-1";
+  await db.createRoomInvitation(invitationId, roomId, userId);
+
+  const result = await server.getInitialLobbyProps(token, invitationId);
+
+  assertEquals(result.props.roomInvitations.length, 1);
+  assertEquals(result.props.roomInvitations[0].roomId, roomId);
+
+  const storedUser = await db.getUserStorageData(userId);
+  assertExists(storedUser);
+  assertEquals(storedUser.roomInvitations.length, 1);
+  assertEquals(storedUser.roomInvitations[0].roomId, roomId);
 
   kv.close();
 });

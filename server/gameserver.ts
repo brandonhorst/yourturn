@@ -64,21 +64,27 @@ export class Server<
 
   async getInitialLobbyProps(
     token: string | undefined,
+    invitationId?: string,
   ): Promise<{ props: LobbyProps<Config, Loadout>; token: string }> {
     const allActiveGames = await fetchActiveGames(this.db);
     const allAvailableRooms = await fetchAvailableRooms(this.db);
     let user: Player | null = null;
+    let userId: string | null = null;
     let userActiveGames: ActiveGame<Config>[] = [];
     let roomEntries: RoomEntry<Config, Loadout>[] = [];
     let queueEntries: QueueEntry<Loadout>[] = [];
     let roomInvitations: LobbyProps<Config, Loadout>["roomInvitations"] = [];
     let lobbyToken = token;
+    const invitation = invitationId == null
+      ? null
+      : await this.db.getRoomInvitation(invitationId);
 
     if (token != null) {
       const tokenData = await this.db.getToken(token);
       if (tokenData != null && tokenData.expiration > new Date()) {
         const storedUser = await this.db.getUserStorageData(tokenData.userId);
         user = storedUser?.player ?? null;
+        userId = tokenData.userId;
         userActiveGames = storedUser?.activeGames ?? [];
         roomEntries = storedUser?.roomEntries ?? [];
         queueEntries = storedUser?.queueEntries ?? [];
@@ -88,7 +94,7 @@ export class Server<
 
     if (user == null) {
       user = await this.createGuestUser();
-      const userId = ulid();
+      userId = ulid();
       lobbyToken = crypto.randomUUID();
       const expiration = new Date(Date.now() + tokenTtlMs);
 
@@ -98,13 +104,13 @@ export class Server<
         activeGames: [],
         roomEntries: [],
         queueEntries: [],
-        roomInvitations: [],
+        roomInvitations: invitation == null ? [] : [invitation],
       });
       await this.db.storeToken(lobbyToken, { userId, expiration });
       userActiveGames = [];
       roomEntries = [];
       queueEntries = [];
-      roomInvitations = [];
+      roomInvitations = invitation == null ? [] : [invitation];
     }
 
     if (lobbyToken == null) {
@@ -112,6 +118,23 @@ export class Server<
     }
     if (user == null) {
       throw new Error("Missing lobby user");
+    }
+    if (userId == null) {
+      throw new Error("Missing lobby user id");
+    }
+
+    if (invitation != null) {
+      const hasInvitation = roomInvitations.some((invite) =>
+        invite.roomId === invitation.roomId
+      );
+      if (!hasInvitation) {
+        // Ensure the invitation is available in the user's lobby props and storage.
+        const mergedInvitations = [...roomInvitations, invitation];
+        roomInvitations = mergedInvitations;
+        await this.db.updateUserStorageData(userId, {
+          roomInvitations: mergedInvitations,
+        });
+      }
     }
 
     return {
@@ -376,6 +399,24 @@ export class Server<
               {
                 type: "DisplayError",
                 message: "Unable to invite user.",
+              },
+            ));
+          }
+          break;
+        }
+        case "CreateInvitation": {
+          try {
+            await this.db.createRoomInvitation(
+              parsedMessage.invitationId,
+              parsedMessage.roomId,
+              userId,
+            );
+          } catch (err) {
+            console.error("Failed to create invitation", err);
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Unable to create invitation.",
               },
             ));
           }

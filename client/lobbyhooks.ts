@@ -5,6 +5,7 @@ import type {
   LobbyServerMessage,
 } from "../common/sockettypes.ts";
 import type { LobbyProps, LobbyViewProps } from "../types.ts";
+import { ulid } from "@std/ulid";
 
 export function useLobbySocket<Config, Loadout>({
   socketUrl,
@@ -112,6 +113,13 @@ export function useLobbySocket<Config, Loadout>({
     [send],
   );
 
+  // Creates a URL-based invitation and returns the generated invitation ID.
+  const createInvitation = useCallback((roomId: string) => {
+    const invitationId = ulid();
+    send({ type: "CreateInvitation", roomId, invitationId });
+    return invitationId;
+  }, [send]);
+
   const joinRoom = useCallback(
     (roomId: string, options: { loadout: Loadout }) => {
       send({ type: "JoinRoom", roomId, loadout: options.loadout });
@@ -149,6 +157,7 @@ export function useLobbySocket<Config, Loadout>({
     roomInvitations,
     joinQueue,
     createAndJoinRoom,
+    createInvitation,
     joinRoom,
     inviteUser,
     commitRoom,

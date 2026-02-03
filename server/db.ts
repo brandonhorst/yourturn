@@ -72,6 +72,10 @@ function getRoomPrefix() {
 function getRoomKey(roomId: string) {
   return ["rooms", roomId];
 }
+// Builds the KV key for a URL-based room invitation.
+function getRoomInvitationKey(invitationId: string) {
+  return ["roominvitations", invitationId];
+}
 function getAssignmentKey(entryId: string) {
   return ["assignments", entryId];
 }
@@ -282,6 +286,11 @@ export class DB<Config, GameState, Loadout, Outcome> {
       };
 
       const currentInvitations = userEntry.value.roomInvitations ?? [];
+      const invitationsToConsume = options?.consumeInvitation
+        ? currentInvitations.filter((invitation) =>
+          invitation.roomId === roomId
+        )
+        : [];
       const updatedInvitations = options?.consumeInvitation
         ? currentInvitations.filter((invitation) =>
           invitation.roomId !== roomId
@@ -299,6 +308,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
         .set(roomListTriggerKey, {})
         .check(userEntry)
         .set(getUserKey(userId), updatedUser);
+      for (const invitation of invitationsToConsume) {
+        transaction.delete(getRoomInvitationKey(invitation.invitationId));
+      }
     });
   }
 
@@ -352,7 +364,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
         throw new Error(`User ${inviteeUserId} already in room ${roomId}`);
       }
 
+      const invitationId = ulid();
       const invitation: RoomInvitation<Config> = {
+        invitationId,
         roomId,
         numPlayers: roomEntry.value.numPlayers,
         config: roomEntry.value.config,
@@ -361,6 +375,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
       };
 
       const existingInvitations = inviteeEntry.value.roomInvitations ?? [];
+      const replacedInvitations = existingInvitations.filter((inv) =>
+        inv.roomId === roomId
+      );
       const updatedInvitations = [
         ...existingInvitations.filter((inv) => inv.roomId !== roomId),
         invitation,
@@ -373,8 +390,92 @@ export class DB<Config, GameState, Loadout, Outcome> {
       transaction
         .check(roomEntry)
         .check(inviteeEntry)
-        .set(inviteeKey, updatedInvitee);
+        .set(inviteeKey, updatedInvitee)
+        .check({ key: getRoomInvitationKey(invitationId), versionstamp: null })
+        .set(getRoomInvitationKey(invitationId), invitation);
+      for (const existingInvitation of replacedInvitations) {
+        transaction.delete(
+          getRoomInvitationKey(existingInvitation.invitationId),
+        );
+      }
     });
+  }
+
+  /**
+   * Creates a URL-based invitation for a room that can be redeemed by ID.
+   * Validates room existence and inviter membership before storing.
+   */
+  public async createRoomInvitation(
+    invitationId: string,
+    roomId: string,
+    inviterUserId: string,
+  ): Promise<void> {
+    const roomKey = getRoomKey(roomId);
+    const invitationKey = getRoomInvitationKey(invitationId);
+
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const [roomEntry, inviterEntry, invitationEntry] = await Promise.all([
+        this.kv.get<RoomStorageData<Config, Loadout>>(roomKey),
+        this.kv.get<UserStorageData<Config, Loadout>>(
+          getUserKey(inviterUserId),
+        ),
+        this.kv.get<RoomInvitation<Config>>(invitationKey),
+      ]);
+
+      if (roomEntry.value == null) {
+        throw new Error(`Room ${roomId} not found`);
+      }
+      if (inviterEntry.value == null) {
+        throw new Error(`User ${inviterUserId} not found`);
+      }
+      if (invitationEntry.value != null) {
+        throw new Error(`Invitation ${invitationId} already exists`);
+      }
+
+      const members = roomEntry.value.members;
+      const inviterIsMember = members.some((member) =>
+        member.userId === inviterUserId
+      );
+      if (!inviterIsMember) {
+        throw new Error(`User ${inviterUserId} is not in room ${roomId}`);
+      }
+
+      const invitation: RoomInvitation<Config> = {
+        invitationId,
+        roomId,
+        numPlayers: roomEntry.value.numPlayers,
+        config: roomEntry.value.config,
+        invitedBy: inviterEntry.value.player,
+        invitedAt: new Date(),
+      };
+
+      transaction
+        .check(roomEntry)
+        .check(inviterEntry)
+        .check({ key: invitationKey, versionstamp: null })
+        .set(invitationKey, invitation);
+    });
+  }
+
+  /**
+   * Fetches a URL-based invitation by ID, returning null if it is missing.
+   */
+  public async getRoomInvitation(
+    invitationId: string,
+  ): Promise<RoomInvitation<Config> | null> {
+    const invitationEntry = await this.kv.get<RoomInvitation<Config>>(
+      getRoomInvitationKey(invitationId),
+    );
+    if (invitationEntry.value == null) {
+      return null;
+    }
+    const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
+      getRoomKey(invitationEntry.value.roomId),
+    );
+    if (roomEntry.value == null) {
+      return null;
+    }
+    return invitationEntry.value;
   }
 
   /**
@@ -411,6 +512,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
       }
 
       const existingInvitations = userEntry.value.roomInvitations ?? [];
+      const invitationsToRemove = existingInvitations.filter((invitation) =>
+        invitation.roomId === roomId
+      );
       const nextInvitations = existingInvitations.filter((invitation) =>
         invitation.roomId !== roomId
       );
@@ -426,6 +530,9 @@ export class DB<Config, GameState, Loadout, Outcome> {
       transaction
         .check(userEntry)
         .set(getUserKey(userId), updatedUser);
+      for (const invitation of invitationsToRemove) {
+        transaction.delete(getRoomInvitationKey(invitation.invitationId));
+      }
     });
   }
 
