@@ -13,6 +13,7 @@ import type {
   Player,
   QueueEntry,
   RoomEntry,
+  RoomInvitation,
   SetupObject,
 } from "../types.ts";
 import { ulid } from "@std/ulid";
@@ -44,6 +45,7 @@ class LobbySocket<Config, Loadout> {
   private lastPlayer: Player;
   private lastRoomEntries: RoomEntry<Config, Loadout>[] = [];
   private lastQueueEntries: QueueEntry<Loadout>[] = [];
+  private lastRoomInvitations: RoomInvitation<Config>[] = [];
 
   constructor(
     private socket: Socket,
@@ -52,11 +54,13 @@ class LobbySocket<Config, Loadout> {
     initialActiveGames: ActiveGame<Config>[],
     initialRoomEntries: RoomEntry<Config, Loadout>[],
     initialQueueEntries: QueueEntry<Loadout>[],
+    initialRoomInvitations: RoomInvitation<Config>[],
   ) {
     this.lastPlayer = initialPlayer;
     this.lastUserActiveGames = initialActiveGames;
     this.lastRoomEntries = initialRoomEntries;
     this.lastQueueEntries = initialQueueEntries;
+    this.lastRoomInvitations = initialRoomInvitations;
   }
 
   /**
@@ -165,6 +169,12 @@ class LobbySocket<Config, Loadout> {
       didUpdate = true;
     }
 
+    if (!jsonEquals(this.lastRoomInvitations, userData.roomInvitations)) {
+      lobbyProps.roomInvitations = userData.roomInvitations;
+      this.lastRoomInvitations = userData.roomInvitations;
+      didUpdate = true;
+    }
+
     if (!didUpdate) {
       return;
     }
@@ -249,6 +259,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
       user.activeGames,
       user.roomEntries,
       user.queueEntries,
+      user.roomInvitations,
     );
     const connectionState: ConnectionState<Config, Loadout> = {
       lobbySocket,
@@ -411,6 +422,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
     userId: string,
     user: Player,
     loadout: Loadout,
+    options?: { consumeInvitation?: boolean },
   ): Promise<boolean> {
     const connectionState = this.sockets.get(socket);
     if (!connectionState) {
@@ -429,6 +441,7 @@ export class LobbySocketStore<Config, GameState, Loadout, Outcome> {
         userId,
         user,
         loadout,
+        options,
       );
     } catch (err) {
       console.error("Failed to join room", err);

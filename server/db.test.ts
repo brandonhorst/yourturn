@@ -18,6 +18,7 @@ async function seedUsers<Config, GameState, Loadout, Outcome>(
       activeGames: [],
       roomEntries: [],
       queueEntries: [],
+      roomInvitations: [],
     });
   }
 }
@@ -448,6 +449,7 @@ Deno.test("usernameExists tracks stored usernames", async () => {
     activeGames: [],
     roomEntries: [],
     queueEntries: [],
+    roomInvitations: [],
   });
 
   const usernameTakenAfter = await db.usernameExists(user1.username);

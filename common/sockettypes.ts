@@ -15,6 +15,7 @@ export type LobbyClientMessage<Config, Loadout> =
     loadout: Loadout;
   }
   | { type: "JoinRoom"; roomId: string; loadout: Loadout }
+  | { type: "InviteUser"; roomId: string; userId: string }
   | { type: "CommitRoom"; roomId: string }
   | { type: "LeaveQueue"; queueId: string }
   | { type: "LeaveRoom"; roomId: string }

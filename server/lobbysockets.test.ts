@@ -23,6 +23,7 @@ async function seedUsers<Config, GameState, Loadout, Outcome>(
       activeGames: [],
       roomEntries: [],
       queueEntries: [],
+      roomInvitations: [],
     });
   }
 }
@@ -34,6 +35,7 @@ function buildUserStorageData(player: typeof user1) {
     activeGames: [],
     roomEntries: [],
     queueEntries: [],
+    roomInvitations: [],
   };
 }
 

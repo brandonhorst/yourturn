@@ -71,6 +71,7 @@ export class Server<
     let userActiveGames: ActiveGame<Config>[] = [];
     let roomEntries: RoomEntry<Config, Loadout>[] = [];
     let queueEntries: QueueEntry<Loadout>[] = [];
+    let roomInvitations: LobbyProps<Config, Loadout>["roomInvitations"] = [];
     let lobbyToken = token;
 
     if (token != null) {
@@ -81,6 +82,7 @@ export class Server<
         userActiveGames = storedUser?.activeGames ?? [];
         roomEntries = storedUser?.roomEntries ?? [];
         queueEntries = storedUser?.queueEntries ?? [];
+        roomInvitations = storedUser?.roomInvitations ?? [];
       }
     }
 
@@ -96,11 +98,13 @@ export class Server<
         activeGames: [],
         roomEntries: [],
         queueEntries: [],
+        roomInvitations: [],
       });
       await this.db.storeToken(lobbyToken, { userId, expiration });
       userActiveGames = [];
       roomEntries = [];
       queueEntries = [];
+      roomInvitations = [];
     }
 
     if (lobbyToken == null) {
@@ -118,6 +122,7 @@ export class Server<
         player: user,
         roomEntries,
         queueEntries,
+        roomInvitations,
       },
       token: lobbyToken,
     };
@@ -268,10 +273,20 @@ export class Server<
         case "JoinRoom": {
           const room = await this.db.getRoom(parsedMessage.roomId);
           if (room == null) {
+            await this.db.removeRoomInvitation(userId, parsedMessage.roomId);
             socket.send(JSON.stringify(
               {
                 type: "DisplayError",
                 message: "Room not found.",
+              },
+            ));
+            return;
+          }
+          if (room.members.some((member) => member.userId === userId)) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "You are already in this room.",
               },
             ));
             return;
@@ -299,6 +314,19 @@ export class Server<
             ));
             return;
           }
+          const hasInvitation = await this.db.hasRoomInvitation(
+            userId,
+            parsedMessage.roomId,
+          );
+          if (room.private && !hasInvitation) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Room is private.",
+              },
+            ));
+            return;
+          }
           const joined = await this.lobbySocketStore.joinRoom(
             socket,
             parsedMessage.roomId,
@@ -306,6 +334,7 @@ export class Server<
             userId,
             user,
             parsedMessage.loadout,
+            { consumeInvitation: hasInvitation },
           );
           if (!joined) {
             socket.send(JSON.stringify(
@@ -329,6 +358,24 @@ export class Server<
               {
                 type: "DisplayError",
                 message: "Unable to commit room.",
+              },
+            ));
+          }
+          break;
+        }
+        case "InviteUser": {
+          try {
+            await this.db.inviteUserToRoom(
+              parsedMessage.roomId,
+              userId,
+              parsedMessage.userId,
+            );
+          } catch (err) {
+            console.error("Failed to invite user", err);
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Unable to invite user.",
               },
             ));
           }

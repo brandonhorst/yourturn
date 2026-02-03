@@ -115,6 +115,7 @@ Deno.test("getInitialLobbyProps uses existing user for valid token", async () =>
     activeGames: userActiveGames,
     roomEntries: [],
     queueEntries: [],
+    roomInvitations: [],
   });
   await db.storeToken(token, { userId, expiration });
 

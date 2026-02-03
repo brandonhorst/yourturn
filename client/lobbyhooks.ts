@@ -33,6 +33,9 @@ export function useLobbySocket<Config, Loadout>({
   const [queueEntries, setQueueEntries] = useState(
     initialLobbyProps.queueEntries,
   );
+  const [roomInvitations, setRoomInvitations] = useState(
+    initialLobbyProps.roomInvitations,
+  );
 
   function onUpdate(response: LobbyServerMessage<Config, Loadout>) {
     switch (response.type) {
@@ -55,6 +58,9 @@ export function useLobbySocket<Config, Loadout>({
         if (response.lobbyProps.queueEntries != null) {
           setQueueEntries(response.lobbyProps.queueEntries);
         }
+        if (response.lobbyProps.roomInvitations != null) {
+          setRoomInvitations(response.lobbyProps.roomInvitations);
+        }
         break;
       case "GameAssignment":
         navigate(response.gameId);
@@ -69,6 +75,7 @@ export function useLobbySocket<Config, Loadout>({
     // Clear joined queues and rooms on socket close
     setRoomEntries([]);
     setQueueEntries([]);
+    setRoomInvitations([]);
   }
 
   const send = useSocket<
@@ -116,6 +123,10 @@ export function useLobbySocket<Config, Loadout>({
     send({ type: "CommitRoom", roomId });
   }, [send]);
 
+  const inviteUser = useCallback((roomId: string, userId: string) => {
+    send({ type: "InviteUser", roomId, userId });
+  }, [send]);
+
   const leaveQueue = useCallback((queueId: string) => {
     send({ type: "LeaveQueue", queueId });
   }, [send]);
@@ -135,9 +146,11 @@ export function useLobbySocket<Config, Loadout>({
     player,
     roomEntries,
     queueEntries,
+    roomInvitations,
     joinQueue,
     createAndJoinRoom,
     joinRoom,
+    inviteUser,
     commitRoom,
     leaveQueue,
     leaveRoom,
