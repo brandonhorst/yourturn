@@ -11,6 +11,7 @@ type TestMove = { delta: number };
 type TestPlayerState = { playerId: number; value: number };
 type TestPublicState = { value: number };
 type TestOutcome = "done";
+type TestRating = number;
 type TestLoadout = { color: string };
 
 const testGame: Game<
@@ -20,10 +21,15 @@ const testGame: Game<
   TestPlayerState,
   TestPublicState,
   TestOutcome,
+  TestRating,
   TestLoadout
 > = {
   queues: {
-    default: { numPlayers: 2, config: { mode: "standard" } },
+    default: {
+      numPlayers: 2,
+      config: { mode: "standard" },
+      queueType: "ranked",
+    },
   },
   setup: () => ({ value: 0 }),
   isValidMove: () => true,
@@ -31,7 +37,11 @@ const testGame: Game<
   playerState: (state, o) => ({ playerId: o.playerId, value: state.value }),
   publicState: (state) => ({ value: state.value }),
   outcome: () => undefined,
+  initialRating: () => 1000,
+  processOutcome: (_outcome, currentRatings) => currentRatings,
 };
+
+const defaultRatings = { default: 1000 };
 
 // Builds the KV key for a stored game record.
 function getGameKey(gameId: string) {
@@ -47,6 +57,7 @@ function buildServer(kv: Deno.Kv) {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
   const activeGamesStream = db.watchForActiveGameListChanges();
@@ -58,6 +69,7 @@ function buildServer(kv: Deno.Kv) {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(
     db,
@@ -71,6 +83,7 @@ function buildServer(kv: Deno.Kv) {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(db);
 
@@ -127,6 +140,7 @@ Deno.test("getInitialLobbyProps uses existing user for valid token", async () =>
   await db.createNewUserStorageData(userId, {
     player: user,
     activeGames: userActiveGames,
+    ratings: defaultRatings,
     roomEntries: [],
     queueEntries: [],
     roomInvitations: [],
@@ -195,6 +209,7 @@ Deno.test("getInitialLobbyProps adds URL invitation to roomInvitations", async (
   await db.createNewUserStorageData(userId, {
     player: user,
     activeGames: [],
+    ratings: defaultRatings,
     roomEntries: [],
     queueEntries: [],
     roomInvitations: [],

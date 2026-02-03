@@ -27,10 +27,10 @@ export type LobbyClientMessage<Config, Loadout> =
   | { type: "LeaveRoom"; roomId: string }
   | { type: "UpdateUsername"; username: string };
 
-export type LobbyServerMessage<Config, Loadout> =
+export type LobbyServerMessage<Config, Loadout, Rating> =
   | {
     type: "UpdateLobbyProps";
-    lobbyProps: Partial<LobbyProps<Config, Loadout>>;
+    lobbyProps: Partial<LobbyProps<Config, Loadout, Rating>>;
   }
   | { type: "GameAssignment"; gameId: string }
   | { type: "DisplayError"; message: string };

@@ -17,6 +17,7 @@ type TestState = { value: number };
 type TestPlayerState = { playerId: number; value: number };
 type TestPublicState = { value: number };
 type TestOutcome = "done";
+type TestRating = number;
 type TestLoadout = undefined;
 type TestMove = { delta: number };
 
@@ -28,6 +29,7 @@ function buildTestGame(): Game<
   TestPlayerState,
   TestPublicState,
   TestOutcome,
+  TestRating,
   TestLoadout
 > {
   return {
@@ -38,6 +40,8 @@ function buildTestGame(): Game<
     playerState: () => ({ playerId: 0, value: 0 }),
     publicState: () => ({ value: 0 }),
     outcome: () => undefined,
+    initialRating: () => 1000,
+    processOutcome: (_outcome, currentRatings) => currentRatings,
   };
 }
 
@@ -88,6 +92,7 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const gameSocketStore = new GameSocketStore<
@@ -97,6 +102,7 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(db);
 
@@ -151,6 +157,7 @@ Deno.test("streams updates to player and observer sockets", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const gameSocketStore = new GameSocketStore<
@@ -160,6 +167,7 @@ Deno.test("streams updates to player and observer sockets", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(db);
 
@@ -251,6 +259,7 @@ Deno.test("unregister stops streaming updates", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const gameSocketStore = new GameSocketStore<
@@ -260,6 +269,7 @@ Deno.test("unregister stops streaming updates", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(db);
 

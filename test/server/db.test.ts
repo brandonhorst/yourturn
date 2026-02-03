@@ -8,11 +8,13 @@ type TestMove = { delta: number };
 type TestPlayerState = number;
 type TestPublicState = number;
 type TestOutcome = string | undefined;
+type TestRating = number;
 type TestLoadout = undefined;
 
 const loadout = undefined;
 const user1 = { username: "guest-0001", isGuest: true };
 const user2 = { username: "guest-0002", isGuest: true };
+const defaultRatings = { default: 1000 };
 
 // Creates user records for tests that need to attach games to users.
 async function seedUsers<
@@ -24,13 +26,23 @@ async function seedUsers<
   Loadout,
   Outcome,
 >(
-  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
+  db: DB<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    TestRating,
+    Loadout
+  >,
   users: Array<{ userId: string; player: typeof user1 }>,
 ): Promise<void> {
   for (const user of users) {
     await db.createNewUserStorageData(user.userId, {
       player: user.player,
       activeGames: [],
+      ratings: defaultRatings,
       roomEntries: [],
       queueEntries: [],
       roomInvitations: [],
@@ -48,6 +60,7 @@ function buildTestGame(
   TestPlayerState,
   TestPublicState,
   TestOutcome,
+  TestRating,
   TestLoadout
 > {
   return {
@@ -58,14 +71,25 @@ function buildTestGame(
     playerState: () => 1,
     publicState: () => 1,
     outcome: () => undefined,
+    initialRating: () => 1000,
+    processOutcome: (_outcome, currentRatings) => currentRatings,
   };
 }
 
 Deno.test("Adds to queue, graduates, and assigns", async () => {
   const kv = await Deno.openKv(":memory:");
-  const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
+  const queue = {
+    queueId: "test-queue",
+    numPlayers: 2,
+    config: undefined,
+    queueType: "ranked" as const,
+  };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -74,6 +98,7 @@ Deno.test("Adds to queue, graduates, and assigns", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const entryId = "test-entry";
@@ -112,9 +137,14 @@ Deno.test("Removes from queue", async () => {
     queueId: "test-queue-remove",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -123,6 +153,7 @@ Deno.test("Removes from queue", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const entryId = "test-entry-remove";
@@ -144,9 +175,14 @@ Deno.test("Creates game and retrieves it", async () => {
     queueId: "test-queue-game",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -155,6 +191,7 @@ Deno.test("Creates game and retrieves it", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const entryId1 = "test-entry-game-1";
@@ -191,9 +228,14 @@ Deno.test("Updates game data", async () => {
     queueId: "test-queue-update",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -202,6 +244,7 @@ Deno.test("Updates game data", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const entryId1 = "test-entry-update-1";
@@ -247,9 +290,14 @@ Deno.test("Watches for game changes", async () => {
     queueId: "test-queue-watch",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -258,6 +306,7 @@ Deno.test("Watches for game changes", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const entryId1 = "test-entry-watch-1";
@@ -310,9 +359,14 @@ Deno.test("Completes game", async () => {
     queueId: "test-queue-complete",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -321,6 +375,7 @@ Deno.test("Completes game", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const entryId1 = "test-entry-complete-1";
@@ -367,9 +422,14 @@ Deno.test("Lists active games", async () => {
     queueId: "test-queue-active",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -378,6 +438,7 @@ Deno.test("Lists active games", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const entryId1 = "test-entry-active-1";
@@ -415,9 +476,14 @@ Deno.test("Watches for active game count changes", async () => {
     queueId: "test-queue-count",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -426,6 +492,7 @@ Deno.test("Watches for active game count changes", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const countStream = db.watchForActiveGameListChanges();
@@ -461,6 +528,7 @@ Deno.test("Handles errors for non-existent games", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
 
@@ -483,6 +551,7 @@ Deno.test("Creates rooms and lists available rooms", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
 
@@ -517,6 +586,7 @@ Deno.test("Excludes private rooms from available rooms", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
 
@@ -548,6 +618,7 @@ Deno.test("Commits room and assigns players", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
 
@@ -600,6 +671,7 @@ Deno.test("usernameExists tracks stored usernames", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
 
@@ -610,6 +682,7 @@ Deno.test("usernameExists tracks stored usernames", async () => {
   await db.createNewUserStorageData(userId, {
     player: user1,
     activeGames: [],
+    ratings: defaultRatings,
     roomEntries: [],
     queueEntries: [],
     roomInvitations: [],

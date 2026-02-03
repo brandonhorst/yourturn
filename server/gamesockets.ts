@@ -165,6 +165,7 @@ export class GameSocketStore<
   PlayerState,
   PublicState,
   Outcome,
+  Rating,
   Loadout,
 > {
   private connections: Map<
@@ -180,6 +181,7 @@ export class GameSocketStore<
       PlayerState,
       PublicState,
       Outcome,
+      Rating,
       Loadout
     >,
   ) {}

@@ -37,6 +37,7 @@ type RoomMember<Loadout> = {
 
 export type GameStorageData<Config, GameState, Outcome> = {
   config: Config;
+  queueId?: string;
   gameState: GameState;
   userIds: string[];
   players: Player[];
@@ -48,9 +49,10 @@ export type AssignmentStorageData = {
   gameId: string;
 };
 
-export type UserStorageData<Config, Loadout> = {
+export type UserStorageData<Config, Loadout, Rating> = {
   player: Player;
   activeGames: ActiveGame<Config>[];
+  ratings: Record<string, Rating>;
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
   roomInvitations: RoomInvitation<Config>[];
@@ -102,6 +104,7 @@ export class DB<
   PlayerState,
   PublicState,
   Outcome,
+  Rating,
   Loadout,
 > {
   private kv: Deno.Kv;
@@ -112,6 +115,7 @@ export class DB<
     PlayerState,
     PublicState,
     Outcome,
+    Rating,
     Loadout
   >;
 
@@ -124,6 +128,7 @@ export class DB<
       PlayerState,
       PublicState,
       Outcome,
+      Rating,
       Loadout
     >,
   ) {
@@ -170,7 +175,9 @@ export class DB<
     const queueConfig = this.getQueueConfig(queueId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entryKey = getQueueEntryKey(queueId, entryId);
-      const userEntry = await this.kv.get<UserStorageData<Config, Loadout>>(
+      const userEntry = await this.kv.get<
+        UserStorageData<Config, Loadout, Rating>
+      >(
         getUserKey(userId),
       );
       if (userEntry.value == null) {
@@ -181,7 +188,7 @@ export class DB<
         queueId,
         loadout,
       };
-      const updatedUser: UserStorageData<Config, Loadout> = {
+      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value,
         queueEntries: [...userEntry.value.queueEntries, queueEntry],
       };
@@ -212,7 +219,9 @@ export class DB<
     const userId = entry.value.userId;
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const userEntry = await this.kv.get<UserStorageData<Config, Loadout>>(
+      const userEntry = await this.kv.get<
+        UserStorageData<Config, Loadout, Rating>
+      >(
         getUserKey(userId),
       );
       if (userEntry.value == null) {
@@ -222,7 +231,7 @@ export class DB<
       const updatedQueues = userEntry.value.queueEntries.filter(
         (q) => q.queueId !== queueId,
       );
-      const updatedUser: UserStorageData<Config, Loadout> = {
+      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value,
         queueEntries: updatedQueues,
       };
@@ -296,7 +305,9 @@ export class DB<
         throw new Error(`Room ${roomId} is full`);
       }
 
-      const userEntry = await this.kv.get<UserStorageData<Config, Loadout>>(
+      const userEntry = await this.kv.get<
+        UserStorageData<Config, Loadout, Rating>
+      >(
         getUserKey(userId),
       );
       if (userEntry.value == null) {
@@ -331,7 +342,7 @@ export class DB<
           invitation.roomId !== roomId
         )
         : currentInvitations;
-      const updatedUser: UserStorageData<Config, Loadout> = {
+      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value,
         roomEntries: [...userEntry.value.roomEntries, roomEntry2],
         roomInvitations: updatedInvitations,
@@ -368,10 +379,10 @@ export class DB<
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const [roomEntry, inviterEntry, inviteeEntry] = await Promise.all([
         this.kv.get<RoomStorageData<Config, Loadout>>(roomKey),
-        this.kv.get<UserStorageData<Config, Loadout>>(
+        this.kv.get<UserStorageData<Config, Loadout, Rating>>(
           getUserKey(inviterUserId),
         ),
-        this.kv.get<UserStorageData<Config, Loadout>>(inviteeKey),
+        this.kv.get<UserStorageData<Config, Loadout, Rating>>(inviteeKey),
       ]);
 
       if (roomEntry.value == null) {
@@ -417,7 +428,7 @@ export class DB<
         ...existingInvitations.filter((inv) => inv.roomId !== roomId),
         invitation,
       ];
-      const updatedInvitee: UserStorageData<Config, Loadout> = {
+      const updatedInvitee: UserStorageData<Config, Loadout, Rating> = {
         ...inviteeEntry.value,
         roomInvitations: updatedInvitations,
       };
@@ -451,7 +462,7 @@ export class DB<
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const [roomEntry, inviterEntry, invitationEntry] = await Promise.all([
         this.kv.get<RoomStorageData<Config, Loadout>>(roomKey),
-        this.kv.get<UserStorageData<Config, Loadout>>(
+        this.kv.get<UserStorageData<Config, Loadout, Rating>>(
           getUserKey(inviterUserId),
         ),
         this.kv.get<RoomInvitation<Config>>(invitationKey),
@@ -520,7 +531,7 @@ export class DB<
     userId: string,
     roomId: string,
   ): Promise<boolean> {
-    const entry = await this.kv.get<UserStorageData<Config, Loadout>>(
+    const entry = await this.kv.get<UserStorageData<Config, Loadout, Rating>>(
       getUserKey(userId),
     );
     if (entry.value == null) {
@@ -539,7 +550,9 @@ export class DB<
     roomId: string,
   ): Promise<void> {
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const userEntry = await this.kv.get<UserStorageData<Config, Loadout>>(
+      const userEntry = await this.kv.get<
+        UserStorageData<Config, Loadout, Rating>
+      >(
         getUserKey(userId),
       );
       if (userEntry.value == null) {
@@ -557,7 +570,7 @@ export class DB<
         return;
       }
 
-      const updatedUser: UserStorageData<Config, Loadout> = {
+      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value,
         roomInvitations: nextInvitations,
       };
@@ -598,7 +611,9 @@ export class DB<
       }
 
       const userId = members[memberIndex].userId;
-      const userEntry = await this.kv.get<UserStorageData<Config, Loadout>>(
+      const userEntry = await this.kv.get<
+        UserStorageData<Config, Loadout, Rating>
+      >(
         getUserKey(userId),
       );
       if (userEntry.value == null) {
@@ -611,7 +626,7 @@ export class DB<
       const updatedRooms = userEntry.value.roomEntries.filter(
         (r) => r.roomId !== roomId,
       );
-      const updatedUser: UserStorageData<Config, Loadout> = {
+      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value,
         roomEntries: updatedRooms,
       };
@@ -642,6 +657,7 @@ export class DB<
       config: Config;
       gameId: string;
       loadouts: Loadout[];
+      queueId?: string;
       userIds: string[];
     },
   ): Promise<void> {
@@ -651,7 +667,7 @@ export class DB<
     const userKeys = options.userIds.map((userId) => getUserKey(userId));
     const [activeGamesEntry, userEntries] = await Promise.all([
       this.kv.get<ActiveGame<Config>[]>(options.activeGamesKey),
-      this.kv.getMany<UserStorageData<Config, Loadout>[]>(userKeys),
+      this.kv.getMany<UserStorageData<Config, Loadout, Rating>[]>(userKeys),
     ]);
 
     // Validate that all users exist.
@@ -670,6 +686,7 @@ export class DB<
     const gameState = this.game.setup(setupObject);
     const gameStorageData: GameStorageData<Config, GameState, Outcome> = {
       config: options.config,
+      queueId: options.queueId,
       gameState,
       userIds: options.userIds,
       players,
@@ -700,7 +717,7 @@ export class DB<
         activeGame,
       ];
 
-      const updatedUser: UserStorageData<Config, Loadout> = {
+      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value!,
         activeGames: userActiveGamesNext,
       };
@@ -758,7 +775,7 @@ export class DB<
       // Fetch all user entries to update their joinedRooms
       const userKeys = userIds.map((userId) => getUserKey(userId));
       const userEntries = await this.kv.getMany<
-        UserStorageData<Config, Loadout>[]
+        UserStorageData<Config, Loadout, Rating>[]
       >(userKeys);
 
       for (let i = 0; i < roomEntry.value.numPlayers; i++) {
@@ -776,7 +793,7 @@ export class DB<
         const updatedRooms = userEntry.value.roomEntries.filter(
           (r) => r.roomId !== roomId,
         );
-        const updatedUser: UserStorageData<Config, Loadout> = {
+        const updatedUser: UserStorageData<Config, Loadout, Rating> = {
           ...userEntry.value,
           roomEntries: updatedRooms,
         };
@@ -828,6 +845,7 @@ export class DB<
           config: queueConfig.config,
           gameId,
           loadouts,
+          queueId,
           userIds,
         },
       );
@@ -835,7 +853,7 @@ export class DB<
       // Fetch all user entries to update their joinedQueues
       const userKeys = userIds.map((userId) => getUserKey(userId));
       const userEntries = await this.kv.getMany<
-        UserStorageData<Config, Loadout>[]
+        UserStorageData<Config, Loadout, Rating>[]
       >(userKeys);
 
       // For each player
@@ -856,7 +874,7 @@ export class DB<
         const updatedQueues = userEntry.value.queueEntries.filter(
           (q) => q.queueId !== queueId,
         );
-        const updatedUser: UserStorageData<Config, Loadout> = {
+        const updatedUser: UserStorageData<Config, Loadout, Rating> = {
           ...userEntry.value,
           queueEntries: updatedQueues,
         };
@@ -1034,7 +1052,7 @@ export class DB<
   // Creates a new user record and username index entry if neither already exists.
   public async createNewUserStorageData(
     userId: string,
-    data: UserStorageData<Config, Loadout>,
+    data: UserStorageData<Config, Loadout, Rating>,
   ): Promise<void> {
     const userKey = getUserKey(userId);
     const usernameKey = getUserByUsernameKey(data.player.username);
@@ -1054,10 +1072,10 @@ export class DB<
   // Upserts user storage data and keeps the username index in sync.
   public async updateUserStorageData(
     userId: string,
-    data: Partial<UserStorageData<Config, Loadout>>,
+    data: Partial<UserStorageData<Config, Loadout, Rating>>,
   ): Promise<void> {
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entry = await this.kv.get<UserStorageData<Config, Loadout>>(
+      const entry = await this.kv.get<UserStorageData<Config, Loadout, Rating>>(
         getUserKey(userId),
       );
       if (entry.value == null) {
@@ -1065,7 +1083,7 @@ export class DB<
       }
       const existingData = entry.value;
 
-      const updatedData: UserStorageData<Config, Loadout> = {
+      const updatedData: UserStorageData<Config, Loadout, Rating> = {
         ...existingData,
         ...data,
       };
@@ -1088,8 +1106,8 @@ export class DB<
   // Fetches the stored user data for a userId, if present.
   public async getUserStorageData(
     userId: string,
-  ): Promise<UserStorageData<Config, Loadout> | null> {
-    const entry = await this.kv.get<UserStorageData<Config, Loadout>>(
+  ): Promise<UserStorageData<Config, Loadout, Rating> | null> {
+    const entry = await this.kv.get<UserStorageData<Config, Loadout, Rating>>(
       getUserKey(userId),
     );
     return entry.value;
@@ -1098,9 +1116,11 @@ export class DB<
   // Watches for changes to a single user's stored data.
   public watchForUserChanges(
     userId: string,
-  ): ReadableStream<UserStorageData<Config, Loadout>> {
+  ): ReadableStream<UserStorageData<Config, Loadout, Rating>> {
     const userKey = getUserKey(userId);
-    const stream = this.kv.watch<UserStorageData<Config, Loadout>[]>([userKey]);
+    const stream = this.kv.watch<UserStorageData<Config, Loadout, Rating>[]>([
+      userKey,
+    ]);
     return stream.pipeThrough(
       new TransformStream({
         transform(events, controller) {

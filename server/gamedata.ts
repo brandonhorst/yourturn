@@ -17,8 +17,18 @@ export async function fetchActiveGames<
   PublicState,
   Loadout,
   Outcome,
+  Rating,
 >(
-  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
+  db: DB<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  >,
 ): Promise<ActiveGame<Config>[]> {
   return await db.getAllActiveGames();
 }
@@ -31,8 +41,18 @@ export async function fetchAvailableRooms<
   PublicState,
   Loadout,
   Outcome,
+  Rating,
 >(
-  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
+  db: DB<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  >,
 ): Promise<AvailableRoom<Config>[]> {
   return await db.getAllAvailableRooms();
 }
@@ -93,9 +113,19 @@ async function updateGameState<
   PlayerState,
   PublicState,
   Outcome,
+  Rating,
   Loadout,
 >(
-  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
+  db: DB<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  >,
   game: Game<
     Config,
     GameState,
@@ -103,6 +133,7 @@ async function updateGameState<
     PlayerState,
     PublicState,
     Outcome,
+    Rating,
     Loadout
   >,
   gameId: string,
@@ -133,6 +164,45 @@ async function updateGameState<
   };
 
   await db.updateGameStorageData(gameId, newGameData);
+
+  if (outcome == null) {
+    return;
+  }
+
+  const queueId = gameData.queueId;
+  if (queueId == null) {
+    return;
+  }
+
+  const queueConfig = game.queues[queueId];
+  if (queueConfig?.queueType !== "ranked") {
+    return;
+  }
+
+  const userEntries = await Promise.all(
+    gameData.userIds.map((userId) => db.getUserStorageData(userId)),
+  );
+
+  const currentRatings = userEntries.map((entry) =>
+    entry?.ratings[queueId] ?? game.initialRating()
+  );
+  const updatedRatings = game.processOutcome(outcome, currentRatings);
+
+  if (updatedRatings.length !== gameData.userIds.length) {
+    throw new Error("processOutcome returned unexpected ratings length");
+  }
+
+  // Persist ratings per user in player order.
+  await Promise.all(
+    gameData.userIds.map((userId, index) => {
+      const entry = userEntries[index];
+      if (entry == null) {
+        return Promise.resolve();
+      }
+      const ratings = { ...entry.ratings, [queueId]: updatedRatings[index] };
+      return db.updateUserStorageData(userId, { ratings });
+    }),
+  );
 }
 
 export async function handleMove<
@@ -142,9 +212,19 @@ export async function handleMove<
   PlayerState,
   PublicState,
   Outcome,
+  Rating,
   Loadout,
 >(
-  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
+  db: DB<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  >,
   game: Game<
     Config,
     GameState,
@@ -152,6 +232,7 @@ export async function handleMove<
     PlayerState,
     PublicState,
     Outcome,
+    Rating,
     Loadout
   >,
   gameId: string,
@@ -186,9 +267,19 @@ export async function handleChatMessage<
   PlayerState,
   PublicState,
   Outcome,
+  Rating,
   Loadout,
 >(
-  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
+  db: DB<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  >,
   gameId: string,
   userId: string,
   message: string,

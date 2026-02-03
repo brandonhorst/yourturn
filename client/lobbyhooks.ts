@@ -7,17 +7,17 @@ import type {
 import type { LobbyProps, LobbyViewProps } from "../types.ts";
 import { ulid } from "@std/ulid";
 
-export function useLobbySocket<Config, Loadout>({
+export function useLobbySocket<Config, Loadout, Rating>({
   socketUrl,
   initialLobbyProps,
   navigate,
   displayError,
 }: {
   socketUrl: string;
-  initialLobbyProps: LobbyProps<Config, Loadout>;
+  initialLobbyProps: LobbyProps<Config, Loadout, Rating>;
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
-}): LobbyViewProps<Config, Loadout> {
+}): LobbyViewProps<Config, Loadout, Rating> {
   const [allActiveGames, setActiveGames] = useState(
     initialLobbyProps.allActiveGames,
   );
@@ -28,6 +28,7 @@ export function useLobbySocket<Config, Loadout>({
     initialLobbyProps.userActiveGames,
   );
   const [player, setPlayer] = useState(initialLobbyProps.player);
+  const [ratings, setRatings] = useState(initialLobbyProps.ratings);
   const [roomEntries, setRoomEntries] = useState(
     initialLobbyProps.roomEntries,
   );
@@ -38,7 +39,7 @@ export function useLobbySocket<Config, Loadout>({
     initialLobbyProps.roomInvitations,
   );
 
-  function onUpdate(response: LobbyServerMessage<Config, Loadout>) {
+  function onUpdate(response: LobbyServerMessage<Config, Loadout, Rating>) {
     switch (response.type) {
       case "UpdateLobbyProps":
         if (response.lobbyProps.allActiveGames != null) {
@@ -49,6 +50,9 @@ export function useLobbySocket<Config, Loadout>({
         }
         if (response.lobbyProps.player != null) {
           setPlayer(response.lobbyProps.player);
+        }
+        if (response.lobbyProps.ratings != null) {
+          setRatings(response.lobbyProps.ratings);
         }
         if (response.lobbyProps.userActiveGames != null) {
           setUserActiveGames(response.lobbyProps.userActiveGames);
@@ -81,7 +85,7 @@ export function useLobbySocket<Config, Loadout>({
 
   const send = useSocket<
     LobbyClientMessage<Config, Loadout>,
-    LobbyServerMessage<Config, Loadout>
+    LobbyServerMessage<Config, Loadout, Rating>
   >(
     true,
     () => new WebSocket(socketUrl),
@@ -152,6 +156,7 @@ export function useLobbySocket<Config, Loadout>({
     allAvailableRooms,
     userActiveGames,
     player,
+    ratings,
     roomEntries,
     queueEntries,
     roomInvitations,

@@ -34,6 +34,7 @@ export class Server<
   PlayerState,
   PublicState,
   Outcome,
+  Rating,
   Loadout,
 > {
   constructor(
@@ -44,6 +45,7 @@ export class Server<
       PlayerState,
       PublicState,
       Outcome,
+      Rating,
       Loadout
     >,
     private db: DB<
@@ -53,6 +55,7 @@ export class Server<
       PlayerState,
       PublicState,
       Outcome,
+      Rating,
       Loadout
     >,
     private lobbySocketStore: LobbySocketStore<
@@ -62,6 +65,7 @@ export class Server<
       PlayerState,
       PublicState,
       Outcome,
+      Rating,
       Loadout
     >,
     private gameSocketStore: GameSocketStore<
@@ -71,6 +75,7 @@ export class Server<
       PlayerState,
       PublicState,
       Outcome,
+      Rating,
       Loadout
     >,
   ) {}
@@ -78,7 +83,7 @@ export class Server<
   async getInitialLobbyProps(
     token: string | undefined,
     invitationId?: string,
-  ): Promise<{ props: LobbyProps<Config, Loadout>; token: string }> {
+  ): Promise<{ props: LobbyProps<Config, Loadout, Rating>; token: string }> {
     const allActiveGames = await fetchActiveGames(this.db);
     const allAvailableRooms = await fetchAvailableRooms(this.db);
     let user: Player | null = null;
@@ -86,7 +91,12 @@ export class Server<
     let userActiveGames: ActiveGame<Config>[] = [];
     let roomEntries: RoomEntry<Config, Loadout>[] = [];
     let queueEntries: QueueEntry<Loadout>[] = [];
-    let roomInvitations: LobbyProps<Config, Loadout>["roomInvitations"] = [];
+    let roomInvitations: LobbyProps<
+      Config,
+      Loadout,
+      Rating
+    >["roomInvitations"] = [];
+    let ratings: Record<string, Rating> = {};
     let lobbyToken = token;
     const invitation = invitationId == null
       ? null
@@ -102,6 +112,11 @@ export class Server<
         roomEntries = storedUser?.roomEntries ?? [];
         queueEntries = storedUser?.queueEntries ?? [];
         roomInvitations = storedUser?.roomInvitations ?? [];
+        const normalized = this.normalizeRatings(storedUser?.ratings ?? {});
+        ratings = normalized.ratings;
+        if (normalized.didChange && userId != null) {
+          await this.db.updateUserStorageData(userId, { ratings });
+        }
       }
     }
 
@@ -115,6 +130,7 @@ export class Server<
       await this.db.createNewUserStorageData(userId, {
         player: user,
         activeGames: [],
+        ratings: this.buildInitialRatings(),
         roomEntries: [],
         queueEntries: [],
         roomInvitations: invitation == null ? [] : [invitation],
@@ -124,6 +140,7 @@ export class Server<
       roomEntries = [];
       queueEntries = [];
       roomInvitations = invitation == null ? [] : [invitation];
+      ratings = this.buildInitialRatings();
     }
 
     if (lobbyToken == null) {
@@ -156,6 +173,7 @@ export class Server<
         allAvailableRooms,
         userActiveGames,
         player: user,
+        ratings,
         roomEntries,
         queueEntries,
         roomInvitations,
@@ -554,6 +572,30 @@ export class Server<
       return;
     }
     return tokenData.userId;
+  }
+
+  /**
+   * Builds initial ratings for every configured queue.
+   */
+  private buildInitialRatings(): Record<string, Rating> {
+    return this.normalizeRatings({}).ratings;
+  }
+
+  /**
+   * Ensures ratings exist for every configured queue.
+   */
+  private normalizeRatings(
+    ratings: Record<string, Rating>,
+  ): { ratings: Record<string, Rating>; didChange: boolean } {
+    const merged = { ...ratings };
+    let didChange = false;
+    for (const queueId of Object.keys(this.game.queues)) {
+      if (!Object.prototype.hasOwnProperty.call(merged, queueId)) {
+        merged[queueId] = this.game.initialRating();
+        didChange = true;
+      }
+    }
+    return { ratings: merged, didChange };
   }
 
   private async createGuestUser(): Promise<Player> {

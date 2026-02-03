@@ -15,6 +15,9 @@ type TestPlayerState = number;
 type TestPublicState = number;
 type TestLoadout = undefined;
 type TestOutcome = undefined;
+type TestRating = number;
+
+const defaultRatings = { default: 1000 };
 
 // Creates user records for tests that need to attach games to users.
 async function seedUsers<
@@ -26,13 +29,23 @@ async function seedUsers<
   Loadout,
   Outcome,
 >(
-  db: DB<Config, GameState, Move, PlayerState, PublicState, Outcome, Loadout>,
+  db: DB<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    TestRating,
+    Loadout
+  >,
   users: Array<{ userId: string; player: typeof user1 }>,
 ): Promise<void> {
   for (const user of users) {
     await db.createNewUserStorageData(user.userId, {
       player: user.player,
       activeGames: [],
+      ratings: defaultRatings,
       roomEntries: [],
       queueEntries: [],
       roomInvitations: [],
@@ -45,6 +58,7 @@ function buildUserStorageData(player: typeof user1) {
   return {
     player,
     activeGames: [],
+    ratings: defaultRatings,
     roomEntries: [],
     queueEntries: [],
     roomInvitations: [],
@@ -61,6 +75,7 @@ function buildTestGame(
   TestPlayerState,
   TestPublicState,
   TestOutcome,
+  TestRating,
   TestLoadout
 > {
   return {
@@ -71,6 +86,8 @@ function buildTestGame(
     playerState: () => 1,
     publicState: () => 1,
     outcome: () => undefined,
+    initialRating: () => 1000,
+    processOutcome: (_outcome, currentRatings) => currentRatings,
   };
 }
 
@@ -84,6 +101,7 @@ Deno.test("registers and unregisters a socket", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
@@ -95,6 +113,7 @@ Deno.test("registers and unregisters a socket", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(
     db,
@@ -123,9 +142,18 @@ Deno.test("registers and unregisters a socket", async () => {
 
 Deno.test("joins and leaves a queue", async () => {
   const kv = await Deno.openKv(":memory:");
-  const queue = { queueId: "test-queue", numPlayers: 2, config: undefined };
+  const queue = {
+    queueId: "test-queue",
+    numPlayers: 2,
+    config: undefined,
+    queueType: "ranked" as const,
+  };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -134,6 +162,7 @@ Deno.test("joins and leaves a queue", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
@@ -145,6 +174,7 @@ Deno.test("joins and leaves a queue", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(
     db,
@@ -195,9 +225,14 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
     queueId: "test-queue-assignments",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -206,6 +241,7 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
@@ -217,6 +253,7 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(
     db,
@@ -305,9 +342,14 @@ Deno.test("active games are broadcasted to all sockets", async () => {
     queueId: "test-queue-broadcast",
     numPlayers: 2,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -316,6 +358,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
@@ -327,6 +370,7 @@ Deno.test("active games are broadcasted to all sockets", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(
     db,
@@ -413,9 +457,14 @@ Deno.test("players can join a three-player queue and graduate to a game", async 
     queueId: "test-queue-three-players",
     numPlayers: 3,
     config: undefined,
+    queueType: "ranked" as const,
   };
   const game = buildTestGame({
-    [queue.queueId]: { numPlayers: queue.numPlayers, config: queue.config },
+    [queue.queueId]: {
+      numPlayers: queue.numPlayers,
+      config: queue.config,
+      queueType: queue.queueType,
+    },
   });
   const db = new DB<
     TestConfig,
@@ -424,6 +473,7 @@ Deno.test("players can join a three-player queue and graduate to a game", async 
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
@@ -435,6 +485,7 @@ Deno.test("players can join a three-player queue and graduate to a game", async 
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(
     db,
@@ -521,6 +572,7 @@ Deno.test("players can create and leave a room", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, game);
   const activeGamesStream = db.watchForActiveGameListChanges();
@@ -532,6 +584,7 @@ Deno.test("players can create and leave a room", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(
     db,

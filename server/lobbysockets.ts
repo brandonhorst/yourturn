@@ -36,11 +36,12 @@ type MatchmakingEntry =
  * Owns the underlying WebSocket and contains the "last" values used to detect
  * changes and avoid sending unnecessary updates.
  */
-class LobbySocket<Config, Loadout> {
+class LobbySocket<Config, Loadout, Rating> {
   private lastActiveGames: ActiveGame<Config>[] = [];
   private lastAvailableRooms: AvailableRoom<Config>[] = [];
   private lastUserActiveGames: ActiveGame<Config>[] = [];
   private lastPlayer: Player;
+  private lastRatings: Record<string, Rating> = {};
   private lastRoomEntries: RoomEntry<Config, Loadout>[] = [];
   private lastQueueEntries: QueueEntry<Loadout>[] = [];
   private lastRoomInvitations: RoomInvitation<Config>[] = [];
@@ -49,12 +50,14 @@ class LobbySocket<Config, Loadout> {
     private socket: Socket,
     public readonly userId: string,
     initialPlayer: Player,
+    initialRatings: Record<string, Rating>,
     initialActiveGames: ActiveGame<Config>[],
     initialRoomEntries: RoomEntry<Config, Loadout>[],
     initialQueueEntries: QueueEntry<Loadout>[],
     initialRoomInvitations: RoomInvitation<Config>[],
   ) {
     this.lastPlayer = initialPlayer;
+    this.lastRatings = initialRatings;
     this.lastUserActiveGames = initialActiveGames;
     this.lastRoomEntries = initialRoomEntries;
     this.lastQueueEntries = initialQueueEntries;
@@ -84,7 +87,7 @@ class LobbySocket<Config, Loadout> {
    * Sends a game assignment notification to the client.
    */
   sendGameAssignment(gameId: string): void {
-    const message: LobbyServerMessage<Config, Loadout> = {
+    const message: LobbyServerMessage<Config, Loadout, Rating> = {
       type: "GameAssignment",
       gameId,
     };
@@ -95,7 +98,7 @@ class LobbySocket<Config, Loadout> {
    * Sends a display error message to the client.
    */
   sendDisplayError(errorMessage: string): void {
-    const message: LobbyServerMessage<Config, Loadout> = {
+    const message: LobbyServerMessage<Config, Loadout, Rating> = {
       type: "DisplayError",
       message: errorMessage,
     };
@@ -110,7 +113,7 @@ class LobbySocket<Config, Loadout> {
       return;
     }
 
-    const response: LobbyServerMessage<Config, Loadout> = {
+    const response: LobbyServerMessage<Config, Loadout, Rating> = {
       type: "UpdateLobbyProps",
       lobbyProps: { allActiveGames },
     };
@@ -128,7 +131,7 @@ class LobbySocket<Config, Loadout> {
       return;
     }
 
-    const response: LobbyServerMessage<Config, Loadout> = {
+    const response: LobbyServerMessage<Config, Loadout, Rating> = {
       type: "UpdateLobbyProps",
       lobbyProps: { allAvailableRooms },
     };
@@ -139,8 +142,10 @@ class LobbySocket<Config, Loadout> {
   /**
    * Updates user-specific lobby props when the stored user data changes.
    */
-  updateUserPropsIfNecessary(userData: UserStorageData<Config, Loadout>): void {
-    const lobbyProps: Partial<LobbyProps<Config, Loadout>> = {};
+  updateUserPropsIfNecessary(
+    userData: UserStorageData<Config, Loadout, Rating>,
+  ): void {
+    const lobbyProps: Partial<LobbyProps<Config, Loadout, Rating>> = {};
     let didUpdate = false;
 
     if (!jsonEquals(this.lastUserActiveGames, userData.activeGames)) {
@@ -152,6 +157,12 @@ class LobbySocket<Config, Loadout> {
     if (!jsonEquals(this.lastPlayer, userData.player)) {
       lobbyProps.player = userData.player;
       this.lastPlayer = userData.player;
+      didUpdate = true;
+    }
+
+    if (!jsonEquals(this.lastRatings, userData.ratings)) {
+      lobbyProps.ratings = userData.ratings;
+      this.lastRatings = userData.ratings;
       didUpdate = true;
     }
 
@@ -177,7 +188,7 @@ class LobbySocket<Config, Loadout> {
       return;
     }
 
-    const response: LobbyServerMessage<Config, Loadout> = {
+    const response: LobbyServerMessage<Config, Loadout, Rating> = {
       type: "UpdateLobbyProps",
       lobbyProps,
     };
@@ -189,8 +200,8 @@ class LobbySocket<Config, Loadout> {
  * Connection state for a lobby socket.
  * Contains the LobbySocket instance and the readers managed by the store.
  */
-type ConnectionState<Config, Loadout> = {
-  lobbySocket: LobbySocket<Config, Loadout>;
+type ConnectionState<Config, Loadout, Rating> = {
+  lobbySocket: LobbySocket<Config, Loadout, Rating>;
   matchmakingEntries?: Readonly<MatchmakingEntry>[];
   userChangesReader?: ReadableStreamDefaultReader;
 };
@@ -198,9 +209,9 @@ type ConnectionState<Config, Loadout> = {
 /**
  * Streams assignment updates to the lobby socket until the stream ends.
  */
-async function streamAssignmentsToSocket<Config, Loadout>(
+async function streamAssignmentsToSocket<Config, Loadout, Rating>(
   stream: ReadableStreamDefaultReader<AssignmentStorageData>,
-  lobbySocket: LobbySocket<Config, Loadout>,
+  lobbySocket: LobbySocket<Config, Loadout, Rating>,
 ) {
   while (true) {
     const data = await stream.read();
@@ -215,9 +226,9 @@ async function streamAssignmentsToSocket<Config, Loadout>(
 /**
  * Streams user changes to the lobby socket and updates lobby props when needed.
  */
-async function streamUserChangesToSocket<Config, Loadout>(
-  stream: ReadableStreamDefaultReader<UserStorageData<Config, Loadout>>,
-  lobbySocket: LobbySocket<Config, Loadout>,
+async function streamUserChangesToSocket<Config, Loadout, Rating>(
+  stream: ReadableStreamDefaultReader<UserStorageData<Config, Loadout, Rating>>,
+  lobbySocket: LobbySocket<Config, Loadout, Rating>,
 ) {
   while (true) {
     const data = await stream.read();
@@ -236,9 +247,11 @@ export class LobbySocketStore<
   PlayerState,
   PublicState,
   Outcome,
+  Rating,
   Loadout,
 > {
-  private sockets: Map<Socket, ConnectionState<Config, Loadout>> = new Map();
+  private sockets: Map<Socket, ConnectionState<Config, Loadout, Rating>> =
+    new Map();
 
   constructor(
     private db: DB<
@@ -248,6 +261,7 @@ export class LobbySocketStore<
       PlayerState,
       PublicState,
       Outcome,
+      Rating,
       Loadout
     >,
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
@@ -263,19 +277,20 @@ export class LobbySocketStore<
   register(
     socket: Socket,
     userId: string,
-    user: UserStorageData<Config, Loadout>,
+    user: UserStorageData<Config, Loadout, Rating>,
   ) {
     const userChangesReader = this.db.watchForUserChanges(userId).getReader();
-    const lobbySocket = new LobbySocket(
+    const lobbySocket = new LobbySocket<Config, Loadout, Rating>(
       socket,
       userId,
       user.player,
+      user.ratings,
       user.activeGames,
       user.roomEntries,
       user.queueEntries,
       user.roomInvitations,
     );
-    const connectionState: ConnectionState<Config, Loadout> = {
+    const connectionState: ConnectionState<Config, Loadout, Rating> = {
       lobbySocket,
       userChangesReader,
     };

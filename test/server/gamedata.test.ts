@@ -48,12 +48,14 @@ type TestPublicState = {
 };
 
 type TestOutcome = "done";
+type TestRating = number;
 type TestLoadout = undefined;
 const defaultPlayers: Player[] = [
   { username: "Player 1", isGuest: false },
   { username: "Player 2", isGuest: false },
 ];
 const defaultCreated = new Date("2020-01-01T00:00:00Z");
+const defaultRatings = { queue: 1000 };
 
 // Creates a minimal active game record for lobby list checks.
 function buildActiveGame(gameId: string, players = defaultPlayers) {
@@ -68,10 +70,11 @@ const testGame: Game<
   TestPlayerState,
   TestPublicState,
   TestOutcome,
+  TestRating,
   TestLoadout
 > = {
   queues: {
-    queue: { numPlayers: 2, config: undefined },
+    queue: { numPlayers: 2, config: undefined, queueType: "ranked" },
   },
 
   setup: (_o) => ({ value: 0, moveHistory: [] }),
@@ -111,6 +114,8 @@ const testGame: Game<
   outcome: (state): TestOutcome | undefined => {
     return state.value >= 5 || state.value <= -5 ? "done" : undefined;
   },
+  initialRating: () => 1000,
+  processOutcome: (_outcome, currentRatings) => currentRatings,
 };
 
 Deno.test("fetchActiveGames returns active games from the database", async () => {
@@ -122,6 +127,7 @@ Deno.test("fetchActiveGames returns active games from the database", async () =>
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -169,6 +175,7 @@ Deno.test("getPlayerState returns correct player state", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -222,6 +229,7 @@ Deno.test("getPlayerState handles completed games", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -273,6 +281,7 @@ Deno.test("getPublicState returns correct public state", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -316,6 +325,7 @@ Deno.test("getPublicState handles completed games", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -370,6 +380,7 @@ Deno.test("handleMove processes valid moves and updates game state", async () =>
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -420,6 +431,7 @@ Deno.test("handleMove properly marks game as complete when threshold reached", a
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -477,6 +489,7 @@ Deno.test("handleMove rejects invalid moves", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -535,6 +548,7 @@ Deno.test("handleMove doesn't update completed games", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -604,6 +618,7 @@ Deno.test("handleChatMessage appends messages to game chat", async () => {
     TestPlayerState,
     TestPublicState,
     TestOutcome,
+    TestRating,
     TestLoadout
   >(kv, testGame);
 
@@ -614,6 +629,7 @@ Deno.test("handleChatMessage appends messages to game chat", async () => {
   await db.createNewUserStorageData(userId, {
     player: user,
     activeGames: [],
+    ratings: defaultRatings,
     roomEntries: [],
     queueEntries: [],
     roomInvitations: [],

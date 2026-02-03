@@ -100,6 +100,7 @@ export type OutcomeObject<Config> = {
 export type QueueConfig<Config> = {
   numPlayers: number;
   config: Config;
+  queueType: "ranked" | "unranked";
 };
 
 /**
@@ -111,6 +112,7 @@ export type QueueConfig<Config> = {
  * @template PlayerState - Player state type representing game state visible to a specific player (must be JSON serializable)
  * @template PublicState - Observer state type representing game state visible to observers (must be JSON serializable)
  * @template Outcome - Outcome type representing game results (must be JSON serializable)
+ * @template Rating - Rating type representing a player's ranking (must be JSON serializable)
  * @template Loadout - Player loadout data provided during queue join (must be JSON serializable)
  */
 export interface Game<
@@ -120,6 +122,7 @@ export interface Game<
   PlayerState extends JSONValue,
   PublicState extends JSONValue,
   Outcome extends JSONValue,
+  Rating extends JSONValue,
   Loadout extends JSONValue,
 > {
   /**
@@ -227,6 +230,20 @@ export interface Game<
   outcome(state: Readonly<GameState>, o: OutcomeObject<Config>):
     | Outcome
     | undefined;
+
+  /**
+   * Returns the initial rating for a new player.
+   */
+  initialRating(): Rating;
+
+  /**
+   * Processes the game outcome and returns updated ratings for all players.
+   *
+   * @param outcome - Outcome value for the completed game
+   * @param currentRatings - Current ratings for each player, in player order
+   * @returns Updated ratings for each player, in player order
+   */
+  processOutcome(outcome: Outcome, currentRatings: Rating[]): Rating[];
 }
 
 export type ActiveGame<Config> = {
@@ -265,11 +282,12 @@ export type QueueEntry<Loadout> = {
   loadout: Loadout;
 };
 
-export type LobbyProps<Config, Loadout> = {
+export type LobbyProps<Config, Loadout, Rating> = {
   allActiveGames: ActiveGame<Config>[];
   allAvailableRooms: AvailableRoom<Config>[];
   userActiveGames: ActiveGame<Config>[];
   player: Player;
+  ratings: Record<string, Rating>;
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
   roomInvitations: RoomInvitation<Config>[];
@@ -342,8 +360,8 @@ export type GameViewProps<Move, PlayerState, PublicState, Outcome> =
   | IncompletePlayerViewProps<Move, PlayerState, PublicState>
   | ObserveViewProps<PublicState, Outcome>;
 
-export type LobbyViewProps<Config, Loadout> =
-  & LobbyProps<Config, Loadout>
+export type LobbyViewProps<Config, Loadout, Rating> =
+  & LobbyProps<Config, Loadout, Rating>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     createAndJoinRoom: (

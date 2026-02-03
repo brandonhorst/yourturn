@@ -11,6 +11,7 @@ export async function initializeServer<
   PlayerState,
   PublicState,
   Outcome,
+  Rating,
   Loadout,
 >(
   game: Game<
@@ -20,6 +21,7 @@ export async function initializeServer<
     PlayerState,
     PublicState,
     Outcome,
+    Rating,
     Loadout
   >,
 ): Promise<
@@ -30,6 +32,7 @@ export async function initializeServer<
     PlayerState,
     PublicState,
     Outcome,
+    Rating,
     Loadout
   >
 > {
@@ -41,6 +44,7 @@ export async function initializeServer<
     PlayerState,
     PublicState,
     Outcome,
+    Rating,
     Loadout
   >(kv, game);
 
@@ -55,6 +59,7 @@ export async function initializeServer<
     PlayerState,
     PublicState,
     Outcome,
+    Rating,
     Loadout
   >(
     db,
@@ -68,6 +73,7 @@ export async function initializeServer<
     PlayerState,
     PublicState,
     Outcome,
+    Rating,
     Loadout
   >(db);
 
