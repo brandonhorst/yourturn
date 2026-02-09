@@ -575,21 +575,24 @@ export class Server<
   }
 
   /**
-   * Builds initial ratings for every configured queue.
+   * Builds initial ratings for every configured ranked queue.
    */
   private buildInitialRatings(): Record<string, Rating> {
     return this.normalizeRatings({}).ratings;
   }
 
   /**
-   * Ensures ratings exist for every configured queue.
+   * Ensures ratings exist for every configured ranked queue.
    */
   private normalizeRatings(
     ratings: Record<string, Rating>,
   ): { ratings: Record<string, Rating>; didChange: boolean } {
     const merged = { ...ratings };
     let didChange = false;
-    for (const queueId of Object.keys(this.game.queues)) {
+    for (const [queueId, queueConfig] of Object.entries(this.game.queues)) {
+      if (queueConfig.queueType !== "ranked") {
+        continue;
+      }
       if (!Object.prototype.hasOwnProperty.call(merged, queueId)) {
         merged[queueId] = this.game.initialRating();
         didChange = true;
