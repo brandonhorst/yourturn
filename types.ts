@@ -194,8 +194,8 @@ export interface Game<
   ): number | undefined;
 
   /**
-   * Creates a player-specific view of the game state.
-   * Can be used to hide information from players and provide a UI-friendly representation.
+   * Creates a player-specific view of the game state. It will be
+   * provided to Player clients, alongside the PublicState.
    *
    * @param state - Current immutable game state
    * @param o - Player state object containing player ID, configuration, and player count
@@ -208,7 +208,6 @@ export interface Game<
 
   /**
    * Creates an observer-specific view of the game state.
-   * Can be used to hide information from observers and provide a UI-friendly representation.
    *
    * @param state - Current immutable game state
    * @param o - Observer state object containing configuration and player count
