@@ -258,10 +258,10 @@ export class Server<
             return;
           }
           if (
-            this.game.isValidLoadout?.(
+            !(this.game.isValidLoadout?.(
               parsedMessage.loadout,
               queue.config,
-            ) ?? false
+            ) ?? false)
           ) {
             socket.send(JSON.stringify(
               {
@@ -346,10 +346,10 @@ export class Server<
             return;
           }
           if (
-            this.game.isValidLoadout?.(
+            !(this.game.isValidLoadout?.(
               parsedMessage.loadout,
               room.config,
-            ) ?? false
+            ) ?? false)
           ) {
             socket.send(JSON.stringify(
               {
