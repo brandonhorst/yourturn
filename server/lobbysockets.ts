@@ -72,10 +72,10 @@ class LobbySocket<Config, Loadout, Rating> {
   }
 
   /**
-   * Initializes the cached values without sending updates.
-   * Used when a socket first connects to establish the baseline state.
+   * Sets the cached values from the client's current lobby snapshot.
+   * This establishes a baseline before the socket subscribes to updates.
    */
-  initialize(
+  setSubscriptionBaseline(
     allActiveGames: ActiveGame<Config>[],
     allAvailableRooms: AvailableRoom<Config>[],
   ): void {
@@ -274,47 +274,44 @@ export class LobbySocketStore<
   }
 
   /**
-   * Registers a socket and starts watching for user changes.
+   * Subscribes a socket to lobby channels and starts watching for user changes.
    */
-  register(
+  subscribe(
     socket: Socket,
     userId: string,
     user: LobbyUserData<Config, Loadout, Rating>,
-  ) {
-    const userChangesReader = this.db.watchForLobbyUserChanges(userId)
-      .getReader();
-    const lobbySocket = new LobbySocket<Config, Loadout, Rating>(
-      socket,
-      userId,
-      user.player,
-      user.ratings,
-      user.activeGames,
-      user.roomEntries,
-      user.queueEntries,
-      user.roomInvitations,
-    );
-    const connectionState: ConnectionState<Config, Loadout, Rating> = {
-      lobbySocket,
-      userChangesReader,
-    };
-    this.sockets.set(socket, connectionState);
-    streamUserChangesToSocket(userChangesReader, lobbySocket);
-  }
-
-  initialize(
-    socket: Socket,
     allActiveGames: ActiveGame<Config>[],
     allAvailableRooms: AvailableRoom<Config>[],
   ) {
-    const connectionState = this.sockets.get(socket);
+    let connectionState = this.sockets.get(socket);
     if (connectionState == null) {
-      return;
+      const userChangesReader = this.db.watchForLobbyUserChanges(userId)
+        .getReader();
+      const lobbySocket = new LobbySocket<Config, Loadout, Rating>(
+        socket,
+        userId,
+        user.player,
+        user.ratings,
+        user.activeGames,
+        user.roomEntries,
+        user.queueEntries,
+        user.roomInvitations,
+      );
+      connectionState = {
+        lobbySocket,
+        userChangesReader,
+      };
+      this.sockets.set(socket, connectionState);
+      streamUserChangesToSocket(userChangesReader, lobbySocket);
     }
 
-    connectionState.lobbySocket.initialize(allActiveGames, allAvailableRooms);
+    connectionState.lobbySocket.setSubscriptionBaseline(
+      allActiveGames,
+      allAvailableRooms,
+    );
   }
 
-  async unregister(socket: Socket) {
+  async unsubscribe(socket: Socket) {
     const connectionState = this.sockets.get(socket);
     if (connectionState == null) {
       return;

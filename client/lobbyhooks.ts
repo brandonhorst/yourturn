@@ -89,7 +89,7 @@ export function useLobbySocket<Config, Loadout, Rating>({
   >(
     true,
     () => new WebSocket(socketUrl),
-    { type: "Initialize", allActiveGames, allAvailableRooms },
+    { type: "Subscribe", allActiveGames, allAvailableRooms },
     onUpdate,
     onClose,
   );

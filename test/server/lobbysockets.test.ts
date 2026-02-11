@@ -91,7 +91,7 @@ function buildTestGame(
   };
 }
 
-Deno.test("registers and unregisters a socket", async () => {
+Deno.test("subscribes and unsubscribes a socket", async () => {
   const kv = await Deno.openKv(":memory:");
   const game = buildTestGame();
   const db = new DB<
@@ -132,18 +132,15 @@ Deno.test("registers and unregisters a socket", async () => {
   const userData = await db.getLobbyUserData("user-1");
   assertExists(userData);
 
-  // Register a socket
+  // Subscribe a socket
   const socket = { send: spy() };
-  lobbySocketStore.register(socket, "user-1", userData);
+  lobbySocketStore.subscribe(socket, "user-1", userData, [], []);
 
-  // Initialize should work (verifies socket is registered)
-  lobbySocketStore.initialize(socket, [], []);
+  // Unsubscribe the socket
+  await lobbySocketStore.unsubscribe(socket);
 
-  // Unregister the socket
-  await lobbySocketStore.unregister(socket);
-
-  // Initialize should be a no-op after unregister (verifies socket is unregistered)
-  lobbySocketStore.initialize(socket, [], []);
+  // Unsubscribe should be a no-op after first unsubscribe
+  await lobbySocketStore.unsubscribe(socket);
 
   kv.close();
 });
@@ -194,7 +191,13 @@ Deno.test("joins and leaves a queue", async () => {
 
   // Create a socket and register it
   const socket = { send: spy() };
-  lobbySocketStore.register(socket, "user-1", buildUserStorageData(user1));
+  lobbySocketStore.subscribe(
+    socket,
+    "user-1",
+    buildUserStorageData(user1),
+    [],
+    [],
+  );
 
   // Join a queue
   await lobbySocketStore.joinQueue(
@@ -222,7 +225,7 @@ Deno.test("joins and leaves a queue", async () => {
 
   // Clean up
   await lobbySocketStore.leaveQueue(socket, queue.queueId);
-  await lobbySocketStore.unregister(socket);
+  await lobbySocketStore.unsubscribe(socket);
 
   kv.close();
 });
@@ -278,8 +281,20 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   const socket1 = { send: spy() };
   const socket2 = { send: spy() };
 
-  lobbySocketStore.register(socket1, "user-1", buildUserStorageData(user1));
-  lobbySocketStore.register(socket2, "user-2", buildUserStorageData(user2));
+  lobbySocketStore.subscribe(
+    socket1,
+    "user-1",
+    buildUserStorageData(user1),
+    [],
+    [],
+  );
+  lobbySocketStore.subscribe(
+    socket2,
+    "user-2",
+    buildUserStorageData(user2),
+    [],
+    [],
+  );
 
   // Join the same queue with both sockets
   // Use Promise.all to join both queues concurrently
@@ -338,8 +353,8 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   // Assignments include only the game ID
 
   // Clean up
-  await lobbySocketStore.unregister(socket1);
-  await lobbySocketStore.unregister(socket2);
+  await lobbySocketStore.unsubscribe(socket1);
+  await lobbySocketStore.unsubscribe(socket2);
 
   kv.close();
 });
@@ -395,8 +410,20 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   const socket1 = { send: spy() };
   const socket2 = { send: spy() };
 
-  lobbySocketStore.register(socket1, "user-1", buildUserStorageData(user1));
-  lobbySocketStore.register(socket2, "user-2", buildUserStorageData(user2));
+  lobbySocketStore.subscribe(
+    socket1,
+    "user-1",
+    buildUserStorageData(user1),
+    [],
+    [],
+  );
+  lobbySocketStore.subscribe(
+    socket2,
+    "user-2",
+    buildUserStorageData(user2),
+    [],
+    [],
+  );
 
   // Create a game by having two sockets join a queue
   await Promise.all([
@@ -453,8 +480,8 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   );
 
   // Clean up
-  await lobbySocketStore.unregister(socket1);
-  await lobbySocketStore.unregister(socket2);
+  await lobbySocketStore.unsubscribe(socket1);
+  await lobbySocketStore.unsubscribe(socket2);
 
   kv.close();
 });
@@ -512,9 +539,27 @@ Deno.test("players can join a three-player queue and graduate to a game", async 
   const socket2 = { send: spy() };
   const socket3 = { send: spy() };
 
-  lobbySocketStore.register(socket1, "user-1", buildUserStorageData(user1));
-  lobbySocketStore.register(socket2, "user-2", buildUserStorageData(user2));
-  lobbySocketStore.register(socket3, "user-3", buildUserStorageData(user3));
+  lobbySocketStore.subscribe(
+    socket1,
+    "user-1",
+    buildUserStorageData(user1),
+    [],
+    [],
+  );
+  lobbySocketStore.subscribe(
+    socket2,
+    "user-2",
+    buildUserStorageData(user2),
+    [],
+    [],
+  );
+  lobbySocketStore.subscribe(
+    socket3,
+    "user-3",
+    buildUserStorageData(user3),
+    [],
+    [],
+  );
 
   // Join the same queue with all three sockets
   // Join queues
@@ -563,9 +608,9 @@ Deno.test("players can join a three-player queue and graduate to a game", async 
   assertEquals(allActiveGames[0].players.length, 3);
 
   // Clean up
-  await lobbySocketStore.unregister(socket1);
-  await lobbySocketStore.unregister(socket2);
-  await lobbySocketStore.unregister(socket3);
+  await lobbySocketStore.unsubscribe(socket1);
+  await lobbySocketStore.unsubscribe(socket2);
+  await lobbySocketStore.unsubscribe(socket3);
 
   kv.close();
 });
@@ -603,7 +648,13 @@ Deno.test("players can create and leave a room", async () => {
   await seedUsers(db, [{ userId: "user-1", player: user1 }]);
 
   const socket = { send: spy() };
-  lobbySocketStore.register(socket, "user-1", buildUserStorageData(user1));
+  lobbySocketStore.subscribe(
+    socket,
+    "user-1",
+    buildUserStorageData(user1),
+    [],
+    [],
+  );
 
   // Create a room and get its ID by checking the available rooms
   await lobbySocketStore.createAndJoinRoom(
@@ -639,6 +690,6 @@ Deno.test("players can create and leave a room", async () => {
   assertExists(updatedUserData);
   assertEquals(updatedUserData.joinedRooms.length, 0);
 
-  await lobbySocketStore.unregister(socket);
+  await lobbySocketStore.unsubscribe(socket);
   kv.close();
 });

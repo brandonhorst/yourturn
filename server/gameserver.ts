@@ -230,10 +230,10 @@ export class Server<
 
     let user = storedUser.player;
     const userId = tokenData.userId;
+    let subscribed = false;
 
     const handleLobbySocketOpen = () => {
       console.log("lobby socket opened");
-      this.lobbySocketStore.register(socket, userId, storedUser);
     };
 
     const handleLobbySocketMessage = async (event: MessageEvent) => {
@@ -243,12 +243,30 @@ export class Server<
         message,
       );
       switch (parsedMessage.type) {
-        case "Initialize":
-          this.lobbySocketStore.initialize(
+        case "Subscribe": {
+          const latestUserData = await this.db.getLobbyUserData(userId);
+          if (latestUserData == null) {
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Unknown lobby user.",
+              },
+            ));
+            break;
+          }
+          this.lobbySocketStore.subscribe(
             socket,
+            userId,
+            latestUserData,
             parsedMessage.allActiveGames,
             parsedMessage.allAvailableRooms,
           );
+          subscribed = true;
+          break;
+        }
+        case "Unsubscribe":
+          await this.lobbySocketStore.unsubscribe(socket);
+          subscribed = false;
           break;
         case "JoinQueue": {
           const queue = this.game.queues[parsedMessage.queueId];
@@ -481,7 +499,10 @@ export class Server<
 
     const handleLobbySocketClose = async () => {
       console.log("lobby socket closed");
-      await this.lobbySocketStore.unregister(socket);
+      if (!subscribed) {
+        return;
+      }
+      await this.lobbySocketStore.unsubscribe(socket);
     };
 
     socket.addEventListener("open", handleLobbySocketOpen);

@@ -7,10 +7,11 @@ import type {
 
 export type LobbyClientMessage<Config, Loadout> =
   | {
-    type: "Initialize";
+    type: "Subscribe";
     allActiveGames: ActiveGame<Config>[];
     allAvailableRooms: AvailableRoom<Config>[];
   }
+  | { type: "Unsubscribe" }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | {
     type: "CreateAndJoinRoom";
