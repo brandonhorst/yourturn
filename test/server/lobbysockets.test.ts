@@ -134,7 +134,7 @@ Deno.test("subscribes and unsubscribes a socket", async () => {
 
   // Subscribe a socket
   const socket = { send: spy() };
-  lobbySocketStore.subscribe(socket, "user-1", userData, [], []);
+  await lobbySocketStore.subscribe(socket, "user-1", userData, [], []);
 
   // Unsubscribe the socket
   await lobbySocketStore.unsubscribe(socket);
@@ -191,7 +191,7 @@ Deno.test("joins and leaves a queue", async () => {
 
   // Create a socket and register it
   const socket = { send: spy() };
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket,
     "user-1",
     buildUserStorageData(user1),
@@ -281,14 +281,14 @@ Deno.test("when two sockets join a queue, assignments are made", async () => {
   const socket1 = { send: spy() };
   const socket2 = { send: spy() };
 
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket1,
     "user-1",
     buildUserStorageData(user1),
     [],
     [],
   );
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket2,
     "user-2",
     buildUserStorageData(user2),
@@ -410,14 +410,14 @@ Deno.test("active games are broadcasted to all sockets", async () => {
   const socket1 = { send: spy() };
   const socket2 = { send: spy() };
 
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket1,
     "user-1",
     buildUserStorageData(user1),
     [],
     [],
   );
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket2,
     "user-2",
     buildUserStorageData(user2),
@@ -539,21 +539,21 @@ Deno.test("players can join a three-player queue and graduate to a game", async 
   const socket2 = { send: spy() };
   const socket3 = { send: spy() };
 
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket1,
     "user-1",
     buildUserStorageData(user1),
     [],
     [],
   );
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket2,
     "user-2",
     buildUserStorageData(user2),
     [],
     [],
   );
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket3,
     "user-3",
     buildUserStorageData(user3),
@@ -648,7 +648,7 @@ Deno.test("players can create and leave a room", async () => {
   await seedUsers(db, [{ userId: "user-1", player: user1 }]);
 
   const socket = { send: spy() };
-  lobbySocketStore.subscribe(
+  await lobbySocketStore.subscribe(
     socket,
     "user-1",
     buildUserStorageData(user1),
@@ -679,6 +679,20 @@ Deno.test("players can create and leave a room", async () => {
   assertEquals(userData.joinedRooms.length, 1);
   assertEquals(userData.joinedRooms[0].roomId, roomId);
 
+  let roomUpdateMessage;
+  for (const call of socket.send.calls) {
+    const message = JSON.parse(call.args[0]);
+    if (
+      message.type === "UpdateRoomEntry" &&
+      message.roomEntry?.roomId === roomId
+    ) {
+      roomUpdateMessage = message;
+      break;
+    }
+  }
+  assertExists(roomUpdateMessage);
+  assertEquals(roomUpdateMessage.roomEntry.roomId, roomId);
+
   // Leave the room
   await lobbySocketStore.leaveRoom(socket, roomId);
 
@@ -689,6 +703,16 @@ Deno.test("players can create and leave a room", async () => {
   const updatedUserData = await db.getUserStorageData("user-1");
   assertExists(updatedUserData);
   assertEquals(updatedUserData.joinedRooms.length, 0);
+
+  let roomRemovalMessage;
+  for (const call of socket.send.calls) {
+    const message = JSON.parse(call.args[0]);
+    if (message.type === "RemoveRoomEntry" && message.roomId === roomId) {
+      roomRemovalMessage = message;
+      break;
+    }
+  }
+  assertExists(roomRemovalMessage);
 
   await lobbySocketStore.unsubscribe(socket);
   kv.close();

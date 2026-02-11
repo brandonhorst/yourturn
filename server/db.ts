@@ -27,6 +27,10 @@ export type RoomStorageData<Config, Loadout> = {
   members: RoomMember<Loadout>[];
 };
 
+export type RoomWatchEvent<Config, Loadout> =
+  | { type: "updated"; room: RoomStorageData<Config, Loadout> }
+  | { type: "deleted" };
+
 type RoomMember<Loadout> = {
   entryId: string;
   timestamp: Date;
@@ -338,6 +342,26 @@ export class DB<
       getRoomKey(roomId),
     );
     return entry.value;
+  }
+
+  // Watches a room record and emits updates as well as room deletion events.
+  public watchForRoomChanges(
+    roomId: string,
+  ): ReadableStream<RoomWatchEvent<Config, Loadout>> {
+    const roomKey = getRoomKey(roomId);
+    const stream = this.kv.watch<RoomStorageData<Config, Loadout>[]>([roomKey]);
+    return stream.pipeThrough(
+      new TransformStream({
+        transform: (events, controller) => {
+          const room = events[0].value;
+          if (room == null) {
+            controller.enqueue({ type: "deleted" });
+            return;
+          }
+          controller.enqueue({ type: "updated", room });
+        },
+      }),
+    );
   }
 
   public async addToRoom(

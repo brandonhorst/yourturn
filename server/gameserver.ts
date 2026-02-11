@@ -254,7 +254,7 @@ export class Server<
             ));
             break;
           }
-          this.lobbySocketStore.subscribe(
+          await this.lobbySocketStore.subscribe(
             socket,
             userId,
             latestUserData,
@@ -404,7 +404,6 @@ export class Server<
           const joined = await this.lobbySocketStore.joinRoom(
             socket,
             parsedMessage.roomId,
-            room,
             userId,
             user,
             parsedMessage.loadout,

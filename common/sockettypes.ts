@@ -3,6 +3,7 @@ import type {
   AvailableRoom,
   ChatMessage,
   LobbyProps,
+  RoomEntry,
 } from "../types.ts";
 
 export type LobbyClientMessage<Config, Loadout> =
@@ -33,6 +34,11 @@ export type LobbyServerMessage<Config, Loadout, Rating> =
     type: "UpdateLobbyProps";
     lobbyProps: Partial<LobbyProps<Config, Loadout, Rating>>;
   }
+  | {
+    type: "UpdateRoomEntry";
+    roomEntry: RoomEntry<Config, Loadout>;
+  }
+  | { type: "RemoveRoomEntry"; roomId: string }
   | { type: "GameAssignment"; gameId: string }
   | { type: "DisplayError"; message: string };
 

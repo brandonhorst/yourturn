@@ -57,15 +57,31 @@ export function useLobbySocket<Config, Loadout, Rating>({
         if (response.lobbyProps.userActiveGames != null) {
           setUserActiveGames(response.lobbyProps.userActiveGames);
         }
-        if (response.lobbyProps.roomEntries != null) {
-          setRoomEntries(response.lobbyProps.roomEntries);
-        }
         if (response.lobbyProps.queueEntries != null) {
           setQueueEntries(response.lobbyProps.queueEntries);
         }
         if (response.lobbyProps.roomInvitations != null) {
           setRoomInvitations(response.lobbyProps.roomInvitations);
         }
+        break;
+      case "UpdateRoomEntry":
+        setRoomEntries((existing) => {
+          const existingIndex = existing.findIndex((entry) =>
+            entry.roomId === response.roomEntry.roomId
+          );
+          if (existingIndex === -1) {
+            return [...existing, response.roomEntry];
+          }
+
+          const updated = [...existing];
+          updated[existingIndex] = response.roomEntry;
+          return updated;
+        });
+        break;
+      case "RemoveRoomEntry":
+        setRoomEntries((existing) =>
+          existing.filter((entry) => entry.roomId !== response.roomId)
+        );
         break;
       case "GameAssignment":
         navigate(response.gameId);
