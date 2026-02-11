@@ -82,7 +82,7 @@ const publicStateLogic = (
   value: state.value,
 });
 
-Deno.test("initialize sends UpdateGameState when client state is stale", async () => {
+Deno.test("subscribe sends UpdateGameState when client state is stale", async () => {
   const kv = await Deno.openKv(":memory:");
   const game = buildTestGame();
   const db = new DB<
@@ -106,19 +106,11 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
     TestLoadout
   >(db);
 
-  const gameId = "game-initialize";
+  const gameId = "game-subscribe";
   await kv.set(getGameKey(gameId), buildGameData(0));
 
   const socket = { send: spy() };
-  gameSocketStore.register(
-    socket,
-    gameId,
-    playerStateLogic,
-    publicStateLogic,
-    0,
-  );
-
-  await gameSocketStore.initialize(
+  await gameSocketStore.subscribe(
     socket,
     gameId,
     { value: -1 },
@@ -126,6 +118,7 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
     [],
     playerStateLogic,
     publicStateLogic,
+    0,
   );
 
   let updateMessage;
@@ -143,7 +136,7 @@ Deno.test("initialize sends UpdateGameState when client state is stale", async (
   assertEquals(updateMessage.outcome, undefined);
   assertEquals(updateMessage.chat, []);
 
-  gameSocketStore.unregister(socket, gameId);
+  gameSocketStore.unsubscribe(socket, gameId);
   kv.close();
 });
 
@@ -177,40 +170,25 @@ Deno.test("streams updates to player and observer sockets", async () => {
   const playerSocket = { send: spy() };
   const observerSocket = { send: spy() };
 
-  gameSocketStore.register(
+  await gameSocketStore.subscribe(
     playerSocket,
     gameId,
+    { value: 0 },
+    { playerId: 0, value: 0 },
+    [],
     playerStateLogic,
     publicStateLogic,
     0,
   );
-  gameSocketStore.register(
+  await gameSocketStore.subscribe(
     observerSocket,
     gameId,
+    { value: 0 },
+    undefined,
+    [],
     playerStateLogic,
     publicStateLogic,
   );
-
-  await Promise.all([
-    gameSocketStore.initialize(
-      playerSocket,
-      gameId,
-      { value: 0 },
-      { playerId: 0, value: 0 },
-      [],
-      playerStateLogic,
-      publicStateLogic,
-    ),
-    gameSocketStore.initialize(
-      observerSocket,
-      gameId,
-      { value: 0 },
-      undefined,
-      [],
-      playerStateLogic,
-      publicStateLogic,
-    ),
-  ]);
 
   const updatedData = buildGameData(5, "done");
   await db.updateGameStorageData(gameId, updatedData);
@@ -244,12 +222,12 @@ Deno.test("streams updates to player and observer sockets", async () => {
   assertEquals(playerUpdate.chat, []);
   assertEquals(observerUpdate.chat, []);
 
-  gameSocketStore.unregister(playerSocket, gameId);
-  gameSocketStore.unregister(observerSocket, gameId);
+  gameSocketStore.unsubscribe(playerSocket, gameId);
+  gameSocketStore.unsubscribe(observerSocket, gameId);
   kv.close();
 });
 
-Deno.test("unregister stops streaming updates", async () => {
+Deno.test("unsubscribe stops streaming updates", async () => {
   const kv = await Deno.openKv(":memory:");
   const game = buildTestGame();
   const db = new DB<
@@ -277,15 +255,7 @@ Deno.test("unregister stops streaming updates", async () => {
   await kv.set(getGameKey(gameId), buildGameData(0));
 
   const socket = { send: spy() };
-  gameSocketStore.register(
-    socket,
-    gameId,
-    playerStateLogic,
-    publicStateLogic,
-    0,
-  );
-
-  await gameSocketStore.initialize(
+  await gameSocketStore.subscribe(
     socket,
     gameId,
     { value: 0 },
@@ -293,12 +263,13 @@ Deno.test("unregister stops streaming updates", async () => {
     [],
     playerStateLogic,
     publicStateLogic,
+    0,
   );
 
   await new Promise((resolve) => setTimeout(resolve, 50));
   const callCount = socket.send.calls.length;
 
-  gameSocketStore.unregister(socket, gameId);
+  gameSocketStore.unsubscribe(socket, gameId);
 
   await db.updateGameStorageData(gameId, buildGameData(2));
   await new Promise((resolve) => setTimeout(resolve, 100));

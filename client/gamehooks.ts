@@ -50,7 +50,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
     initialGameProps.outcome === undefined,
     () => new WebSocket(socketUrl),
     {
-      type: "Initialize",
+      type: "Subscribe",
       currentPublicState: publicState,
       currentPlayerState: playerState,
       currentChat: chat,

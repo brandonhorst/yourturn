@@ -33,10 +33,10 @@ class GameSocket<PlayerState, PublicState, Outcome> {
   }
 
   /**
-   * Initializes the cached values without sending updates.
-   * Used when a socket first connects to establish the baseline state.
+   * Sets the cached values from the client's current game snapshot.
+   * This establishes a baseline before the socket subscribes to updates.
    */
-  initialize(
+  setSubscriptionBaseline(
     playerState: PlayerState | undefined,
     publicState: PublicState,
     outcome: Outcome | undefined,
@@ -187,31 +187,10 @@ export class GameSocketStore<
   ) {}
 
   /**
-   * Registers a socket for a game and starts watching for game changes.
+   * Subscribes a socket to the game update channel for a game.
+   * Creates the game channel stream if it does not already exist.
    */
-  register(
-    socket: Socket,
-    gameId: string,
-    playerStateLogic: (
-      s: GameState,
-      o: PlayerStateObject<Config>,
-    ) => PlayerState,
-    publicStateLogic: (
-      s: GameState,
-      o: PublicStateObject<Config>,
-    ) => PublicState,
-    playerId?: number,
-  ) {
-    if (!this.hasGame(gameId)) {
-      this.createGame(gameId, playerStateLogic, publicStateLogic);
-    }
-    this.addSocket(gameId, socket, playerId);
-  }
-
-  /**
-   * Initializes the cached state for a socket and sends an update if the state has changed.
-   */
-  async initialize(
+  async subscribe(
     socket: Socket,
     gameId: string,
     publicState: PublicState,
@@ -225,12 +204,24 @@ export class GameSocketStore<
       s: GameState,
       o: PublicStateObject<Config>,
     ) => PublicState,
+    playerId?: number,
   ) {
+    if (!this.hasGame(gameId)) {
+      this.createGame(gameId, playerStateLogic, publicStateLogic);
+    }
+    if (!this.hasSocket(gameId, socket)) {
+      this.addSocket(gameId, socket, playerId);
+    }
     const connection = this.getConnection(gameId);
     const gameSocket = connection.gameSockets.get(socket);
     assert(gameSocket != null);
 
-    gameSocket.initialize(playerState, publicState, undefined, chat);
+    gameSocket.setSubscriptionBaseline(
+      playerState,
+      publicState,
+      undefined,
+      chat,
+    );
 
     const gameData = await this.db.getGameStorageData(gameId);
     const newPlayerState = gameSocket.playerId == null
@@ -254,9 +245,9 @@ export class GameSocketStore<
   }
 
   /**
-   * Unregisters a socket from a game.
+   * Unsubscribes a socket from a game update channel.
    */
-  unregister(socket: Socket, gameId: string) {
+  unsubscribe(socket: Socket, gameId: string) {
     this.deleteSocket(gameId, socket);
   }
 
@@ -316,12 +307,26 @@ export class GameSocketStore<
     connection.gameSockets.set(socket, gameSocket);
   }
 
+  private hasSocket(gameId: string, socket: Socket): boolean {
+    const connection = this.connections.get(gameId);
+    if (connection == null) {
+      return false;
+    }
+    return connection.gameSockets.has(socket);
+  }
+
   /**
-   * Removes a socket from a game connection and cleans up if no sockets remain.
+   * Removes a socket from a game channel and cleans up if no subscribers remain.
    */
   private deleteSocket(gameId: string, socket: Socket): void {
-    const connection = this.getConnection(gameId);
-    connection.gameSockets.delete(socket);
+    const connection = this.connections.get(gameId);
+    if (connection == null) {
+      return;
+    }
+    const wasRemoved = connection.gameSockets.delete(socket);
+    if (!wasRemoved) {
+      return;
+    }
     if (connection.gameSockets.size === 0) {
       connection.changesReader.cancel();
       connection.changesReader.releaseLock();

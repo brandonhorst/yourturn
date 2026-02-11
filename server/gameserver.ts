@@ -498,15 +498,7 @@ export class Server<
     const gameData = await this.db.getGameStorageData(gameId);
     const playerId = userId == null ? undefined : getPlayerId(gameData, userId);
 
-    const handleGameSocketOpen = () => {
-      this.gameSocketStore.register(
-        socket,
-        gameId,
-        this.game.playerState,
-        this.game.publicState,
-        playerId,
-      );
-    };
+    let subscribed = false;
 
     const handleGameSocketMessage = async (event: MessageEvent) => {
       const request: GameClientMessage<
@@ -517,8 +509,8 @@ export class Server<
         event.data,
       );
       switch (request.type) {
-        case "Initialize":
-          await this.gameSocketStore.initialize(
+        case "Subscribe":
+          await this.gameSocketStore.subscribe(
             socket,
             gameId,
             request.currentPublicState,
@@ -526,7 +518,13 @@ export class Server<
             request.currentChat,
             this.game.playerState,
             this.game.publicState,
+            playerId,
           );
+          subscribed = true;
+          break;
+        case "Unsubscribe":
+          this.gameSocketStore.unsubscribe(socket, gameId);
+          subscribed = false;
           break;
         case "Move":
           if (playerId == null) {
@@ -555,10 +553,12 @@ export class Server<
     };
 
     const handleGameSocketClose = () => {
-      this.gameSocketStore.unregister(socket, gameId);
+      if (!subscribed) {
+        return;
+      }
+      this.gameSocketStore.unsubscribe(socket, gameId);
     };
 
-    socket.addEventListener("open", handleGameSocketOpen);
     socket.addEventListener("message", handleGameSocketMessage);
     socket.addEventListener("close", handleGameSocketClose);
   }

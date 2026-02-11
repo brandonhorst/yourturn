@@ -37,11 +37,12 @@ export type LobbyServerMessage<Config, Loadout, Rating> =
 
 export type GameClientMessage<Move, PlayerState, PublicState> =
   | {
-    type: "Initialize";
+    type: "Subscribe";
     currentPublicState: PublicState;
     currentPlayerState?: PlayerState;
     currentChat: ChatMessage[];
   }
+  | { type: "Unsubscribe" }
   | { type: "Move"; move: Move }
   | { type: "ChatMessage"; message: string };
 
