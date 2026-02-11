@@ -141,7 +141,7 @@ Deno.test("getInitialLobbyProps uses existing user for valid token", async () =>
     player: user,
     activeGames: userActiveGames,
     ratings: defaultRatings,
-    roomEntries: [],
+    joinedRooms: [],
     queueEntries: [],
     roomInvitations: [],
   });
@@ -210,7 +210,7 @@ Deno.test("getInitialLobbyProps adds URL invitation to roomInvitations", async (
     player: user,
     activeGames: [],
     ratings: defaultRatings,
-    roomEntries: [],
+    joinedRooms: [],
     queueEntries: [],
     roomInvitations: [],
   });

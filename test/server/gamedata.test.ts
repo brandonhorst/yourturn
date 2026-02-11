@@ -630,7 +630,7 @@ Deno.test("handleChatMessage appends messages to game chat", async () => {
     player: user,
     activeGames: [],
     ratings: defaultRatings,
-    roomEntries: [],
+    joinedRooms: [],
     queueEntries: [],
     roomInvitations: [],
   });

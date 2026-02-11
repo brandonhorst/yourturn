@@ -43,7 +43,7 @@ async function seedUsers<
       player: user.player,
       activeGames: [],
       ratings: defaultRatings,
-      roomEntries: [],
+      joinedRooms: [],
       queueEntries: [],
       roomInvitations: [],
     });
@@ -683,7 +683,7 @@ Deno.test("usernameExists tracks stored usernames", async () => {
     player: user1,
     activeGames: [],
     ratings: defaultRatings,
-    roomEntries: [],
+    joinedRooms: [],
     queueEntries: [],
     roomInvitations: [],
   });

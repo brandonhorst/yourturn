@@ -46,7 +46,7 @@ async function seedUsers<
       player: user.player,
       activeGames: [],
       ratings: defaultRatings,
-      roomEntries: [],
+      joinedRooms: [],
       queueEntries: [],
       roomInvitations: [],
     });
@@ -121,8 +121,16 @@ Deno.test("registers and unregisters a socket", async () => {
     availableRoomsStream,
   );
 
-  const userData = buildUserStorageData(user1);
-  await db.createNewUserStorageData("user-1", userData);
+  await db.createNewUserStorageData("user-1", {
+    player: user1,
+    activeGames: [],
+    ratings: defaultRatings,
+    joinedRooms: [],
+    queueEntries: [],
+    roomInvitations: [],
+  });
+  const userData = await db.getLobbyUserData("user-1");
+  assertExists(userData);
 
   // Register a socket
   const socket = { send: spy() };
@@ -614,11 +622,11 @@ Deno.test("players can create and leave a room", async () => {
   assertEquals(rooms.length, 1);
   const roomId = rooms[0].roomId;
 
-  // Verify user's roomEntries was updated
+  // Verify user's joinedRooms was updated
   const userData = await db.getUserStorageData("user-1");
   assertExists(userData);
-  assertEquals(userData.roomEntries.length, 1);
-  assertEquals(userData.roomEntries[0].roomId, roomId);
+  assertEquals(userData.joinedRooms.length, 1);
+  assertEquals(userData.joinedRooms[0].roomId, roomId);
 
   // Leave the room
   await lobbySocketStore.leaveRoom(socket, roomId);
@@ -626,10 +634,10 @@ Deno.test("players can create and leave a room", async () => {
   // Wait a bit for the update
   await new Promise((resolve) => setTimeout(resolve, 100));
 
-  // Verify user's roomEntries was cleared
+  // Verify user's joinedRooms was cleared
   const updatedUserData = await db.getUserStorageData("user-1");
   assertExists(updatedUserData);
-  assertEquals(updatedUserData.roomEntries.length, 0);
+  assertEquals(updatedUserData.joinedRooms.length, 0);
 
   await lobbySocketStore.unregister(socket);
   kv.close();

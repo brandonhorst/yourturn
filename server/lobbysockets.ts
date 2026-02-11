@@ -1,8 +1,8 @@
 import type {
   AssignmentStorageData,
   DB,
+  LobbyUserData,
   RoomStorageData,
-  UserStorageData,
 } from "./db.ts";
 import type { LobbyServerMessage } from "../common/sockettypes.ts";
 import type {
@@ -143,7 +143,7 @@ class LobbySocket<Config, Loadout, Rating> {
    * Updates user-specific lobby props when the stored user data changes.
    */
   updateUserPropsIfNecessary(
-    userData: UserStorageData<Config, Loadout, Rating>,
+    userData: LobbyUserData<Config, Loadout, Rating>,
   ): void {
     const lobbyProps: Partial<LobbyProps<Config, Loadout, Rating>> = {};
     let didUpdate = false;
@@ -227,7 +227,9 @@ async function streamAssignmentsToSocket<Config, Loadout, Rating>(
  * Streams user changes to the lobby socket and updates lobby props when needed.
  */
 async function streamUserChangesToSocket<Config, Loadout, Rating>(
-  stream: ReadableStreamDefaultReader<UserStorageData<Config, Loadout, Rating>>,
+  stream: ReadableStreamDefaultReader<
+    LobbyUserData<Config, Loadout, Rating>
+  >,
   lobbySocket: LobbySocket<Config, Loadout, Rating>,
 ) {
   while (true) {
@@ -277,9 +279,10 @@ export class LobbySocketStore<
   register(
     socket: Socket,
     userId: string,
-    user: UserStorageData<Config, Loadout, Rating>,
+    user: LobbyUserData<Config, Loadout, Rating>,
   ) {
-    const userChangesReader = this.db.watchForUserChanges(userId).getReader();
+    const userChangesReader = this.db.watchForLobbyUserChanges(userId)
+      .getReader();
     const lobbySocket = new LobbySocket<Config, Loadout, Rating>(
       socket,
       userId,

@@ -105,7 +105,9 @@ export class Server<
     if (token != null) {
       const tokenData = await this.db.getToken(token);
       if (tokenData != null && tokenData.expiration > new Date()) {
-        const storedUser = await this.db.getUserStorageData(tokenData.userId);
+        const storedUser = await this.db.getLobbyUserData(
+          tokenData.userId,
+        );
         user = storedUser?.player ?? null;
         userId = tokenData.userId;
         userActiveGames = storedUser?.activeGames ?? [];
@@ -131,7 +133,7 @@ export class Server<
         player: user,
         activeGames: [],
         ratings: this.buildInitialRatings(),
-        roomEntries: [],
+        joinedRooms: [],
         queueEntries: [],
         roomInvitations: invitation == null ? [] : [invitation],
       });
@@ -221,7 +223,7 @@ export class Server<
       throw new Error("Invalid lobby auth token");
     }
 
-    const storedUser = await this.db.getUserStorageData(tokenData.userId);
+    const storedUser = await this.db.getLobbyUserData(tokenData.userId);
     if (storedUser == null) {
       throw new Error("Unknown lobby user");
     }

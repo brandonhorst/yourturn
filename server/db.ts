@@ -49,7 +49,21 @@ export type AssignmentStorageData = {
   gameId: string;
 };
 
+export type JoinedRoom<Loadout> = {
+  roomId: string;
+  loadout: Loadout;
+};
+
 export type UserStorageData<Config, Loadout, Rating> = {
+  player: Player;
+  activeGames: ActiveGame<Config>[];
+  ratings: Record<string, Rating>;
+  joinedRooms: JoinedRoom<Loadout>[];
+  queueEntries: QueueEntry<Loadout>[];
+  roomInvitations: RoomInvitation<Config>[];
+};
+
+export type LobbyUserData<Config, Loadout, Rating> = {
   player: Player;
   activeGames: ActiveGame<Config>[];
   ratings: Record<string, Rating>;
@@ -163,6 +177,55 @@ export class DB<
       throw new Error(`Queue ${queueId} not found`);
     }
     return queueConfig;
+  }
+
+  /**
+   * Builds lobby-friendly room entries from the user's joined room IDs/loadouts.
+   */
+  private async buildRoomEntries(
+    joinedRooms: JoinedRoom<Loadout>[],
+  ): Promise<RoomEntry<Config, Loadout>[]> {
+    const roomKeys = joinedRooms.map((joinedRoom) =>
+      getRoomKey(joinedRoom.roomId)
+    );
+    const roomRows = roomKeys.length === 0
+      ? []
+      : await this.kv.getMany<RoomStorageData<Config, Loadout>[]>(roomKeys);
+    const roomEntries: RoomEntry<Config, Loadout>[] = [];
+
+    for (let i = 0; i < joinedRooms.length; i++) {
+      const joinedRoom = joinedRooms[i];
+      const roomRow = roomRows[i];
+      if (roomRow.value == null) {
+        continue;
+      }
+      roomEntries.push({
+        roomId: joinedRoom.roomId,
+        numPlayers: roomRow.value.numPlayers,
+        players: roomRow.value.members.map((member) => member.player),
+        config: roomRow.value.config,
+        loadout: joinedRoom.loadout,
+      });
+    }
+
+    return roomEntries;
+  }
+
+  /**
+   * Hydrates storage user data into the lobby-facing user shape.
+   */
+  private async toLobbyUserData(
+    data: UserStorageData<Config, Loadout, Rating>,
+  ): Promise<LobbyUserData<Config, Loadout, Rating>> {
+    const roomEntries = await this.buildRoomEntries(data.joinedRooms);
+    return {
+      player: data.player,
+      activeGames: data.activeGames,
+      ratings: data.ratings,
+      roomEntries,
+      queueEntries: data.queueEntries,
+      roomInvitations: data.roomInvitations,
+    };
   }
 
   public async addToQueue(
@@ -322,15 +385,6 @@ export class DB<
         ],
       };
 
-      // Create the room entry object to add to roomEntries
-      const roomEntry2: RoomEntry<Config, Loadout> = {
-        roomId,
-        numPlayers: roomEntry.value.numPlayers,
-        players: updatedRoom.members.map((m) => m.player),
-        config: roomEntry.value.config,
-        loadout,
-      };
-
       const currentInvitations = userEntry.value.roomInvitations ?? [];
       const invitationsToConsume = options?.consumeInvitation
         ? currentInvitations.filter((invitation) =>
@@ -344,7 +398,7 @@ export class DB<
         : currentInvitations;
       const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value,
-        roomEntries: [...userEntry.value.roomEntries, roomEntry2],
+        joinedRooms: [...userEntry.value.joinedRooms, { roomId, loadout }],
         roomInvitations: updatedInvitations,
       };
 
@@ -622,13 +676,13 @@ export class DB<
 
       const nextMembers = members.toSpliced(memberIndex, 1);
 
-      // Remove this room from the user's roomEntries
-      const updatedRooms = userEntry.value.roomEntries.filter(
+      // Remove this room from the user's joinedRooms.
+      const updatedRooms = userEntry.value.joinedRooms.filter(
         (r) => r.roomId !== roomId,
       );
       const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value,
-        roomEntries: updatedRooms,
+        joinedRooms: updatedRooms,
       };
 
       transaction
@@ -772,7 +826,7 @@ export class DB<
         .set(roomListTriggerKey, {})
         .delete(roomKey);
 
-      // Fetch all user entries to update their joinedRooms
+      // Fetch all user entries to update their joinedRooms.
       const userKeys = userIds.map((userId) => getUserKey(userId));
       const userEntries = await this.kv.getMany<
         UserStorageData<Config, Loadout, Rating>[]
@@ -789,13 +843,13 @@ export class DB<
           throw new Error(`User ${userIds[i]} not found`);
         }
 
-        // Remove this room from the user's roomEntries
-        const updatedRooms = userEntry.value.roomEntries.filter(
+        // Remove this room from the user's joinedRooms.
+        const updatedRooms = userEntry.value.joinedRooms.filter(
           (r) => r.roomId !== roomId,
         );
         const updatedUser: UserStorageData<Config, Loadout, Rating> = {
           ...userEntry.value,
-          roomEntries: updatedRooms,
+          joinedRooms: updatedRooms,
         };
 
         transaction
@@ -1113,20 +1167,31 @@ export class DB<
     return entry.value;
   }
 
-  // Watches for changes to a single user's stored data.
-  public watchForUserChanges(
+  // Fetches lobby-facing user data with roomEntries hydrated from room records.
+  public async getLobbyUserData(
     userId: string,
-  ): ReadableStream<UserStorageData<Config, Loadout, Rating>> {
+  ): Promise<LobbyUserData<Config, Loadout, Rating> | null> {
+    const data = await this.getUserStorageData(userId);
+    if (data == null) {
+      return null;
+    }
+    return await this.toLobbyUserData(data);
+  }
+
+  // Watches for lobby-facing user data changes and hydrates roomEntries on each update.
+  public watchForLobbyUserChanges(
+    userId: string,
+  ): ReadableStream<LobbyUserData<Config, Loadout, Rating>> {
     const userKey = getUserKey(userId);
     const stream = this.kv.watch<UserStorageData<Config, Loadout, Rating>[]>([
       userKey,
     ]);
     return stream.pipeThrough(
       new TransformStream({
-        transform(events, controller) {
+        transform: async (events, controller) => {
           const data = events[0].value;
           if (data != null) {
-            controller.enqueue(data);
+            controller.enqueue(await this.toLobbyUserData(data));
           }
         },
       }),
