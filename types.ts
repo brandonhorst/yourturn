@@ -1,3 +1,58 @@
+// Server Types
+
+export interface Server<
+  Config,
+  GameState,
+  Move,
+  PlayerState,
+  PublicState,
+  Outcome,
+  Rating,
+  Loadout,
+> {
+  getUser(token: string): Promise<User>;
+
+  getInitialActivePublicGames(): Promise<ActiveGame<Config>[]>;
+
+  getInitialAvailablePublicRooms(): Promise<AvailableRoom<Config>[]>;
+
+  getInitialUserViewData(
+    user: User,
+  ): Promise<UserViewData<Config, Loadout, Rating>>;
+
+  getInitialRoomViewData(
+    user: User,
+    roomId: string,
+  ): Promise<RoomViewData<Config, Loadout, Rating>>;
+
+  getInitialGameViewData(
+    user: User,
+    gameId: string,
+  ): Promise<GameViewData<PlayerState, PublicState, Outcome>>;
+
+  configureSocket(user: User, socket: WebSocket): void;
+
+  acceptInvitation(user: User, invitationId: string): void;
+}
+
+// Client Types
+
+export interface Socket {
+  addMessageListener(handler: (message: string) => void): void;
+  removeMessageListener(handler: (message: string) => void): void;
+
+  addOpenListener(handler: () => void): void;
+  removeOpenListener(handler: () => void): void;
+
+  addCloseListener(handler: () => void): void;
+  removeCloseListener(handler: () => void): void;
+
+  close: () => void;
+  send: (message: string) => void;
+}
+
+// Utility Types
+//
 type AsJson<T> = T extends string | number | boolean | null ? T
   // deno-lint-ignore ban-types
   : T extends Function ? never
@@ -44,14 +99,10 @@ export type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
 
-export type Player = {
+export type User = {
+  userId: string;
   username: string;
   isGuest: boolean;
-};
-
-export type ChatMessage = {
-  player: Player;
-  message: string;
 };
 
 export type TokenData = {
@@ -182,18 +233,6 @@ export interface Game<
   ): Readonly<GameState>;
 
   /**
-   * Reserved for future time-based mechanics.
-   *
-   * @param state - Current immutable game state
-   * @param o - Refresh object containing configuration, timestamp, and player count
-   * @returns Timeout in milliseconds or undefined
-   */
-  refreshTimeout?(
-    state: Readonly<GameState>,
-    o: RefreshObject<Config>,
-  ): number | undefined;
-
-  /**
    * Creates a player-specific view of the game state. It will be
    * provided to Player clients, alongside the PublicState.
    *
@@ -281,86 +320,95 @@ export type QueueEntry<Loadout> = {
   loadout: Loadout;
 };
 
-export type LobbyProps<Config, Loadout, Rating> = {
-  allActiveGames: ActiveGame<Config>[];
-  allAvailableRooms: AvailableRoom<Config>[];
+// Room ViewData and Props
+
+export type RoomViewData<Config, Loadout> = {
+  numPlayers: number;
+  players: User[];
+  config: Config;
+  loadout: Loadout;
+};
+
+export type RoomProps<Config, Loadout> =
+  & RoomViewData<Config, Loadout>
+  & {
+    leaveRoom: () => void;
+  };
+
+// Game ViewData and Props
+
+type CompletePlayerGameViewData<PlayerState, PublicState, Outcome> = {
+  players: User[];
+  publicState: PublicState;
+  playerId: number;
+  playerState: PlayerState;
+  outcome: Outcome;
+};
+
+type IncompletePlayerGameViewData<PlayerState, PublicState> = {
+  players: User[];
+  publicState: PublicState;
+  playerId: number;
+  playerState: PlayerState;
+  outcome: undefined;
+};
+
+type CompleteObserverGameViewData<PublicState, Outcome> = {
+  players: User[];
+  publicState: PublicState;
+  playerId: undefined;
+  playerState: undefined;
+  outcome: Outcome;
+};
+
+type IncompleteObserverGameViewData<PublicState> = {
+  players: User[];
+  publicState: PublicState;
+  playerId: undefined;
+  playerState: undefined;
+  outcome: undefined;
+};
+
+export type GameViewData<PlayerState, PublicState, Outcome> =
+  | CompletePlayerGameViewData<PlayerState, PublicState, Outcome>
+  | IncompletePlayerGameViewData<PlayerState, PublicState>
+  | CompleteObserverGameViewData<PublicState, Outcome>
+  | IncompleteObserverGameViewData<PublicState>;
+
+type IncompletePlayerGameProps<Move, PlayerState, PublicState> =
+  & IncompletePlayerGameViewData<PlayerState, PublicState>
+  & {
+    perform: (move: Move) => void;
+  };
+
+type CompletePlayerGameProps<PlayerState, PublicState, Outcome> =
+  & CompletePlayerGameViewData<PlayerState, PublicState, Outcome>
+  & { perform: undefined };
+
+type ObserverGameProps<PublicState, Outcome> =
+  & (
+    | CompleteObserverGameViewData<PublicState, Outcome>
+    | IncompleteObserverGameViewData<PublicState>
+  )
+  & { perform: undefined };
+
+export type GameProps<Move, PlayerState, PublicState, Outcome> =
+  | CompletePlayerGameProps<PlayerState, PublicState, Outcome>
+  | IncompletePlayerGameProps<Move, PlayerState, PublicState>
+  | ObserverGameProps<PublicState, Outcome>;
+
+// User Matchmaking ViewData and Props
+
+export type UserMatchmakingViewData<Config, Loadout, Rating> = {
   userActiveGames: ActiveGame<Config>[];
-  player: Player;
   ratings: Record<string, Rating>;
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
   roomInvitations: RoomInvitation<Config>[];
 };
 
-type CompletePlayerProps<PlayerState, PublicState, Outcome> = {
-  players: Player[];
-  publicState: PublicState;
-  playerId: number;
-  playerState: PlayerState;
-  outcome: Outcome;
-  chat: ChatMessage[];
-};
-
-type IncompletePlayerProps<PlayerState, PublicState> = {
-  players: Player[];
-  publicState: PublicState;
-  playerId: number;
-  playerState: PlayerState;
-  outcome: undefined;
-  chat: ChatMessage[];
-};
-
-type CompleteObserverProps<PublicState, Outcome> = {
-  players: Player[];
-  publicState: PublicState;
-  playerId: undefined;
-  playerState: undefined;
-  outcome: Outcome;
-  chat: ChatMessage[];
-};
-
-type IncompleteObserverProps<PublicState> = {
-  players: Player[];
-  publicState: PublicState;
-  playerId: undefined;
-  playerState: undefined;
-  outcome: undefined;
-  chat: ChatMessage[];
-};
-
-export type GameProps<PlayerState, PublicState, Outcome> =
-  | CompletePlayerProps<PlayerState, PublicState, Outcome>
-  | IncompletePlayerProps<PlayerState, PublicState>
-  | CompleteObserverProps<PublicState, Outcome>
-  | IncompleteObserverProps<PublicState>;
-
-type IncompletePlayerViewProps<Move, PlayerState, PublicState> =
-  & IncompletePlayerProps<PlayerState, PublicState>
-  & {
-    perform: (move: Move) => void;
-    sendChatMessage: (message: string) => void;
-  };
-
-type CompletePlayerViewProps<PlayerState, PublicState, Outcome> =
-  & CompletePlayerProps<PlayerState, PublicState, Outcome>
-  & { perform: undefined; sendChatMessage: (message: string) => void };
-
-type ObserveViewProps<PublicState, Outcome> =
-  & (
-    | CompleteObserverProps<PublicState, Outcome>
-    | IncompleteObserverProps<
-      PublicState
-    >
-  )
-  & { perform: undefined; sendChatMessage: (message: string) => void };
-
-export type GameViewProps<Move, PlayerState, PublicState, Outcome> =
-  | CompletePlayerViewProps<PlayerState, PublicState, Outcome>
-  | IncompletePlayerViewProps<Move, PlayerState, PublicState>
-  | ObserveViewProps<PublicState, Outcome>;
-
-export type LobbyViewProps<Config, Loadout, Rating> =
-  & LobbyProps<Config, Loadout, Rating>
+export type UserMatchmakingProps<Config, Loadout, Rating> =
+  & UserMatchmakingViewData<Config, Loadout, Rating>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     createAndJoinRoom: (
@@ -375,3 +423,23 @@ export type LobbyViewProps<Config, Loadout, Rating> =
     leaveRoom: (roomId: string) => void;
     updateUsername: (username: string) => void;
   };
+
+// Available Public Rooms ViewData and Props
+
+export type AvailablePublicRoomsViewData<Config> = {
+  availablePublicRooms: AvailableRoom<Config>[];
+};
+
+export type AvailablePublicRoomsProps<Config> = AvailablePublicRoomsViewData<
+  Config
+>;
+
+// Active Public Games ViewData and Props
+
+export type ActivePublicGamesViewData<Config> = {
+  activePublicGames: ActiveGame<Config>[];
+};
+
+export type ActivePublicGamesProps<Config> = ActivePublicGamesViewData<
+  Config
+>;

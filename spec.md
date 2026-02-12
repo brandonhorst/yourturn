@@ -4,7 +4,7 @@
 
 This spec describes the current architecture and behavior of the `yourturn`.
 
-The project is a Deno module with three public entry points:
+The project is a Deno module with three public entry points, already defined:
 
 - `./server` (`server.ts`)
 - `./hooks` (`hooks.ts`)
@@ -21,6 +21,9 @@ provides:
 - shared type contracts for games, views, and socket payloads
 
 ### 1.1 Generic Explantions
+
+Developers are intended to create a `Game` object and define the following
+generic properties:
 
 - Config: Configuration options for the game (e.g. game length, ruleset, board
   size)
@@ -39,60 +42,56 @@ provides:
 ### 1.2 Authentication Concepts
 
 - A "User" represents a user account.
-- A "token" is a string that indicates a User's authentication status. It is
-  intended to be used by
+- A "token" is a string that can point to a "TokenData" object stored in the DB
+  to represent a User's authentication status. It is intended that developers
+  will store it to a cookie.
 
 ### 1.3 Matchmaking Concepts
 
-- A "Queue" is a defined statically on the Game object, with a set Config. It is
+- A "Game" represents an instance of a Game that has already started (and may
+  already have completed).
+- A "Queue" is defined statically by the developer, with a set Config. It is
   used for automatic matchmaking, and can be used to support ranked play.
+- A "QueueEntry" represents a user's entry into a Queue.
+- An "Assignment" represents a user's assignment to a Game, after "graduating"
+  from a Queue.
 - A "Room" is used for individual matchmaking, either by users joining public
-  rooms, or being invited to rooms.
+  rooms, or being invited to rooms. Once full, a Room can be "committed" to
+  create a Game.
 - An "Invitation" represents a request to join a Room.
+- An "ActiveGame" represents a game that is currently in progress.
+- An "AvailableRoom" represents a room that is currently available for joining.
 
-## 2. Public module exports
+### 1.4 Data Concepts
 
-### 2.1 `server.ts`
+- "ViewData" objects are JSON-serializable data required to render the various
+  UIs. They are used for initial page rendering with the `getInitial*ViewData`
+  methods, and can be subscribed to with sockets to process changes.
+- "Props" objects are provided to the actual Preact components, and include
+  ViewData objects as well as additional convenience accessors, and functions
+  for communicating over a socket.
 
-```ts
-export async function initializeServer<
-  Config,
-  GameState,
-  Move,
-  PlayerState,
-  PublicState,
-  Outcome,
-  Rating,
-  Loadout,
->(
-  game: Game<
-    Config,
-    GameState,
-    Move,
-    PlayerState,
-    PublicState,
-    Outcome,
-    Rating,
-    Loadout
-  >,
-): Promise<
-  Server<
-    Config,
-    GameState,
-    Move,
-    PlayerState,
-    PublicState,
-    Outcome,
-    Rating,
-    Loadout
-  >
->;
-```
+## 3. WebSocket protocol
 
-Behavior:
+All socket payloads are JSON and discriminated by `type`. These are not part of
+the public API, but are already defined in `./common/sockettypes.ts`.
+
+`SocketClientMessage` are messages sent from the client to the server, and
+`SocketServerMessage` are messages sent from the server to the client.
+
+### 3.1 Subscription model
+
+- `Subscribe*` messages kick off watching the db for changes
+- client sends current snapshot on subscribe; server uses this as baseline to
+  avoid redundant initial updates
+- `Unsubscribe*` messages detaches from current stream group
+
+## 4. Server runtime behavior
+
+`InternalServer` class (in `server/gameserver.ts`) is the main orchestrator.
 
 - opens Deno KV with `Deno.openKv()`
-- creates `DB` instance
+- creates `DB` instance, injecting KV
 - creates two KV-backed global streams:
   - active public game list changes
   - available public room list changes
@@ -100,310 +99,9 @@ Behavior:
 - returns `Server` wrapper that exposes high-level server methods for auth,
   socket setup, and SSR
 
-```ts
-interface Server {
-  async getUser(token: string): Promise<User>
+###
 
-  async getInitialLobbyProps(
-    user: User
-  ): Promise<LobbyViewData<Config, Loadout, Rating>>
-
-  async getInitialRoomProps(
-    user: User
-  ): Promise<RoomViewData<Config, Loadout, Rating>>
-
-  async getInitialGameProps(
-    user: User,
-    gameId: string,
-  ): Promise<GameViewData<PlayerState, PublicState, Outcome>>
-
-  async configureSocket(user: User, socket: WebSocket)
-
-  async acceptInvitation(user: User, invitationId: string)
-}
-```
-
-### 2.2 `hooks.ts`
-
-```ts
-export { useLobbySocket } from "./client/lobbyhooks.ts";
-export { useGameSocket } from "./client/gamehooks.ts";
-export { useSocket } from "./client/hookutils.ts";
-```
-
-### 2.3 `types.ts` (key public contracts)
-
-#### JSON/clone constraints
-
-```ts
-export type JSONValue = AsJson<any>;
-```
-
-`Game` generics are constrained so:
-
-- `Config`, `GameState` must be structured-clone compatible
-- `Move`, `PlayerState`, `PublicState`, `Outcome`, `Rating`, `Loadout` must be
-  JSON-serializable
-
-#### Core game interface
-
-```ts
-export interface Game<
-  Config extends StructuredCloneValue,
-  GameState extends StructuredCloneValue,
-  Move extends JSONValue,
-  PlayerState extends JSONValue,
-  PublicState extends JSONValue,
-  Outcome extends JSONValue,
-  Rating extends JSONValue,
-  Loadout extends JSONValue,
-> {
-  queues: { [id: string]: QueueConfig<Config> };
-  setup(o: SetupObject<Config, Loadout>): Readonly<GameState>;
-  isValidMove(state: Readonly<GameState>, o: MoveObject<Config, Move>): boolean;
-  isValidLoadout?(loadout: Loadout, config: Config): boolean;
-  isValidRoom?(config: Config): boolean;
-  processMove(
-    state: Readonly<GameState>,
-    o: MoveObject<Config, Move>,
-  ): Readonly<GameState>;
-  playerState(
-    state: Readonly<GameState>,
-    o: PlayerStateObject<Config>,
-  ): PlayerState;
-  publicState(
-    state: Readonly<GameState>,
-    o: PublicStateObject<Config>,
-  ): PublicState;
-  outcome(
-    state: Readonly<GameState>,
-    o: OutcomeObject<Config>,
-  ): Outcome | undefined;
-  initialRating(): Rating;
-  processOutcome(outcome: Outcome, currentRatings: Rating[]): Rating[];
-}
-```
-
-#### Shared domain types
-
-```ts
-export type User = { userId: string; username: string; isGuest: boolean };
-export type TokenData = { userId: string; expiration: Date };
-
-export type QueueConfig<Config> = {
-  numPlayers: number;
-  config: Config;
-  queueType: "ranked" | "unranked";
-};
-
-export type ActiveGame<Config> = {
-  gameId: string;
-  users: User[];
-  config: Config;
-  created: Date;
-};
-
-export type AvailableRoom<Config> = {
-  roomId: string;
-  numPlayers: number;
-  users: User[];
-  config: Config;
-};
-
-export type RoomInvitation<Config> = {
-  invitationId: string;
-  roomId: string;
-  numPlayers: number;
-  config: Config;
-  invitedBy: Player;
-  invitedAt: Date;
-};
-
-export type RoomEntry<Config, Loadout> = {
-  roomId: string;
-  numPlayers: number;
-  players: Player[];
-  config: Config;
-  loadout: Loadout;
-};
-
-export type QueueEntry<Loadout> = { queueId: string; loadout: Loadout };
-```
-
-#### Lobby/Game props and view contracts
-
-```ts
-type CompletePlayerViewData<PlayerState, PublicState, Outcome> = {
-  players: Player[];
-  publicState: PublicState;
-  playerId: number;
-  playerState: PlayerState;
-  outcome: Outcome;
-};
-
-type IncompletePlayerViewData<PlayerState, PublicState> = {
-  players: Player[];
-  publicState: PublicState;
-  playerId: number;
-  playerState: PlayerState;
-  outcome: undefined;
-};
-
-type CompleteObserverViewData<PublicState, Outcome> = {
-  players: Player[];
-  publicState: PublicState;
-  playerId: undefined;
-  playerState: undefined;
-  outcome: Outcome;
-};
-
-type IncompleteObserverViewData<PublicState> = {
-  players: Player[];
-  publicState: PublicState;
-  playerId: undefined;
-  playerState: undefined;
-  outcome: undefined;
-};
-
-export type GameViewData<PlayerState, PublicState, Outcome> =
-  | CompletePlayerViewData<PlayerState, PublicState, Outcome>
-  | IncompletePlayerViewData<PlayerState, PublicState>
-  | CompleteObserverViewData<PublicState, Outcome>
-  | IncompleteObserveViewData<PublicState>;
-
-type IncompletePlayerProps<Move, PlayerState, PublicState> =
-  IncompletePlayerViewData<PlayerState, PublicState> & {
-    perform: (move: Move) => void;
-  };
-
-type CompletePlayerProps<PlayerState, PublicState, Outcome> =
-  CompletePlayerViewData<PlayerState, PublicState, Outcome> & {
-    perform: undefined;
-  };
-
-type ObserveProps<PublicState, Outcome> = (
-  | CompleteObserverViewData<PublicState, Outcome>
-  | IncompleteObserverViewData<PublicState>
-) & { perform: undefined };
-
-export type GameProps<Move, PlayerState, PublicState, Outcome> =
-  | CompletePlayerProps<PlayerState, PublicState, Outcome>
-  | IncompletePlayerProps<Move, PlayerState, PublicState>
-  | ObserveProps<PublicState, Outcome>;
-
-export type LobbyViewData<Config, Loadout, Rating> = {
-  user: User;
-  allActiveGames: ActiveGame<Config>[];
-  allAvailableRooms: AvailableRoom<Config>[];
-  userActiveGames: ActiveGame<Config>[];
-  ratings: Record<string, Rating>;
-  roomEntries: RoomEntry<Config, Loadout>[];
-  queueEntries: QueueEntry<Loadout>[];
-  roomInvitations: RoomInvitation<Config>[];
-};
-
-export type LobbyProps<Config, Loadout, Rating> = LobbyViewData<
-  Config,
-  Loadout,
-  Rating
-> & {
-  joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
-  createAndJoinRoom: (
-    options: { config: Config; numPlayers: number; private: boolean },
-    player: { loadout: Loadout },
-  ) => void;
-  createInvitation: (roomId: string) => string;
-  joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
-  inviteUser: (roomId: string, userId: string) => void;
-  commitRoom: (roomId: string) => void;
-  leaveQueue: (queueId: string) => void;
-  leaveRoom: (roomId: string) => void;
-};
-```
-
-## 3. WebSocket protocol
-
-All socket payloads are JSON and discriminated by `type`.
-
-### 3.1 Client -> Server (`SocketClientMessage`)
-
-```ts
-export type SocketClientMessage<
-  Config,
-  Loadout,
-  Move,
-  PlayerState,
-  PublicState,
-> =
-  | {
-      type: "SubscribeLobby";
-      allActiveGames: ActiveGame<Config>[];
-      allAvailableRooms: AvailableRoom<Config>[];
-    }
-  | {
-      type: "SubscribeGame";
-      gameId: string;
-      currentPublicState: PublicState;
-      currentPlayerState?: PlayerState;
-    }
-  | { type: "UnsubscribeLobby" }
-  | { type: "UnsubscribeGame"; gameId: string }
-  | { type: "JoinQueue"; queueId: string; loadout: Loadout }
-  | {
-      type: "CreateAndJoinRoom";
-      config: Config;
-      numPlayers: number;
-      private: boolean;
-      loadout: Loadout;
-    }
-  | { type: "JoinRoom"; roomId: string; loadout: Loadout }
-  | { type: "InviteUser"; roomId: string; userId: string }
-  | { type: "CreateInvitation"; roomId: string; invitationId: string }
-  | { type: "CommitRoom"; roomId: string }
-  | { type: "LeaveQueue"; queueId: string }
-  | { type: "LeaveRoom"; roomId: string }
-  | { type: "Move"; gameId: string; move: Move };
-```
-
-### 3.2 Server -> Client (`SocketServerMessage`)
-
-```ts
-export type SocketServerMessage<
-  Config,
-  Loadout,
-  Rating,
-  PlayerState,
-  PublicState,
-  Outcome,
-> =
-  | {
-      type: "UpdateLobbyProps";
-      lobbyProps: Partial<LobbyProps<Config, Loadout, Rating>>;
-    }
-  | { type: "UpdateRoomEntry"; roomEntry: RoomEntry<Config, Loadout> }
-  | { type: "RemoveRoomEntry"; roomId: string }
-  | { type: "GameAssignment"; gameId: string }
-  | { type: "DisplayError"; message: string }
-  | {
-      type: "UpdateGameState";
-      publicState: PublicState;
-      playerState: PlayerState | undefined;
-      outcome: Outcome | undefined;
-    };
-```
-
-### 3.3 Subscription model
-
-- `SubscribeLobby`/`SubscribeGame` kick off watching the db for changes
-- client sends current snapshot on subscribe; server uses this as baseline to
-  avoid redundant initial updates
-- `Unsubscribe*` detaches from current stream group
-
-## 4. Server runtime behavior
-
-`Server` class (in `server/gameserver.ts`) is the main orchestrator.
-
-### 4.1 `getInitialLobbyProps(token, invitationId?)`
+### 4.1 `getInitialUserViewData(user)`
 
 - always fetches global lists: active games and available rooms
 - if token exists and is unexpired, loads existing user lobby data

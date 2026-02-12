@@ -1,18 +1,46 @@
 import type {
-  ActiveGame,
-  AvailableRoom,
-  ChatMessage,
-  LobbyProps,
-  RoomEntry,
+  ActivePublicGamesViewData,
+  AvailablePublicRoomsViewData,
+  GameViewData,
+  RoomViewData,
+  UserMatchmakingViewData,
 } from "../types.ts";
 
-export type LobbyClientMessage<Config, Loadout> =
+export type SocketClientMessage<
+  Config,
+  Move,
+  PublicState,
+  PlayerState,
+  Loadout,
+  Rating,
+> =
+  // Subscription
   | {
-    type: "Subscribe";
-    allActiveGames: ActiveGame<Config>[];
-    allAvailableRooms: AvailableRoom<Config>[];
+    type: "SubscribeUserMatchmaking";
+    currentViewData: UserMatchmakingViewData<Config, Loadout, Rating>;
   }
-  | { type: "Unsubscribe" }
+  | { type: "UnsubscribeUserMatchmaking" }
+  | {
+    type: "SubscribeGame";
+    currentViewData: GameViewData<Config, Loadout, Rating>;
+  }
+  | { type: "UnsubscribeGame" }
+  | {
+    type: "SubscribeRoom";
+    currentViewData: RoomViewData<Config, Loadout>;
+  }
+  | { type: "UnsubscribeRoom" }
+  | {
+    type: "SubscribeActivePublicGames";
+    currentViewData: ActivePublicGamesViewData<Config>;
+  }
+  | { type: "UnsubscribeActivePublicGames" }
+  | {
+    type: "SubscribeAvailablePublicRooms";
+    currentViewData: AvailablePublicRoomsViewData<Config>;
+  }
+  | { type: "UnsubscribeAvailablePublicRooms" }
+  // UserMatchmaking actions
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | {
     type: "CreateAndJoinRoom";
@@ -22,41 +50,42 @@ export type LobbyClientMessage<Config, Loadout> =
     loadout: Loadout;
   }
   | { type: "JoinRoom"; roomId: string; loadout: Loadout }
+  | { type: "LeaveQueue"; queueId: string }
+  // Room actions
+  | { type: "LeaveRoom"; roomId: string }
+  | { type: "CommitRoom"; roomId: string }
   | { type: "InviteUser"; roomId: string; userId: string }
   | { type: "CreateInvitation"; roomId: string; invitationId: string }
-  | { type: "CommitRoom"; roomId: string }
-  | { type: "LeaveQueue"; queueId: string }
-  | { type: "LeaveRoom"; roomId: string }
-  | { type: "UpdateUsername"; username: string };
+  // Game actions
+  | { type: "PerformMove"; move: Move };
 
-export type LobbyServerMessage<Config, Loadout, Rating> =
+export type SocketServerMessage<
+  Config,
+  PlayerState,
+  PublicState,
+  Outcome,
+  Loadout,
+  Rating,
+> =
   | {
-    type: "UpdateLobbyProps";
-    lobbyProps: Partial<LobbyProps<Config, Loadout, Rating>>;
+    type: "UpdateUserMatchmaking";
+    viewData: Partial<UserMatchmakingViewData<Config, Loadout, Rating>>;
   }
   | {
-    type: "UpdateRoomEntry";
-    roomEntry: RoomEntry<Config, Loadout>;
+    type: "UpdateRoom";
+    viewData: Partial<RoomViewData<Config, Loadout>>;
   }
-  | { type: "RemoveRoomEntry"; roomId: string }
+  | {
+    type: "UpdateGame";
+    viewData: Partial<GameViewData<PlayerState, PublicState, Outcome>>;
+  }
+  | {
+    type: "UpdateActivePublicGames";
+    viewData: Partial<ActivePublicGamesViewData<Config>>;
+  }
+  | {
+    type: "UpdateAvailablePublicRooms";
+    viewData: Partial<AvailablePublicRoomsViewData<Config>>;
+  }
   | { type: "GameAssignment"; gameId: string }
   | { type: "DisplayError"; message: string };
-
-export type GameClientMessage<Move, PlayerState, PublicState> =
-  | {
-    type: "Subscribe";
-    currentPublicState: PublicState;
-    currentPlayerState?: PlayerState;
-    currentChat: ChatMessage[];
-  }
-  | { type: "Unsubscribe" }
-  | { type: "Move"; move: Move }
-  | { type: "ChatMessage"; message: string };
-
-export type GameServerMessage<PlayerState, PublicState, Outcome> = {
-  type: "UpdateGameState";
-  publicState: PublicState;
-  playerState: PlayerState | undefined;
-  outcome: Outcome | undefined;
-  chat: ChatMessage[];
-};
