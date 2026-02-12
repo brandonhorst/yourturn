@@ -5,7 +5,7 @@ export interface Socket {
     name: string,
     handler: (event: MessageEvent) => void,
   ) => void;
-  removeEventListener?: (
+  removeEventListener: (
     name: string,
     handler: (event: MessageEvent) => void,
   ) => void;
@@ -18,11 +18,11 @@ export interface Socket {
 // backoff and sends `initializeMessage` whenever a connection opens.
 export function useSocket<Req, Res>(
   shouldOpen: boolean,
-  createSocket: () => Socket,
+  socketUrl: string,
   initializeMessage: Req,
   onMessage: (res: Res, close: () => void) => void,
   onClose?: () => void,
-): (request: Req) => void {
+): Socket {
   const ws = useRef<Socket | null>(null);
   const closedIntentionally = useRef(false);
   const reconnectAttempt = useRef(0);
@@ -34,7 +34,7 @@ export function useSocket<Req, Res>(
   };
 
   const connectWebSocket = () => {
-    ws.current = createSocket();
+    ws.current = new WebSocket(socketUrl);
 
     ws.current.addEventListener("open", () => {
       console.log("WebSocket opened");
@@ -81,7 +81,25 @@ export function useSocket<Req, Res>(
     }
   }, []);
 
-  return (request: Req) => {
-    ws.current?.send(JSON.stringify(request));
+  return {
+    addEventListener: (
+      name: string,
+      handler: (event: MessageEvent) => void,
+    ) => {
+      ws.current?.addEventListener(name, handler);
+    },
+    removeEventListener: (
+      name: string,
+      handler: (event: MessageEvent) => void,
+    ) => {
+      ws.current?.removeEventListener(name, handler);
+    },
+    send: (msg: string) => {
+      ws.current?.send(msg);
+    },
+    close: () => {
+      closedIntentionally.current = true;
+      ws.current?.close();
+    },
   };
 }

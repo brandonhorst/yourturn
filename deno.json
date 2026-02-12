@@ -16,7 +16,7 @@
     "linkedom": "npm:linkedom@0.18.12"
   },
   "tasks": {
-    "check": "deno fmt && deno lint && deno check",
+    "check": "deno fmt && deno lint && deno check"
   },
   "unstable": ["kv"],
   "compilerOptions": {
