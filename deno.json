@@ -17,7 +17,6 @@
   },
   "tasks": {
     "check": "deno fmt && deno lint && deno check",
-    "test": "deno test --allow-env"
   },
   "unstable": ["kv"],
   "compilerOptions": {

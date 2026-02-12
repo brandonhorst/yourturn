@@ -21,24 +21,6 @@ as some internal state.
 
 `types` contains definitions of types used by both sides.
 
-## Development Commands
-
-### Testing
-
-```sh
-deno task test
-```
-
-### Running Specific Tests
-
-To run a specific test file:
-
-```sh
-deno test server/db.test.ts
-```
-
-Tests are co-located with the code they cover and use the `.test.ts` suffix.
-
 ## Architecture
 
 ### Core Exports
@@ -111,8 +93,7 @@ Each socket type has its own message protocol defined in
 
 ## Agent Instructions
 
-- When making changes, ALWAYS run `deno task check` and `deno task test` and fix
-  errors.
+- When making changes, ALWAYS run `deno task check` and fix errors.
 - Ensure all functions have good comments that explain their purpose.
 - Do not use the `unknown` type unless instructed to do so.
 - Right now, this system is unlaunched and in active development. Do not worry
