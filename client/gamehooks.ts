@@ -1,16 +1,14 @@
-import { useCallback, useState } from "preact/hooks";
-import { useSocket } from "../client/hookutils.ts";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type {
   GameClientMessage,
   GameServerMessage,
 } from "../common/sockettypes.ts";
+import type { Socket } from "../client/hookutils.ts";
 import type { GameProps, GameViewProps } from "../types.ts";
 
-// Opens an auto-reconnecting WebSocket to a given Game URL.
-// Returns an always up-to-date view of the game and optionally a move handler.
-// Closes the socket if the game completes.
+// Subscribes an already-open game socket
 export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
-  socketUrl: string,
+  socket: Socket,
   initialGameProps: GameProps<PlayerState, PublicState, Outcome>,
 ): GameViewProps<Move, PlayerState, PublicState, Outcome> {
   const playerId = initialGameProps.playerId;
@@ -25,37 +23,78 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   const [outcome, setOutcome] = useState<Outcome | undefined>(
     initialGameProps.outcome,
   );
+  const chatRef = useRef(chat);
+  const playerStateRef = useRef(playerState);
+  const publicStateRef = useRef(publicState);
+  const outcomeRef = useRef(outcome);
 
-  function onMessage(
-    response: GameServerMessage<PlayerState, PublicState, Outcome>,
-    close: () => void,
-  ) {
-    switch (response.type) {
-      case "UpdateGameState":
-        setOutcome(response.outcome);
-        setPublicState(response.publicState);
-        setPlayerState(response.playerState);
-        setChat(response.chat);
-        if (response.outcome !== undefined) {
-          close();
-        }
-        break;
+  chatRef.current = chat;
+  playerStateRef.current = playerState;
+  publicStateRef.current = publicState;
+  outcomeRef.current = outcome;
+
+  useEffect(() => {
+    let subscribeSent = false;
+
+    function sendSubscribe() {
+      if (subscribeSent || outcomeRef.current !== undefined) {
+        return;
+      }
+
+      const request: GameClientMessage<Move, PlayerState, PublicState> = {
+        type: "Subscribe",
+        currentPublicState: publicStateRef.current,
+        currentPlayerState: playerStateRef.current,
+        currentChat: chatRef.current,
+      };
+      socket.send(JSON.stringify(request));
+      subscribeSent = true;
     }
-  }
 
-  const send = useSocket<
-    GameClientMessage<Move, PlayerState, PublicState>,
-    GameServerMessage<PlayerState, PublicState, Outcome>
-  >(
-    initialGameProps.outcome === undefined,
-    () => new WebSocket(socketUrl),
-    {
-      type: "Subscribe",
-      currentPublicState: publicState,
-      currentPlayerState: playerState,
-      currentChat: chat,
+    function onOpen() {
+      sendSubscribe();
+    }
+
+    function onMessage(event: MessageEvent) {
+      const response = JSON.parse(event.data) as GameServerMessage<
+        PlayerState,
+        PublicState,
+        Outcome
+      >;
+      switch (response.type) {
+        case "UpdateGameState":
+          setOutcome(response.outcome);
+          setPublicState(response.publicState);
+          setPlayerState(response.playerState);
+          setChat(response.chat);
+          if (response.outcome !== undefined) {
+            socket.close();
+          }
+          break;
+      }
+    }
+
+    socket.addEventListener("message", onMessage);
+    socket.addEventListener("open", onOpen);
+    if (outcomeRef.current === undefined) {
+      try {
+        sendSubscribe();
+      } catch {
+        // The socket may still be connecting; we'll subscribe once it opens.
+      }
+    }
+
+    return () => {
+      socket.removeEventListener?.("message", onMessage);
+      socket.removeEventListener?.("open", onOpen);
+    };
+  }, [socket]);
+
+  const send = useCallback(
+    (request: GameClientMessage<Move, PlayerState, PublicState>) => {
+      socket.send(JSON.stringify(request));
     },
-    onMessage,
+    [socket],
   );
 
   const performCallback = useCallback((move: Move) => {

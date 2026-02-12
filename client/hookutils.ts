@@ -5,13 +5,17 @@ export interface Socket {
     name: string,
     handler: (event: MessageEvent) => void,
   ) => void;
+  removeEventListener?: (
+    name: string,
+    handler: (event: MessageEvent) => void,
+  ) => void;
   close: () => void;
   send: (data: string) => void;
 }
 
-// Hook that opens and manages a WebSocket connection to `socketUrl`, and calls `onUpdate` for JSON messages
-// Automatically reconnects on close with exponential backoff. Whenever a socket opens
-// it will send `initializeMessage,` if provided.
+// Hook that opens and manages a socket created by `createSocket`, then calls
+// `onMessage` for each JSON message. It reconnects on close with exponential
+// backoff and sends `initializeMessage` whenever a connection opens.
 export function useSocket<Req, Res>(
   shouldOpen: boolean,
   createSocket: () => Socket,

@@ -1,19 +1,20 @@
-import { useCallback, useState } from "preact/hooks";
-import { useSocket } from "../client/hookutils.ts";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type {
   LobbyClientMessage,
   LobbyServerMessage,
 } from "../common/sockettypes.ts";
+import type { Socket } from "../client/hookutils.ts";
 import type { LobbyProps, LobbyViewProps } from "../types.ts";
 import { ulid } from "@std/ulid";
 
+// Subscribes an already-open lobby socket
 export function useLobbySocket<Config, Loadout, Rating>({
-  socketUrl,
+  socket,
   initialLobbyProps,
   navigate,
   displayError,
 }: {
-  socketUrl: string;
+  socket: Socket;
   initialLobbyProps: LobbyProps<Config, Loadout, Rating>;
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
@@ -38,77 +39,117 @@ export function useLobbySocket<Config, Loadout, Rating>({
   const [roomInvitations, setRoomInvitations] = useState(
     initialLobbyProps.roomInvitations,
   );
+  const allActiveGamesRef = useRef(allActiveGames);
+  const allAvailableRoomsRef = useRef(allAvailableRooms);
 
-  function onUpdate(response: LobbyServerMessage<Config, Loadout, Rating>) {
-    switch (response.type) {
-      case "UpdateLobbyProps":
-        if (response.lobbyProps.allActiveGames != null) {
-          setActiveGames(response.lobbyProps.allActiveGames);
-        }
-        if (response.lobbyProps.allAvailableRooms != null) {
-          setAvailableRooms(response.lobbyProps.allAvailableRooms);
-        }
-        if (response.lobbyProps.player != null) {
-          setPlayer(response.lobbyProps.player);
-        }
-        if (response.lobbyProps.ratings != null) {
-          setRatings(response.lobbyProps.ratings);
-        }
-        if (response.lobbyProps.userActiveGames != null) {
-          setUserActiveGames(response.lobbyProps.userActiveGames);
-        }
-        if (response.lobbyProps.queueEntries != null) {
-          setQueueEntries(response.lobbyProps.queueEntries);
-        }
-        if (response.lobbyProps.roomInvitations != null) {
-          setRoomInvitations(response.lobbyProps.roomInvitations);
-        }
-        break;
-      case "UpdateRoomEntry":
-        setRoomEntries((existing) => {
-          const existingIndex = existing.findIndex((entry) =>
-            entry.roomId === response.roomEntry.roomId
-          );
-          if (existingIndex === -1) {
-            return [...existing, response.roomEntry];
-          }
+  allActiveGamesRef.current = allActiveGames;
+  allAvailableRoomsRef.current = allAvailableRooms;
 
-          const updated = [...existing];
-          updated[existingIndex] = response.roomEntry;
-          return updated;
-        });
-        break;
-      case "RemoveRoomEntry":
-        setRoomEntries((existing) =>
-          existing.filter((entry) => entry.roomId !== response.roomId)
-        );
-        break;
-      case "GameAssignment":
-        navigate(response.gameId);
-        break;
-      case "DisplayError":
-        displayError(response.message);
-        break;
+  useEffect(() => {
+    let subscribeSent = false;
+
+    function sendSubscribe() {
+      if (subscribeSent) {
+        return;
+      }
+
+      const request: LobbyClientMessage<Config, Loadout> = {
+        type: "Subscribe",
+        allActiveGames: allActiveGamesRef.current,
+        allAvailableRooms: allAvailableRoomsRef.current,
+      };
+      socket.send(JSON.stringify(request));
+      subscribeSent = true;
     }
-  }
 
-  function onClose() {
-    // Clear joined queues and rooms on socket close
-    setRoomEntries([]);
-    setQueueEntries([]);
-    setRoomInvitations([]);
-  }
+    function onOpen() {
+      sendSubscribe();
+    }
 
-  const send = useSocket<
-    LobbyClientMessage<Config, Loadout>,
-    LobbyServerMessage<Config, Loadout, Rating>
-  >(
-    true,
-    () => new WebSocket(socketUrl),
-    { type: "Subscribe", allActiveGames, allAvailableRooms },
-    onUpdate,
-    onClose,
-  );
+    function onMessage(event: MessageEvent) {
+      const response = JSON.parse(event.data) as LobbyServerMessage<
+        Config,
+        Loadout,
+        Rating
+      >;
+      switch (response.type) {
+        case "UpdateLobbyProps":
+          if (response.lobbyProps.allActiveGames != null) {
+            setActiveGames(response.lobbyProps.allActiveGames);
+          }
+          if (response.lobbyProps.allAvailableRooms != null) {
+            setAvailableRooms(response.lobbyProps.allAvailableRooms);
+          }
+          if (response.lobbyProps.player != null) {
+            setPlayer(response.lobbyProps.player);
+          }
+          if (response.lobbyProps.ratings != null) {
+            setRatings(response.lobbyProps.ratings);
+          }
+          if (response.lobbyProps.userActiveGames != null) {
+            setUserActiveGames(response.lobbyProps.userActiveGames);
+          }
+          if (response.lobbyProps.queueEntries != null) {
+            setQueueEntries(response.lobbyProps.queueEntries);
+          }
+          if (response.lobbyProps.roomInvitations != null) {
+            setRoomInvitations(response.lobbyProps.roomInvitations);
+          }
+          break;
+        case "UpdateRoomEntry":
+          setRoomEntries((existing) => {
+            const existingIndex = existing.findIndex((entry) =>
+              entry.roomId === response.roomEntry.roomId
+            );
+            if (existingIndex === -1) {
+              return [...existing, response.roomEntry];
+            }
+
+            const updated = [...existing];
+            updated[existingIndex] = response.roomEntry;
+            return updated;
+          });
+          break;
+        case "RemoveRoomEntry":
+          setRoomEntries((existing) =>
+            existing.filter((entry) => entry.roomId !== response.roomId)
+          );
+          break;
+        case "GameAssignment":
+          navigate(response.gameId);
+          break;
+        case "DisplayError":
+          displayError(response.message);
+          break;
+      }
+    }
+
+    function onClose() {
+      // Clear joined queues and rooms on socket close.
+      setRoomEntries([]);
+      setQueueEntries([]);
+      setRoomInvitations([]);
+    }
+
+    socket.addEventListener("message", onMessage);
+    socket.addEventListener("open", onOpen);
+    socket.addEventListener("close", onClose);
+    try {
+      sendSubscribe();
+    } catch {
+      // The socket may still be connecting; we'll subscribe once it opens.
+    }
+
+    return () => {
+      socket.removeEventListener?.("message", onMessage);
+      socket.removeEventListener?.("open", onOpen);
+      socket.removeEventListener?.("close", onClose);
+    };
+  }, [displayError, navigate, socket]);
+
+  const send = useCallback((request: LobbyClientMessage<Config, Loadout>) => {
+    socket.send(JSON.stringify(request));
+  }, [socket]);
 
   const joinQueue = useCallback(
     (queueId: string, options: { loadout: Loadout }) => {
