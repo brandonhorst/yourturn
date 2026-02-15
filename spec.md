@@ -1,6 +1,6 @@
 # `yourturn` Reimplementation Spec (Approximate)
 
-## 1. Scope and goals
+## Scope and goals
 
 This spec describes the current architecture and behavior of the `yourturn`.
 
@@ -20,7 +20,7 @@ provides:
 - client-side Preact hooks for creating and communicating over sockets
 - shared type contracts for games, views, and socket payloads
 
-### 1.1 Generic Explantions
+### Generic Explantions
 
 Developers are intended to create a `Game` object and define the following
 generic properties:
@@ -39,14 +39,14 @@ generic properties:
 - Loadout: Representation of a players pre-game choices (e.g. deck, starting
   position)
 
-### 1.2 Authentication Concepts
+### Authentication Concepts
 
 - A "User" represents a user account.
 - A "token" is a string that can point to a "TokenData" object stored in the DB
   to represent a User's authentication status. It is intended that developers
   will store it to a cookie.
 
-### 1.3 Matchmaking Concepts
+### Matchmaking Concepts
 
 - A "Game" represents an instance of a Game that has already started (and may
   already have completed).
@@ -62,7 +62,7 @@ generic properties:
 - An "ActiveGame" represents a game that is currently in progress.
 - An "AvailableRoom" represents a room that is currently available for joining.
 
-### 1.4 Data Concepts
+### Data Concepts
 
 - "ViewData" objects are JSON-serializable data required to render the various
   UIs. They are used for initial page rendering with the `getInitial*ViewData`
@@ -71,7 +71,7 @@ generic properties:
   ViewData objects as well as additional convenience accessors, and functions
   for communicating over a socket.
 
-## 3. WebSocket protocol
+## WebSocket protocol
 
 All socket payloads are JSON and discriminated by `type`. These are not part of
 the public API, but are already defined in `./common/sockettypes.ts`.
@@ -79,14 +79,14 @@ the public API, but are already defined in `./common/sockettypes.ts`.
 `SocketClientMessage` are messages sent from the client to the server, and
 `SocketServerMessage` are messages sent from the server to the client.
 
-### 3.1 Subscription model
+### Subscription model
 
 - `Subscribe*` messages kick off watching the db for changes
 - client sends current snapshot on subscribe; server uses this as baseline to
   avoid redundant initial updates
 - `Unsubscribe*` messages detaches from current stream group
 
-## 4. Server runtime behavior
+## Server runtime behavior
 
 `InternalServer` class (in `server/gameserver.ts`) is the main orchestrator.
 
@@ -99,131 +99,92 @@ the public API, but are already defined in `./common/sockettypes.ts`.
 - returns `Server` wrapper that exposes high-level server methods for auth,
   socket setup, and SSR
 
-###
+### `getUser(token)`
 
-### 4.1 `getInitialUserViewData(user)`
-
-- always fetches global lists: active games and available rooms
-- if token exists and is unexpired, loads existing user lobby data
-- if no valid user:
+- Looks up the token in the database. If it exists and is valid, returns the
+  associated user.
+- Otherwise:
   - creates guest user (`guest-0000` style, random 4-digit suffix, retries up to
     10k)
   - generates new token (`crypto.randomUUID()`)
-  - stores token with 30-day TTL (`expiration` timestamp only; cleanup is
-    logical on read)
-  - initializes ratings for all ranked queues via `initialRating()`
-  - if `invitationId` provided and exists, includes invitation in new user data
-- if valid user + `invitationId` exists and missing from user invitations,
-  merges it and persists
-- returns `{ props: LobbyProps, token }`
+- Write the token (the old valid one, or the newly-created guest one) to the db
+  with a fresh 30-day TTL (`expiration` timestamp only; cleanup done separately)
 
-### 4.2 `getInitialGameProps(gameId, token)`
+### `configureSocket
 
-- loads `GameStorageData`
-- resolves `playerId` from token user membership in `gameData.userIds`
-- computes public state via `game.publicState`
-- computes player state only when `playerId` exists
-- returns union-compatible `GameProps`
+### `getInitialActivePublicGames()` and `getInitialAvailablePublicRooms()`
 
-### 4.3 `configureSocket(socket, token)`
+- Fetched directly from DB
 
-- resolves `userId` from token once
+### `configureSocket(user, socket)`
+
 - registers `message` and `close` listeners
-- `close` always unsubscribes current subscription
-- per-message validation/enforcement:
-  - lobby-only operations require current subscription `lobby` and valid
-    `userId`/user
+- `close` always unsubscribes current subscriptions
+- handles all `./common/sockettypes.ts` messages appropriately
   - join/create room/loadout validation delegates to
     `game.isValidRoom`/`game.isValidLoadout`
   - queue existence validated against `game.queues`
   - room privacy enforced via invitation checks
-  - move only allowed during `game` subscription (requires player membership)
+  - ProcessMove requires player membership in the game
 - errors are generally surfaced via `{ type: "DisplayError", message }`
 
-## 5. Client hook behavior
+### `acceptInvitation(user, invitationId)`
 
-### 5.1 `useSocket`
+- Adds the given invitation to the user matchmaking's `invitations` array
 
-Signature:
+### `getInitial*ViewData`
 
-```ts
-export function useSocket<Req, Res>(
-  shouldOpen: boolean,
-  socketUrl: string,
-  initializeMessage: Req,
-  onMessage: (res: Res, close: () => void) => void,
-  onClose?: () => void,
-): Socket;
-```
+- Loads the current view data from the database. Used for SSR.
+
+## Client hook behavior
+
+### `useSocket`
 
 Behavior:
 
 - opens `WebSocket(socketUrl)` when mounted and `shouldOpen` is true
-- sends `initializeMessage` on open
-- parses every incoming message as JSON and forwards to `onMessage`
 - reconnects on unexpected close with exponential backoff:
   - delay `min(30000, 2^attempt - 1)` milliseconds
   - attempts reset to 0 on successful open
-- exposes `addEventListener`, `removeEventListener`, `send`, `close`
+- exposes the `Socket` interface
 
-### 5.2 `useLobbySocket`
+### `use*Channel`
 
 - attaches to an already-open socket
-- sends `SubscribeLobby` once per effect lifecycle (on open and best-effort
-  immediately)
-- handles server lobby messages:
-  - partial lobby prop updates
-  - display error -> callback
-- returns full `LobbyProps` with command wrappers that send corresponding client
-  messages
+- sends `Subscribe*` once per effect lifecycle (immediately if the socket is
+  open, or on open)
+- tracks the `*ViewData` within Preact state (useState hook)
+- handles viewData updates from the server
+- returns full `*Props`, with wrappers that send corresponding client messages
+- sends `Unsubscribe*` on unmount
+
+#### `useRoomChannel`
+
 - `createInvitation` generates `invitationId` locally using ULID and returns it
+- closes socket if room is deleted or committed
 
-### 5.3 `useGameSocket`
+#### `useGameChannel`
 
-- attaches to an already-open socket
-- sends `SubscribeGame` if game not complete locally
-- handles `UpdateGameState` and updates local state
 - closes socket when `outcome` becomes defined
 - `perform` is available only for player sessions (`playerId != null`)
 
-### 5.4 `userRoomSocket`
-
-- attaches to an already-open socket
-- sends `SubscribeRoom` once per effect lifecycle (on open and best-effort
-  immediately)
-- handles `UpdateRoom` and updates local state
-- closes socket if room is deleted or committed
-
-## 6. Persistence model (Deno KV keyspace)
+## Persistence model (Deno KV keyspace)
 
 This repo uses key prefixes as table-like partitions.
 
-### 6.1 Keyspaces and values
+### Keyspaces and values
 
+- `['tokens', token]` -> `TokenData`
+- `['users', userId]` -> `UserStorageData<Config, Loadout, Rating>`
+- `['activepublicgames']` -> `ActiveGame<Config>[]`
+- `['availablepublicrooms']` -> `AvailableRoom<Config>[]`
 - `['queueentry', queueId, entryId]` -> `QueueEntryValue<Loadout>`
-  - `{ timestamp, userId, user: Player, loadout }`
 - `['rooms', roomId]` -> `RoomStorageData<Config, Loadout>`
-  - `{ numPlayers, config, private, members: RoomMember[] }`
 - `['roominvitations', invitationId]` -> `RoomInvitation<Config>`
 - `['assignments', entryId]` -> `AssignmentStorageData`
-  - `{ gameId }`
-- `['roomlisttrigger']` -> marker object for room list invalidation
-- `['activegames']` -> `ActiveGame<Config>[]`
 - `['games', gameId]` -> `GameStorageData<Config, GameState, Outcome>`
-  - `{ config, queueId?, gameState, userIds, players, outcome }`
-- `['users', userId]` -> `UserStorageData<Config, Loadout, Rating>`
-  - `{ player, activeGames, ratings, joinedRooms, queueEntries, roomInvitations }`
-- `['usersByUsername', username]` -> `userId`
-- `['tokens', token]` -> `TokenData`
 
-### 6.2 Derived/hydrated lobby shape
-
-`LobbyUserData` is not stored directly. It is derived from `UserStorageData` by
-hydrating:
-
-- `joinedRooms` + room records -> `roomEntries`
-
-### 6.3 Transactional pattern
+### Transactional pattern
 
 Mutable operations use optimistic retries via:
 
@@ -243,9 +204,9 @@ async function repeatUntilTransactionSucceeds(
 The callback issues `.check(...)` guards and writes; if commit fails, retries
 indefinitely.
 
-## 7. Matchmaking, rooms, and game lifecycle
+## Matchmaking, rooms, and game lifecycle
 
-### 7.1 Queue flow
+### Queue flow
 
 - `addToQueue`:
   - asserts queue exists
@@ -260,7 +221,7 @@ indefinitely.
     - stores assignment per `entryId`
     - removes queue from each user's `queueEntries`
 
-### 7.2 Room flow
+### Room flow
 
 - `createRoom` creates room with empty members and toggles room list trigger
 - `addToRoom` validates existence/capacity/non-membership, appends member,
@@ -273,7 +234,7 @@ indefinitely.
   - removes room membership from each user's `joinedRooms`
   - deletes room and toggles room list trigger
 
-### 7.3 Invitation flow
+### Invitation flow
 
 - direct user invitations (`inviteUserToRoom`) create a new invitation ID,
   replace prior invite for same room in invitee list, and store invitation key
@@ -282,7 +243,7 @@ indefinitely.
 - invitation consumption during join removes both user invitation(s) for room
   and corresponding `roominvitations/*` records
 
-### 7.4 Game state and ratings
+### Game state and ratings
 
 - moves are validated with `isValidMove`; invalid moves are ignored
 - valid moves call `processMove`; game record updated with new state
@@ -295,20 +256,21 @@ indefinitely.
     - length must match player count
     - per-user ratings updated at key `ratings[queueId]`
 
-## 8. Stream/watch infrastructure
+## Stream/watch infrastructure
 
-### 8.1 DB watchers
+### DB watchers
 
 - `watchForAssignments(entryId)` -> emits assignment when present
 - `watchForRoomChanges(roomId)`-> emits`{type:'updated', room}` or
   `{type:'deleted'}`
 - `watchForGameChanges(gameId)` -> emits non-null game data updates
-- `watchForLobbyUserChanges(userId)` -> emits hydrated `LobbyUserData`
+- `watchForUserMatchmakingChanges(userId)` -> emits hydrated
+  `UserMatchmakingData`
 - `watchForActiveGameListChanges()` -> emits `ActiveGame[]` (defaults to `[]`)
 - `watchForAvailableRoomListChanges()` -> watches room trigger and emits full
   recomputed room list
 
-### 8.2 Socket store
+### Socket store
 
 `SocketStore` keeps per-socket connection state:
 
@@ -332,7 +294,7 @@ Responsibilities:
   - send `UpdateGameState` only when JSON snapshot changed
 - per-game watcher is cleaned up when last socket unsubscribes
 
-### 8.3. Equality and update suppression
+### Equality and update suppression
 
 `jsonEquals(a, b)` is implemented as `JSON.stringify(a) === JSON.stringify(b)`.
 
@@ -340,9 +302,7 @@ This drives suppression of redundant lobby/game updates. Reimplementations
 should preserve this semantic (including ordering sensitivity inherent in
 stringification).
 
-## 10. Error handling semantics
+## Error handling semantics
 
 - many DB and server methods throw on invalid state (missing rows, duplicates,
   etc.)
-- socket layer often catches and maps failures to `DisplayError`, if they could
-  be resolved by the end user

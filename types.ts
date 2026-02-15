@@ -10,7 +10,7 @@ export interface Server<
   Rating,
   Loadout,
 > {
-  getUser(token: string): Promise<User>;
+  getUser(token: string | undefined): Promise<{ user: User; token: string }>;
 
   getInitialActivePublicGames(): Promise<ActiveGame<Config>[]>;
 
@@ -18,12 +18,12 @@ export interface Server<
 
   getInitialUserViewData(
     user: User,
-  ): Promise<UserViewData<Config, Loadout, Rating>>;
+  ): Promise<UserMatchmakingViewData<Config, Loadout, Rating>>;
 
   getInitialRoomViewData(
     user: User,
     roomId: string,
-  ): Promise<RoomViewData<Config, Loadout, Rating>>;
+  ): Promise<RoomViewData<Config, Loadout>>;
 
   getInitialGameViewData(
     user: User,

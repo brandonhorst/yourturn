@@ -87,5 +87,4 @@ export type SocketServerMessage<
     type: "UpdateAvailablePublicRooms";
     viewData: Partial<AvailablePublicRoomsViewData<Config>>;
   }
-  | { type: "GameAssignment"; gameId: string }
-  | { type: "DisplayError"; message: string };
+  | { type: "GameAssignment"; gameId: string };

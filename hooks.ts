@@ -15,11 +15,11 @@ export function useSocket(
   return userInternalSocket(socketUrl, shouldOpen);
 }
 
-export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
+export function useUserMatchmakingChannel(
   socket: Socket,
-  initialViewData: GameViewData<PlayerState, PublicState, Outcome>,
-): GameProps<Move, PlayerState, PublicState, Outcome> {
-  return useInternalGameChannel(socket, initialViewData);
+  initialViewData: UserMatchmakingViewData,
+): UserMatchmakingProps {
+  return useInternalUserMatchmakingChannel(socket, initialViewData);
 }
 
 export function useRoomChannel(
@@ -29,11 +29,11 @@ export function useRoomChannel(
   return useInternalRoomChannel(socket, initialViewData);
 }
 
-export function useUserMatchmakingChannel(
+export function useQueueChannel(
   socket: Socket,
-  initialViewData: UserMatchmakingViewData,
-): UserMatchmakingProps {
-  return useInternalUserMatchmakingChannel(socket, initialViewData);
+  initialViewData: QueueViewData,
+): QueueProps {
+  return useInternalQueueChannel(socket, initialViewData);
 }
 
 export function useActivePublicGamesChannel(
@@ -48,4 +48,11 @@ export function useAvailablePublicRoomsChannel(
   initialViewData: AvailablePublicRoomsViewData,
 ): AvailablePublicRoomsProps {
   return useInternalAvailablePublicRoomsChannel(socket, initialViewData);
+}
+
+export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
+  socket: Socket,
+  initialViewData: GameViewData<PlayerState, PublicState, Outcome>,
+): GameProps<Move, PlayerState, PublicState, Outcome> {
+  return useInternalGameChannel(socket, initialViewData);
 }
