@@ -39,57 +39,14 @@ The server-side code is organized around WebSocket handling:
 - `server.ts` - Main server initialization and WebSocket configuration
 - `server/db.ts` - Database layer using Deno KV for persistence
 - `server/gamedata.ts` - Core game state management and move processing
-- Socket handlers:
-  - `server/lobbysockets.ts` - Matchmaking and lobby functionality
-  - `server/gamesockets.ts` - Player and observer WebSocket handling
+- `server/socket.ts`
+- `server/socketstore.ts`
 
 ### Client Architecture
 
 Client-side hooks are organized by functionality:
 
-- `client/lobbyhooks.ts` - Lobby and matchmaking state management
-- `client/gamehooks.ts` - Game play and observation state management
-- `client/hookutils.ts` - Shared utilities for WebSocket management
-
-### Game Interface
-
-Games must implement the
-`Game<Config, GameState, Move, PlayerState, PublicState, Outcome>` interface
-defined in `types.ts`:
-
-- `Config` - Configuration type (structured clone compatible)
-- `GameState` - Game state type (structured clone compatible)
-- `Move` - Move type (JSON serializable)
-- `PlayerState` - Player state type (JSON serializable)
-- `PublicState` - Observer state type (JSON serializable)
-- `Outcome` - Outcome type (JSON serializable)
-
-Key methods:
-
-- `setup()` - Initialize game state
-- `isValidMove()` - Validate player moves
-- `processMove()` - Apply moves to game state
-- `playerState()` - Generate player-specific views
-- `publicState()` - Generate observer views
-- `outcome()` - Check if game is finished and report the result
-- Optional: `refreshTimeout()` for future time-based mechanics
-
-### Database Layer
-
-Uses Deno KV for:
-
-- Game state persistence
-- Player queues and matchmaking
-- Real-time state synchronization via watch streams
-
-### WebSocket Communication
-
-1. **Lobby sockets** - Handle matchmaking, queue joining/leaving
-2. **Game sockets** - Handle moves and game state updates for both players and
-   observers
-
-Each socket type has its own message protocol defined in
-`common/sockettypes.ts`.
+- `client/hooks.ts`
 
 ## Agent Instructions
 
