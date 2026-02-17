@@ -12,9 +12,13 @@ export interface Server<
 > {
   getUser(token: string | undefined): Promise<{ user: User; token: string }>;
 
-  getInitialActivePublicGames(): Promise<ActiveGame<Config>[]>;
+  getInitialActivePublicGamesViewData(): Promise<
+    ActivePublicGamesViewData<Config>[]
+  >;
 
-  getInitialAvailablePublicRooms(): Promise<AvailableRoom<Config>[]>;
+  getInitialAvailablePublicRoomsViewData(): Promise<
+    ActivePublicGamesViewData<Config>[]
+  >;
 
   getInitialUserViewData(
     user: User,
@@ -286,7 +290,7 @@ export interface Game<
 
 export type ActiveGame<Config> = {
   gameId: string;
-  players: Player[];
+  players: User[];
   config: Config;
   created: Date;
 };
@@ -294,7 +298,7 @@ export type ActiveGame<Config> = {
 export type AvailableRoom<Config> = {
   roomId: string;
   numPlayers: number;
-  players: Player[];
+  players: User[];
   config: Config;
 };
 
@@ -303,14 +307,14 @@ export type RoomInvitation<Config> = {
   roomId: string;
   numPlayers: number;
   config: Config;
-  invitedBy: Player;
+  invitedBy: User;
   invitedAt: Date;
 };
 
 export type RoomEntry<Config, Loadout> = {
   roomId: string;
   numPlayers: number;
-  players: Player[];
+  players: User[];
   config: Config;
   loadout: Loadout;
 };
@@ -399,16 +403,15 @@ export type GameProps<Move, PlayerState, PublicState, Outcome> =
 
 // User Matchmaking ViewData and Props
 
-export type UserMatchmakingViewData<Config, Loadout, Rating> = {
+export type UserMatchmakingViewData<Config, Loadout> = {
   userActiveGames: ActiveGame<Config>[];
-  ratings: Record<string, Rating>;
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
   roomInvitations: RoomInvitation<Config>[];
 };
 
-export type UserMatchmakingProps<Config, Loadout, Rating> =
-  & UserMatchmakingViewData<Config, Loadout, Rating>
+export type UserMatchmakingProps<Config, Loadout> =
+  & UserMatchmakingViewData<Config, Loadout>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     createAndJoinRoom: (

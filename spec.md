@@ -20,7 +20,7 @@ provides:
 - client-side Preact hooks for creating and communicating over sockets
 - shared type contracts for games, views, and socket payloads
 
-### Generic Explantions
+### Generic Explanations
 
 Developers are intended to create a `Game` object and define the following
 generic properties:
@@ -55,19 +55,19 @@ generic properties:
 - A "QueueEntry" represents a user's entry into a Queue.
 - An "Assignment" represents a user's assignment to a Game, after "graduating"
   from a Queue.
-- A "Room" is used for individual matchmaking, either by users joining public
-  rooms, or being invited to rooms. Once full, a Room can be "committed" to
-  create a Game.
+- A "Room" is used for player-driven matchmaking, either by users joining public
+  rooms, or being invited to rooms. This also supports 1-to-1 challenges. Once
+  full, a Room can be "committed" to create a Game.
 - An "Invitation" represents a request to join a Room.
 - An "ActiveGame" represents a game that is currently in progress.
 - An "AvailableRoom" represents a room that is currently available for joining.
 
 ### Data Concepts
 
-- "ViewData" objects are JSON-serializable data required to render the various
+- "*ViewData" objects are JSON-serializable data required to render the various
   UIs. They are used for initial page rendering with the `getInitial*ViewData`
   methods, and can be subscribed to with sockets to process changes.
-- "Props" objects are provided to the actual Preact components, and include
+- "\*Props" objects are provided to the actual Preact components, and include
   ViewData objects as well as additional convenience accessors, and functions
   for communicating over a socket.
 
@@ -88,7 +88,7 @@ the public API, but are already defined in `./common/sockettypes.ts`.
 
 ## Server runtime behavior
 
-`InternalServer` class (in `server/gameserver.ts`) is the main orchestrator.
+`server.ts` exports a function `initializeServer` that:
 
 - opens Deno KV with `Deno.openKv()`
 - creates `DB` instance, injecting KV
@@ -99,7 +99,9 @@ the public API, but are already defined in `./common/sockettypes.ts`.
 - returns `Server` wrapper that exposes high-level server methods for auth,
   socket setup, and SSR
 
-### `getUser(token)`
+### `Server`
+
+#### `getUser(token)`
 
 - Looks up the token in the database. If it exists and is valid, returns the
   associated user.
@@ -110,13 +112,7 @@ the public API, but are already defined in `./common/sockettypes.ts`.
 - Write the token (the old valid one, or the newly-created guest one) to the db
   with a fresh 30-day TTL (`expiration` timestamp only; cleanup done separately)
 
-### `configureSocket
-
-### `getInitialActivePublicGames()` and `getInitialAvailablePublicRooms()`
-
-- Fetched directly from DB
-
-### `configureSocket(user, socket)`
+#### `configureSocket(user, socket)`
 
 - registers `message` and `close` listeners
 - `close` always unsubscribes current subscriptions
@@ -125,14 +121,13 @@ the public API, but are already defined in `./common/sockettypes.ts`.
     `game.isValidRoom`/`game.isValidLoadout`
   - queue existence validated against `game.queues`
   - room privacy enforced via invitation checks
-  - ProcessMove requires player membership in the game
-- errors are generally surfaced via `{ type: "DisplayError", message }`
+  - PerformMove requires player membership in the game
 
-### `acceptInvitation(user, invitationId)`
+#### `acceptInvitation(user, invitationId)`
 
 - Adds the given invitation to the user matchmaking's `invitations` array
 
-### `getInitial*ViewData`
+#### `getInitial*ViewData`
 
 - Loads the current view data from the database. Used for SSR.
 
@@ -158,29 +153,22 @@ Behavior:
 - returns full `*Props`, with wrappers that send corresponding client messages
 - sends `Unsubscribe*` on unmount
 
-#### `useRoomChannel`
-
-- `createInvitation` generates `invitationId` locally using ULID and returns it
-- closes socket if room is deleted or committed
-
-#### `useGameChannel`
-
-- closes socket when `outcome` becomes defined
-- `perform` is available only for player sessions (`playerId != null`)
-
 ## Persistence model (Deno KV keyspace)
 
-This repo uses key prefixes as table-like partitions.
+This repo uses Deno KV for persistence for both user data and authentication. It
+makes heavy use of `.watch` for updating sockets in response to changes. See
+Deno KV docs if anything us unclear.
 
 ### Keyspaces and values
 
-- `['tokens', token]` -> `TokenData`
+- `['tokens', token]` -> `TokenStorageData`
 - `['users', userId]` -> `UserStorageData<Config, Loadout, Rating>`
-- `['activepublicgames']` -> `ActiveGame<Config>[]`
-- `['availablepublicrooms']` -> `AvailableRoom<Config>[]`
-- `['queueentry', queueId, entryId]` -> `QueueEntryValue<Loadout>`
+- `['activepublicgames']` -> `ActiveGameStorageData<Config>[]`
+- `['availablepublicrooms']` -> `AvailableRoomStorageData<Config>[]`
+- `['usermatchmaking', userId]` -> `UserMatchmakingStorageData<Config, Loadout>`
+- `['queueentry', queueId, entryId]` -> `QueueEntryStorageData<Loadout>`
 - `['rooms', roomId]` -> `RoomStorageData<Config, Loadout>`
-- `['roominvitations', invitationId]` -> `RoomInvitation<Config>`
+- `['invitations', invitationId]` -> `InvitationStorageData<Config>`
 - `['assignments', entryId]` -> `AssignmentStorageData`
 - `['games', gameId]` -> `GameStorageData<Config, GameState, Outcome>`
 
@@ -243,18 +231,13 @@ indefinitely.
 - invitation consumption during join removes both user invitation(s) for room
   and corresponding `roominvitations/*` records
 
-### Game state and ratings
+## Game Logic Processor
 
-- moves are validated with `isValidMove`; invalid moves are ignored
-- valid moves call `processMove`; game record updated with new state
-- outcome recomputed after each valid state update
-- when outcome becomes defined:
-  - game removed from global active game list
-  - if game came from ranked queue (`queueId` + `queueType: 'ranked'`):
-    - current ratings loaded per player (`existing or initialRating()`)
-    - `processOutcome(outcome, ratings)` called
-    - length must match player count
-    - per-user ratings updated at key `ratings[queueId]`
+`server/gamelogicprocessor` outputs a class which is constructed with a `Game`
+object, and provides pure utility methods for calling the provided Game
+functions. This includes accepting moves, validating them, creating new Game
+states, computing outcomes, computing ratings, and similar things. It does not
+know anything about matchmaking.
 
 ## Stream/watch infrastructure
 
@@ -270,29 +253,13 @@ indefinitely.
 - `watchForAvailableRoomListChanges()` -> watches room trigger and emits full
   recomputed room list
 
+### `ServerSocket` class
+
+Wraps a WebSocket and provides caching for `*ViewData` objects.
+
 ### Socket store
 
-`SocketStore` keeps per-socket connection state:
-
-- cached last values for diff-based updates
-- user changes reader
-- matchmaking entries (queue/room subscriptions)
-
-Responsibilities:
-
-- subscribe/unsubscribe lobby sockets
-- fan out global active-game/available-room streams
-- watch user stream and send `UpdateLobbyProps` diffs
-- maintain per-room watchers for joined rooms
-- emit `UpdateRoomEntry`/`RemoveRoomEntry`
-- emit `GameAssignment` when assignment stream fires
-- map `gameId -> { gameSockets, changesReader }`
-- each socket stores `playerId` and last sent snapshot
-- on game changes:
-  - compute shared `publicState` once
-  - compute `playerState` per subscribed player socket
-  - send `UpdateGameState` only when JSON snapshot changed
-- per-game watcher is cleaned up when last socket unsubscribes
+`SocketStore` stores `ServerSocket` instances.
 
 ### Equality and update suppression
 
