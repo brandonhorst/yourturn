@@ -1,4 +1,17 @@
-import type { GameViewData, Socket } from "./types.ts";
+import type {
+  ActivePublicGamesProps,
+  ActivePublicGamesViewData,
+  AvailablePublicRoomsProps,
+  AvailablePublicRoomsViewData,
+  GameProps,
+  GameViewData,
+  RoomProps,
+  RoomViewData,
+  Socket,
+  Ulid,
+  UserMatchmakingProps,
+  UserMatchmakingViewData,
+} from "./types.ts";
 
 import { useInternalSocket } from "./client/socket.ts";
 import { useInternalGameChannel } from "./client/gamechannel.ts";
@@ -7,52 +20,52 @@ import { useInternalUserMatchmakingChannel } from "./client/usermatchmakingchann
 import { useInternalActivePublicGamesChannel } from "./client/activepublicgameschannel.ts";
 import { useInternalAvailablePublicRoomsChannel } from "./client/availablepublicroomschannel.ts";
 
-// Opens a WebSocket with exponential backoff to socketUrl, if shouldOpen is true
+// Opens a WebSocket with exponential backoff to socketUrl, if shouldOpen is true.
 export function useSocket(
   socketUrl: string,
   shouldOpen = true,
 ): Socket {
-  return userInternalSocket(socketUrl, shouldOpen);
+  return useInternalSocket(socketUrl, shouldOpen);
 }
 
-export function useUserMatchmakingChannel(
+// Subscribes to user-specific matchmaking data and exposes matchmaking actions.
+export function useUserMatchmakingChannel<Config, Loadout>(
   socket: Socket,
-  initialViewData: UserMatchmakingViewData,
-): UserMatchmakingProps {
+  initialViewData: UserMatchmakingViewData<Config, Loadout>,
+): UserMatchmakingProps<Config, Loadout> {
   return useInternalUserMatchmakingChannel(socket, initialViewData);
 }
 
-export function useRoomChannel(
+// Subscribes to a specific room stream and keeps room view data in sync.
+export function useRoomChannel<Config, Loadout>(
   socket: Socket,
-  initialViewData: RoomViewData,
-): RoomProps {
-  return useInternalRoomChannel(socket, initialViewData);
+  roomId: Ulid,
+  initialViewData: RoomViewData<Config, Loadout>,
+): RoomProps<Config, Loadout> {
+  return useInternalRoomChannel(socket, roomId, initialViewData);
 }
 
-export function useQueueChannel(
+// Subscribes to the global active public game list.
+export function useActivePublicGamesChannel<Config>(
   socket: Socket,
-  initialViewData: QueueViewData,
-): QueueProps {
-  return useInternalQueueChannel(socket, initialViewData);
-}
-
-export function useActivePublicGamesChannel(
-  socket: Socket,
-  initialViewData: ActivePublicGamesViewData,
-): ActivePublicGamesProps {
+  initialViewData: ActivePublicGamesViewData<Config>,
+): ActivePublicGamesProps<Config> {
   return useInternalActivePublicGamesChannel(socket, initialViewData);
 }
 
-export function useAvailablePublicRoomsChannel(
+// Subscribes to the global available public room list.
+export function useAvailablePublicRoomsChannel<Config>(
   socket: Socket,
-  initialViewData: AvailablePublicRoomsViewData,
-): AvailablePublicRoomsProps {
+  initialViewData: AvailablePublicRoomsViewData<Config>,
+): AvailablePublicRoomsProps<Config> {
   return useInternalAvailablePublicRoomsChannel(socket, initialViewData);
 }
 
+// Subscribes to a specific game stream and exposes move submission for players.
 export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
   socket: Socket,
+  gameId: Ulid,
   initialViewData: GameViewData<PlayerState, PublicState, Outcome>,
 ): GameProps<Move, PlayerState, PublicState, Outcome> {
-  return useInternalGameChannel(socket, initialViewData);
+  return useInternalGameChannel(socket, gameId, initialViewData);
 }

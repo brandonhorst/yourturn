@@ -10,33 +10,70 @@ export interface Server<
   Rating,
   Loadout,
 > {
-  getUser(token: string | undefined): Promise<{ user: User; token: string }>;
+  /**
+   * Returns an authenticated user for a provided token, creating a guest user
+   * and new token when no valid token exists.
+   */
+  getUser(token: string | undefined): Promise<{ user: User; token: Ulid }>;
 
+  /**
+   * Returns the initial active public games snapshot for SSR.
+   * Throws `ACTIVE_PUBLIC_GAMES_NOT_FOUND` when the snapshot is missing.
+   */
   getInitialActivePublicGamesViewData(): Promise<
-    ActivePublicGamesViewData<Config>[]
+    ActivePublicGamesViewData<Config>
   >;
 
+  /**
+   * Returns the initial available public rooms snapshot for SSR.
+   * Throws `AVAILABLE_PUBLIC_ROOMS_NOT_FOUND` when the snapshot is missing.
+   */
   getInitialAvailablePublicRoomsViewData(): Promise<
-    ActivePublicGamesViewData<Config>[]
+    AvailablePublicRoomsViewData<Config>
   >;
 
-  getInitialUserViewData(
+  /**
+   * Returns the initial user matchmaking snapshot for SSR.
+   * Throws `USER_NOT_FOUND` when user matchmaking data cannot be loaded for the
+   * provided user.
+   */
+  getInitialUserMatchmakingViewData(
     user: User,
-  ): Promise<UserMatchmakingViewData<Config, Loadout, Rating>>;
+  ): Promise<UserMatchmakingViewData<Config, Loadout>>;
 
+  /**
+   * Returns the initial room snapshot for SSR.
+   * Throws `ROOM_NOT_FOUND` when the room is missing or not accessible to the
+   * caller.
+   */
   getInitialRoomViewData(
     user: User,
-    roomId: string,
+    roomId: Ulid,
   ): Promise<RoomViewData<Config, Loadout>>;
 
+  /**
+   * Returns the initial game snapshot for SSR.
+   * Throws `GAME_NOT_FOUND` when the game is missing or not accessible to the
+   * caller.
+   */
   getInitialGameViewData(
     user: User,
-    gameId: string,
+    gameId: Ulid,
   ): Promise<GameViewData<PlayerState, PublicState, Outcome>>;
 
+  /**
+   * Attaches message handlers for a socket session.
+   */
   configureSocket(user: User, socket: WebSocket): void;
 
-  acceptInvitation(user: User, invitationId: string): void;
+  /**
+   * Accepts room access into the user's matchmaking state.
+   * Intended for non-socket route flows such as URL-scheme invitation links.
+   * Idempotent no-op when already accepted, when already in the room, or when
+   * the room is public.
+   * Throws `ROOM_NOT_FOUND` when the room does not exist.
+   */
+  acceptInvitation(user: User, roomId: Ulid): Promise<void>;
 }
 
 // Client Types
@@ -100,19 +137,54 @@ type AsStructuredClone<T> = T extends
 
 // deno-lint-ignore no-explicit-any
 export type JSONValue = AsJson<any>;
+export type NonNullableJSONValue = Exclude<JSONValue, null>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
 
+/**
+ * Server-generated IDs are ULIDs created via `jsr:@std/ulid`.
+ */
+export type Ulid = string;
+
 export type User = {
-  userId: string;
+  userId: Ulid;
   username: string;
   isGuest: boolean;
 };
 
 export type TokenData = {
-  userId: string;
+  userId: Ulid;
   expiration: Date;
 };
+
+/**
+ * JSON-safe timestamp string. Implementations should encode Date values using
+ * ISO 8601 via `toISOString()`.
+ */
+export type IsoTimestamp = string;
+
+/**
+ * Canonical server error codes delivered over socket `ServerError` messages.
+ */
+export type ServerErrorCode =
+  | "AUTH_INVALID"
+  | "AUTH_REQUIRED"
+  | "USER_NOT_FOUND"
+  | "ACTIVE_PUBLIC_GAMES_NOT_FOUND"
+  | "AVAILABLE_PUBLIC_ROOMS_NOT_FOUND"
+  | "QUEUE_NOT_FOUND"
+  | "QUEUE_ALREADY_JOINED"
+  | "QUEUE_ENTRY_NOT_FOUND"
+  | "ROOM_NOT_FOUND"
+  | "ROOM_ALREADY_JOINED"
+  | "ROOM_FULL"
+  | "ROOM_CONFIG_INVALID"
+  | "ROOM_NOT_READY"
+  | "GAME_NOT_FOUND"
+  | "GAME_ALREADY_COMPLETE"
+  | "MOVE_INVALID"
+  | "LOADOUT_INVALID"
+  | "INTERNAL_ERROR";
 
 export type SetupObject<Config, Loadout> = {
   timestamp: Date;
@@ -166,7 +238,7 @@ export type QueueConfig<Config> = {
  * @template Move - Move type representing actions players can take (must be JSON serializable)
  * @template PlayerState - Player state type representing game state visible to a specific player (must be JSON serializable)
  * @template PublicState - Observer state type representing game state visible to observers (must be JSON serializable)
- * @template Outcome - Outcome type representing game results (must be JSON serializable)
+ * @template Outcome - Outcome type representing game results (must be JSON serializable and non-null)
  * @template Rating - Rating type representing a player's ranking (must be JSON serializable)
  * @template Loadout - Player loadout data provided during queue join (must be JSON serializable)
  */
@@ -176,7 +248,7 @@ export interface Game<
   Move extends JSONValue,
   PlayerState extends JSONValue,
   PublicState extends JSONValue,
-  Outcome extends JSONValue,
+  Outcome extends NonNullableJSONValue,
   Rating extends JSONValue,
   Loadout extends JSONValue,
 > {
@@ -288,38 +360,44 @@ export interface Game<
   processOutcome(outcome: Outcome, currentRatings: Rating[]): Rating[];
 }
 
-export type ActiveGame<Config> = {
-  gameId: string;
+export type ActivePublicGame<Config> = {
+  gameId: Ulid;
   players: User[];
   config: Config;
-  created: Date;
+  created: IsoTimestamp;
 };
 
+export type UserActiveGame<Config> =
+  & ActivePublicGame<Config>
+  & (
+    | { queueEntryId: Ulid; roomId?: undefined }
+    | { roomId: Ulid; queueEntryId?: undefined }
+  );
+
 export type AvailableRoom<Config> = {
-  roomId: string;
+  roomId: Ulid;
   numPlayers: number;
   players: User[];
   config: Config;
 };
 
 export type RoomInvitation<Config> = {
-  invitationId: string;
-  roomId: string;
+  roomId: Ulid;
   numPlayers: number;
   config: Config;
-  invitedBy: User;
-  invitedAt: Date;
+  invitedAt: IsoTimestamp;
 };
 
 export type RoomEntry<Config, Loadout> = {
-  roomId: string;
+  roomId: Ulid;
   numPlayers: number;
   players: User[];
   config: Config;
-  loadout: Loadout;
+  yourLoadout: Loadout;
 };
 
 export type QueueEntry<Loadout> = {
+  entryId: Ulid;
   queueId: string;
   loadout: Loadout;
 };
@@ -330,13 +408,15 @@ export type RoomViewData<Config, Loadout> = {
   numPlayers: number;
   players: User[];
   config: Config;
-  loadout: Loadout;
+  yourLoadout: Loadout;
 };
 
 export type RoomProps<Config, Loadout> =
   & RoomViewData<Config, Loadout>
   & {
     leaveRoom: () => void;
+    commitRoom: () => void;
+    inviteUser: (userId: Ulid) => void;
   };
 
 // Game ViewData and Props
@@ -354,23 +434,23 @@ type IncompletePlayerGameViewData<PlayerState, PublicState> = {
   publicState: PublicState;
   playerId: number;
   playerState: PlayerState;
-  outcome: undefined;
+  outcome: null;
 };
 
 type CompleteObserverGameViewData<PublicState, Outcome> = {
   players: User[];
   publicState: PublicState;
-  playerId: undefined;
-  playerState: undefined;
+  playerId: null;
+  playerState: null;
   outcome: Outcome;
 };
 
 type IncompleteObserverGameViewData<PublicState> = {
   players: User[];
   publicState: PublicState;
-  playerId: undefined;
-  playerState: undefined;
-  outcome: undefined;
+  playerId: null;
+  playerState: null;
+  outcome: null;
 };
 
 export type GameViewData<PlayerState, PublicState, Outcome> =
@@ -404,10 +484,10 @@ export type GameProps<Move, PlayerState, PublicState, Outcome> =
 // User Matchmaking ViewData and Props
 
 export type UserMatchmakingViewData<Config, Loadout> = {
-  userActiveGames: ActiveGame<Config>[];
+  userActiveGames: UserActiveGame<Config>[];
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
-  roomInvitations: RoomInvitation<Config>[];
+  incomingRoomInvitations: RoomInvitation<Config>[];
 };
 
 export type UserMatchmakingProps<Config, Loadout> =
@@ -418,13 +498,9 @@ export type UserMatchmakingProps<Config, Loadout> =
       options: { config: Config; numPlayers: number; private: boolean },
       player: { loadout: Loadout },
     ) => void;
-    createInvitation: (roomId: string) => string;
-    joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
-    inviteUser: (roomId: string, userId: string) => void;
-    commitRoom: (roomId: string) => void;
+    joinRoom: (roomId: Ulid, options: { loadout: Loadout }) => void;
     leaveQueue: (queueId: string) => void;
-    leaveRoom: (roomId: string) => void;
-    updateUsername: (username: string) => void;
+    acceptInvitation: (roomId: Ulid) => void;
   };
 
 // Available Public Rooms ViewData and Props
@@ -440,7 +516,7 @@ export type AvailablePublicRoomsProps<Config> = AvailablePublicRoomsViewData<
 // Active Public Games ViewData and Props
 
 export type ActivePublicGamesViewData<Config> = {
-  activePublicGames: ActiveGame<Config>[];
+  activePublicGames: ActivePublicGame<Config>[];
 };
 
 export type ActivePublicGamesProps<Config> = ActivePublicGamesViewData<

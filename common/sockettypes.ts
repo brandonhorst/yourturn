@@ -3,33 +3,37 @@ import type {
   AvailablePublicRoomsViewData,
   GameViewData,
   RoomViewData,
+  ServerErrorCode,
+  Ulid,
   UserMatchmakingViewData,
 } from "../types.ts";
 
 export type SocketClientMessage<
   Config,
   Move,
-  PublicState,
   PlayerState,
+  PublicState,
+  Outcome,
   Loadout,
-  Rating,
 > =
   // Subscription
   | {
     type: "SubscribeUserMatchmaking";
-    currentViewData: UserMatchmakingViewData<Config, Loadout, Rating>;
+    currentViewData: UserMatchmakingViewData<Config, Loadout>;
   }
   | { type: "UnsubscribeUserMatchmaking" }
   | {
     type: "SubscribeGame";
-    currentViewData: GameViewData<Config, Loadout, Rating>;
+    gameId: Ulid;
+    currentViewData: GameViewData<PlayerState, PublicState, Outcome>;
   }
-  | { type: "UnsubscribeGame" }
+  | { type: "UnsubscribeGame"; gameId: Ulid }
   | {
     type: "SubscribeRoom";
+    roomId: Ulid;
     currentViewData: RoomViewData<Config, Loadout>;
   }
-  | { type: "UnsubscribeRoom" }
+  | { type: "UnsubscribeRoom"; roomId: Ulid }
   | {
     type: "SubscribeActivePublicGames";
     currentViewData: ActivePublicGamesViewData<Config>;
@@ -49,15 +53,16 @@ export type SocketClientMessage<
     private: boolean;
     loadout: Loadout;
   }
-  | { type: "JoinRoom"; roomId: string; loadout: Loadout }
+  | { type: "JoinRoom"; roomId: Ulid; loadout: Loadout }
   | { type: "LeaveQueue"; queueId: string }
+  | { type: "AcceptInvitation"; roomId: Ulid }
   // Room actions
-  | { type: "LeaveRoom"; roomId: string }
-  | { type: "CommitRoom"; roomId: string }
-  | { type: "InviteUser"; roomId: string; userId: string }
-  | { type: "CreateInvitation"; roomId: string; invitationId: string }
+  | { type: "LeaveRoom"; roomId: Ulid }
+  | { type: "CommitRoom"; roomId: Ulid }
+  // Direct invitation to a specific user.
+  | { type: "InviteUser"; roomId: Ulid; userId: Ulid }
   // Game actions
-  | { type: "PerformMove"; move: Move };
+  | { type: "PerformMove"; gameId: Ulid; move: Move };
 
 export type SocketServerMessage<
   Config,
@@ -65,26 +70,31 @@ export type SocketServerMessage<
   PublicState,
   Outcome,
   Loadout,
-  Rating,
 > =
   | {
     type: "UpdateUserMatchmaking";
-    viewData: Partial<UserMatchmakingViewData<Config, Loadout, Rating>>;
+    viewData: UserMatchmakingViewData<Config, Loadout>;
   }
   | {
     type: "UpdateRoom";
-    viewData: Partial<RoomViewData<Config, Loadout>>;
+    roomId: Ulid;
+    viewData: RoomViewData<Config, Loadout>;
   }
   | {
     type: "UpdateGame";
-    viewData: Partial<GameViewData<PlayerState, PublicState, Outcome>>;
+    gameId: Ulid;
+    viewData: GameViewData<PlayerState, PublicState, Outcome>;
   }
   | {
     type: "UpdateActivePublicGames";
-    viewData: Partial<ActivePublicGamesViewData<Config>>;
+    viewData: ActivePublicGamesViewData<Config>;
   }
   | {
     type: "UpdateAvailablePublicRooms";
-    viewData: Partial<AvailablePublicRoomsViewData<Config>>;
+    viewData: AvailablePublicRoomsViewData<Config>;
   }
-  | { type: "GameAssignment"; gameId: string };
+  | {
+    type: "ServerError";
+    code: ServerErrorCode;
+    message: string;
+  };
