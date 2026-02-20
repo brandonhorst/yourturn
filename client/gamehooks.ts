@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import type {
-  GameClientMessage,
-  GameServerMessage,
-} from "../common/sockettypes.ts";
+import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type { Socket } from "../client/hookutils.ts";
 import type { GameProps, GameViewData } from "../types.ts";
 
@@ -38,8 +35,14 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
         return;
       }
 
-      const request: GameClientMessage<Move, PlayerState, PublicState> = {
-        type: "Subscribe",
+      const request: ClientMessage<
+        never,
+        never,
+        Move,
+        PlayerState,
+        PublicState
+      > = {
+        type: "SubscribeGame",
         currentPublicState: publicStateRef.current,
         currentPlayerState: playerStateRef.current,
       };
@@ -52,7 +55,10 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
     }
 
     function onMessage(event: MessageEvent) {
-      const response = JSON.parse(event.data) as GameServerMessage<
+      const response = JSON.parse(event.data) as ServerMessage<
+        never,
+        never,
+        never,
         PlayerState,
         PublicState,
         Outcome
@@ -86,14 +92,28 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   }, [socket]);
 
   const send = useCallback(
-    (request: GameClientMessage<Move, PlayerState, PublicState>) => {
+    (
+      request: ClientMessage<
+        never,
+        never,
+        Move,
+        PlayerState,
+        PublicState
+      >,
+    ) => {
       socket.send(JSON.stringify(request));
     },
     [socket],
   );
 
   const performCallback = useCallback((move: Move) => {
-    const request: GameClientMessage<Move, PlayerState, PublicState> = {
+    const request: ClientMessage<
+      never,
+      never,
+      Move,
+      PlayerState,
+      PublicState
+    > = {
       type: "Move",
       move,
     };

@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import type {
-  LobbyClientMessage,
-  LobbyServerMessage,
-} from "../common/sockettypes.ts";
+import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type { Socket } from "../client/hookutils.ts";
 import type { LobbyProps, LobbyViewData } from "../types.ts";
 import { ulid } from "@std/ulid";
@@ -53,8 +50,14 @@ export function useLobbySocket<Config, Loadout, Rating>({
         return;
       }
 
-      const request: LobbyClientMessage<Config, Loadout> = {
-        type: "Subscribe",
+      const request: ClientMessage<
+        Config,
+        Loadout,
+        never,
+        never,
+        never
+      > = {
+        type: "SubscribeLobby",
         allActiveGames: allActiveGamesRef.current,
         allAvailableRooms: allAvailableRoomsRef.current,
       };
@@ -67,10 +70,13 @@ export function useLobbySocket<Config, Loadout, Rating>({
     }
 
     function onMessage(event: MessageEvent) {
-      const response = JSON.parse(event.data) as LobbyServerMessage<
+      const response = JSON.parse(event.data) as ServerMessage<
         Config,
         Loadout,
-        Rating
+        Rating,
+        never,
+        never,
+        never
       >;
       switch (response.type) {
         case "UpdateLobbyProps":
@@ -147,9 +153,12 @@ export function useLobbySocket<Config, Loadout, Rating>({
     };
   }, [displayError, navigate, socket]);
 
-  const send = useCallback((request: LobbyClientMessage<Config, Loadout>) => {
-    socket.send(JSON.stringify(request));
-  }, [socket]);
+  const send = useCallback(
+    (request: ClientMessage<Config, Loadout, never, never, never>) => {
+      socket.send(JSON.stringify(request));
+    },
+    [socket],
+  );
 
   const joinQueue = useCallback(
     (queueId: string, options: { loadout: Loadout }) => {

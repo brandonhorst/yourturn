@@ -5,11 +5,16 @@ import type {
   RoomEntry,
 } from "../types.ts";
 
-export type LobbyClientMessage<Config, Loadout> =
+export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | {
-    type: "Subscribe";
+    type: "SubscribeLobby";
     allActiveGames: ActiveGame<Config>[];
     allAvailableRooms: AvailableRoom<Config>[];
+  }
+  | {
+    type: "SubscribeGame";
+    currentPublicState: PublicState;
+    currentPlayerState?: PlayerState;
   }
   | { type: "Unsubscribe" }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
@@ -26,9 +31,17 @@ export type LobbyClientMessage<Config, Loadout> =
   | { type: "CommitRoom"; roomId: string }
   | { type: "LeaveQueue"; queueId: string }
   | { type: "LeaveRoom"; roomId: string }
-  | { type: "UpdateUsername"; username: string };
+  | { type: "UpdateUsername"; username: string }
+  | { type: "Move"; move: Move };
 
-export type LobbyServerMessage<Config, Loadout, Rating> =
+export type ServerMessage<
+  Config,
+  Loadout,
+  Rating,
+  PlayerState,
+  PublicState,
+  Outcome,
+> =
   | {
     type: "UpdateLobbyProps";
     lobbyProps: Partial<LobbyViewData<Config, Loadout, Rating>>;
@@ -39,20 +52,10 @@ export type LobbyServerMessage<Config, Loadout, Rating> =
   }
   | { type: "RemoveRoomEntry"; roomId: string }
   | { type: "GameAssignment"; gameId: string }
-  | { type: "DisplayError"; message: string };
-
-export type GameClientMessage<Move, PlayerState, PublicState> =
+  | { type: "DisplayError"; message: string }
   | {
-    type: "Subscribe";
-    currentPublicState: PublicState;
-    currentPlayerState?: PlayerState;
-  }
-  | { type: "Unsubscribe" }
-  | { type: "Move"; move: Move };
-
-export type GameServerMessage<PlayerState, PublicState, Outcome> = {
-  type: "UpdateGameState";
-  publicState: PublicState;
-  playerState: PlayerState | undefined;
-  outcome: Outcome | undefined;
-};
+    type: "UpdateGameState";
+    publicState: PublicState;
+    playerState: PlayerState | undefined;
+    outcome: Outcome | undefined;
+  };

@@ -4,7 +4,7 @@ import type {
   LobbyUserData,
   RoomWatchEvent,
 } from "./db.ts";
-import type { LobbyServerMessage } from "../common/sockettypes.ts";
+import type { ServerMessage } from "../common/sockettypes.ts";
 import type {
   ActiveGame,
   AvailableRoom,
@@ -88,7 +88,14 @@ class LobbySocket<Config, Loadout, Rating> {
    * Sends a game assignment notification to the client.
    */
   sendGameAssignment(gameId: string): void {
-    const message: LobbyServerMessage<Config, Loadout, Rating> = {
+    const message: ServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      never,
+      never,
+      never
+    > = {
       type: "GameAssignment",
       gameId,
     };
@@ -99,7 +106,14 @@ class LobbySocket<Config, Loadout, Rating> {
    * Sends a display error message to the client.
    */
   sendDisplayError(errorMessage: string): void {
-    const message: LobbyServerMessage<Config, Loadout, Rating> = {
+    const message: ServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      never,
+      never,
+      never
+    > = {
       type: "DisplayError",
       message: errorMessage,
     };
@@ -110,7 +124,14 @@ class LobbySocket<Config, Loadout, Rating> {
    * Sends an upsert-style room update for a room the user is subscribed to.
    */
   sendRoomEntryUpdate(roomEntry: RoomEntry<Config, Loadout>): void {
-    const message: LobbyServerMessage<Config, Loadout, Rating> = {
+    const message: ServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      never,
+      never,
+      never
+    > = {
       type: "UpdateRoomEntry",
       roomEntry,
     };
@@ -121,7 +142,14 @@ class LobbySocket<Config, Loadout, Rating> {
    * Sends a room removal notification for a room the user left or that closed.
    */
   sendRoomEntryRemoved(roomId: string): void {
-    const message: LobbyServerMessage<Config, Loadout, Rating> = {
+    const message: ServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      never,
+      never,
+      never
+    > = {
       type: "RemoveRoomEntry",
       roomId,
     };
@@ -136,7 +164,14 @@ class LobbySocket<Config, Loadout, Rating> {
       return;
     }
 
-    const response: LobbyServerMessage<Config, Loadout, Rating> = {
+    const response: ServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      never,
+      never,
+      never
+    > = {
       type: "UpdateLobbyProps",
       lobbyProps: { allActiveGames },
     };
@@ -154,7 +189,14 @@ class LobbySocket<Config, Loadout, Rating> {
       return;
     }
 
-    const response: LobbyServerMessage<Config, Loadout, Rating> = {
+    const response: ServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      never,
+      never,
+      never
+    > = {
       type: "UpdateLobbyProps",
       lobbyProps: { allAvailableRooms },
     };
@@ -205,7 +247,14 @@ class LobbySocket<Config, Loadout, Rating> {
       return;
     }
 
-    const response: LobbyServerMessage<Config, Loadout, Rating> = {
+    const response: ServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      never,
+      never,
+      never
+    > = {
       type: "UpdateLobbyProps",
       lobbyProps,
     };

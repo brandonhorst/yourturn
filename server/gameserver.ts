@@ -7,10 +7,7 @@ import type {
   QueueEntry,
   RoomEntry,
 } from "../types.ts";
-import type {
-  GameClientMessage,
-  LobbyClientMessage,
-} from "../common/sockettypes.ts";
+import type { ClientMessage } from "../common/sockettypes.ts";
 import {
   fetchActiveGames,
   fetchAvailableRooms,
@@ -237,11 +234,15 @@ export class Server<
     const handleLobbySocketMessage = async (event: MessageEvent) => {
       const message = event.data;
       console.log("Lobby Socket Message", message);
-      const parsedMessage: LobbyClientMessage<Config, Loadout> = JSON.parse(
-        message,
-      );
+      const parsedMessage: ClientMessage<
+        Config,
+        Loadout,
+        Move,
+        PlayerState,
+        PublicState
+      > = JSON.parse(message);
       switch (parsedMessage.type) {
-        case "Subscribe": {
+        case "SubscribeLobby": {
           const latestUserData = await this.db.getLobbyUserData(userId);
           if (latestUserData == null) {
             socket.send(JSON.stringify(
@@ -519,15 +520,15 @@ export class Server<
     let subscribed = false;
 
     const handleGameSocketMessage = async (event: MessageEvent) => {
-      const request: GameClientMessage<
+      const request: ClientMessage<
+        Config,
+        Loadout,
         Move,
         PlayerState,
         PublicState
-      > = JSON.parse(
-        event.data,
-      );
+      > = JSON.parse(event.data);
       switch (request.type) {
-        case "Subscribe":
+        case "SubscribeGame":
           await this.gameSocketStore.subscribe(
             socket,
             gameId,
