@@ -3,7 +3,7 @@ import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type { Socket } from "../client/hookutils.ts";
 import type { GameProps, GameViewData } from "../types.ts";
 
-// Subscribes an already-open game socket
+// Subscribes to a game on an already-open socket
 export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   socket: Socket,
   initialGameProps: GameViewData<PlayerState, PublicState, Outcome>,
@@ -54,8 +54,8 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
       sendSubscribe();
     }
 
-    function onMessage(event: MessageEvent) {
-      const response = JSON.parse(event.data) as ServerMessage<
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
         never,
         never,
         never,
@@ -75,8 +75,8 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
       }
     }
 
-    socket.addEventListener("message", onMessage);
-    socket.addEventListener("open", onOpen);
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
     if (outcomeRef.current === undefined) {
       try {
         sendSubscribe();
@@ -86,8 +86,8 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
     }
 
     return () => {
-      socket.removeEventListener?.("message", onMessage);
-      socket.removeEventListener?.("open", onOpen);
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
     };
   }, [socket]);
 

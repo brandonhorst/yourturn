@@ -1,14 +1,17 @@
 import { useEffect, useRef } from "preact/hooks";
 
+type MessageListener = (message: string) => void;
+type OpenListener = () => void;
+
 export interface Socket {
-  addEventListener: (
-    name: string,
-    handler: (event: MessageEvent) => void,
-  ) => void;
-  removeEventListener: (
-    name: string,
-    handler: (event: MessageEvent) => void,
-  ) => void;
+  // Registers a handler for incoming WebSocket message events.
+  addMessageListener: (handler: MessageListener) => void;
+  // Removes a previously registered message handler.
+  removeMessageListener: (handler: MessageListener) => void;
+  // Registers a handler for the WebSocket open event.
+  addOpenListener: (handler: OpenListener) => void;
+  // Removes a previously registered open handler.
+  removeOpenListener: (handler: OpenListener) => void;
   close: () => void;
   send: (data: string) => void;
 }
@@ -17,7 +20,7 @@ export interface Socket {
 // `onMessage` for each JSON message. It reconnects on close with exponential
 // backoff and sends `initializeMessage` whenever a connection opens.
 export function useSocket(socketUrl: string): Socket {
-  const ws = useRef<Socket | null>(null);
+  const ws = useRef<WebSocket | null>(null);
   const closedIntentionally = useRef(false);
   const reconnectAttempt = useRef(0);
   const maxReconnectDelay = 30000; // Maximum delay in ms (30 seconds)
@@ -59,17 +62,23 @@ export function useSocket(socketUrl: string): Socket {
   }, []);
 
   return {
-    addEventListener: (
-      name: string,
-      handler: (event: MessageEvent) => void,
-    ) => {
-      ws.current?.addEventListener(name, handler);
+    addMessageListener: (handler: MessageListener) => {
+      ws.current?.addEventListener(
+        "message",
+        (event) => handler(event.data),
+      );
     },
-    removeEventListener: (
-      name: string,
-      handler: (event: MessageEvent) => void,
-    ) => {
-      ws.current?.removeEventListener(name, handler);
+    removeMessageListener: (handler: MessageListener) => {
+      ws.current?.removeEventListener(
+        "message",
+        (event) => handler(event.data),
+      );
+    },
+    addOpenListener: (handler: OpenListener) => {
+      ws.current?.addEventListener("open", handler);
+    },
+    removeOpenListener: (handler: OpenListener) => {
+      ws.current?.removeEventListener("open", handler);
     },
     send: (msg: string) => {
       ws.current?.send(msg);

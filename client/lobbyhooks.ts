@@ -4,7 +4,7 @@ import type { Socket } from "../client/hookutils.ts";
 import type { LobbyProps, LobbyViewData } from "../types.ts";
 import { ulid } from "@std/ulid";
 
-// Subscribes an already-open lobby socket
+// Subscribes to a lobby on an already-open socket
 export function useLobbySocket<Config, Loadout, Rating>({
   socket,
   initialLobbyProps,
@@ -69,8 +69,8 @@ export function useLobbySocket<Config, Loadout, Rating>({
       sendSubscribe();
     }
 
-    function onMessage(event: MessageEvent) {
-      const response = JSON.parse(event.data) as ServerMessage<
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
         Config,
         Loadout,
         Rating,
@@ -130,16 +130,8 @@ export function useLobbySocket<Config, Loadout, Rating>({
       }
     }
 
-    function onClose() {
-      // Clear joined queues and rooms on socket close.
-      setRoomEntries([]);
-      setQueueEntries([]);
-      setRoomInvitations([]);
-    }
-
-    socket.addEventListener("message", onMessage);
-    socket.addEventListener("open", onOpen);
-    socket.addEventListener("close", onClose);
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
     try {
       sendSubscribe();
     } catch {
@@ -147,9 +139,8 @@ export function useLobbySocket<Config, Loadout, Rating>({
     }
 
     return () => {
-      socket.removeEventListener?.("message", onMessage);
-      socket.removeEventListener?.("open", onOpen);
-      socket.removeEventListener?.("close", onClose);
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
     };
   }, [displayError, navigate, socket]);
 
