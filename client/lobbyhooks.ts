@@ -73,27 +73,14 @@ export function useLobbySocket<Config, Loadout, Rating>({
       >;
       switch (response.type) {
         case "UpdateLobbyProps":
-          if (response.lobbyProps.allActiveGames != null) {
-            setActiveGames(response.lobbyProps.allActiveGames);
-          }
-          if (response.lobbyProps.allAvailableRooms != null) {
-            setAvailableRooms(response.lobbyProps.allAvailableRooms);
-          }
-          if (response.lobbyProps.player != null) {
-            setPlayer(response.lobbyProps.player);
-          }
-          if (response.lobbyProps.ratings != null) {
-            setRatings(response.lobbyProps.ratings);
-          }
-          if (response.lobbyProps.userActiveGames != null) {
-            setUserActiveGames(response.lobbyProps.userActiveGames);
-          }
-          if (response.lobbyProps.queueEntries != null) {
-            setQueueEntries(response.lobbyProps.queueEntries);
-          }
-          if (response.lobbyProps.roomInvitations != null) {
-            setRoomInvitations(response.lobbyProps.roomInvitations);
-          }
+          setActiveGames(response.lobbyProps.allActiveGames);
+          setAvailableRooms(response.lobbyProps.allAvailableRooms);
+          setUserActiveGames(response.lobbyProps.userActiveGames);
+          setPlayer(response.lobbyProps.player);
+          setRatings(response.lobbyProps.ratings);
+          setRoomEntries(response.lobbyProps.roomEntries);
+          setQueueEntries(response.lobbyProps.queueEntries);
+          setRoomInvitations(response.lobbyProps.roomInvitations);
           break;
         case "UpdateRoomEntry":
           setRoomEntries((existing) => {

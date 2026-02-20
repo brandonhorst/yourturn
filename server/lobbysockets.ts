@@ -5,7 +5,13 @@ import type {
   RoomWatchEvent,
 } from "./db.ts";
 import type { ServerMessage } from "../common/sockettypes.ts";
-import type { ActiveGame, AvailableRoom, Player, RoomEntry } from "../types.ts";
+import type {
+  ActiveGame,
+  AvailableRoom,
+  LobbyViewData,
+  Player,
+  RoomEntry,
+} from "../types.ts";
 import { ulid } from "@std/ulid";
 import type { Socket } from "./socketutils.ts";
 
@@ -32,10 +38,15 @@ type MatchmakingEntry<Config, Loadout> =
  * Owns the underlying WebSocket and sends lobby updates to the client.
  */
 class LobbySocket<Config, Loadout, Rating> {
+  private lobbyProps: LobbyViewData<Config, Loadout, Rating>;
+
   constructor(
     private socket: Socket,
     public readonly userId: string,
-  ) {}
+    initialLobbyProps: LobbyViewData<Config, Loadout, Rating>,
+  ) {
+    this.lobbyProps = initialLobbyProps;
+  }
 
   /**
    * Sends a message through the underlying socket.
@@ -81,9 +92,44 @@ class LobbySocket<Config, Loadout, Rating> {
   }
 
   /**
-   * Sends an upsert-style room update for a room the user is subscribed to.
+   * Sends the current lobby props snapshot to the client.
+   */
+  sendLobbyProps(): void {
+    const response: ServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      never,
+      never,
+      never
+    > = {
+      type: "UpdateLobbyProps",
+      lobbyProps: this.lobbyProps,
+    };
+    this.send(JSON.stringify(response));
+  }
+
+  /**
+   * Updates one room entry in the cached lobby props and notifies the client.
    */
   sendRoomEntryUpdate(roomEntry: RoomEntry<Config, Loadout>): void {
+    const existingIndex = this.lobbyProps.roomEntries.findIndex((entry) =>
+      entry.roomId === roomEntry.roomId
+    );
+    if (existingIndex === -1) {
+      this.lobbyProps = {
+        ...this.lobbyProps,
+        roomEntries: [...this.lobbyProps.roomEntries, roomEntry],
+      };
+    } else {
+      const roomEntries = [...this.lobbyProps.roomEntries];
+      roomEntries[existingIndex] = roomEntry;
+      this.lobbyProps = {
+        ...this.lobbyProps,
+        roomEntries,
+      };
+    }
+
     const message: ServerMessage<
       Config,
       Loadout,
@@ -99,9 +145,16 @@ class LobbySocket<Config, Loadout, Rating> {
   }
 
   /**
-   * Sends a room removal notification for a room the user left or that closed.
+   * Removes one room entry from the cached lobby props and notifies the client.
    */
   sendRoomEntryRemoved(roomId: string): void {
+    this.lobbyProps = {
+      ...this.lobbyProps,
+      roomEntries: this.lobbyProps.roomEntries.filter((entry) =>
+        entry.roomId !== roomId
+      ),
+    };
+
     const message: ServerMessage<
       Config,
       Loadout,
@@ -120,18 +173,11 @@ class LobbySocket<Config, Loadout, Rating> {
    * Sends active game updates to the client.
    */
   sendActiveGames(allActiveGames: ActiveGame<Config>[]): void {
-    const response: ServerMessage<
-      Config,
-      Loadout,
-      Rating,
-      never,
-      never,
-      never
-    > = {
-      type: "UpdateLobbyProps",
-      lobbyProps: { allActiveGames },
+    this.lobbyProps = {
+      ...this.lobbyProps,
+      allActiveGames,
     };
-    this.send(JSON.stringify(response));
+    this.sendLobbyProps();
   }
 
   /**
@@ -140,18 +186,11 @@ class LobbySocket<Config, Loadout, Rating> {
   sendAvailableRooms(
     allAvailableRooms: AvailableRoom<Config>[],
   ): void {
-    const response: ServerMessage<
-      Config,
-      Loadout,
-      Rating,
-      never,
-      never,
-      never
-    > = {
-      type: "UpdateLobbyProps",
-      lobbyProps: { allAvailableRooms },
+    this.lobbyProps = {
+      ...this.lobbyProps,
+      allAvailableRooms,
     };
-    this.send(JSON.stringify(response));
+    this.sendLobbyProps();
   }
 
   /**
@@ -160,24 +199,16 @@ class LobbySocket<Config, Loadout, Rating> {
   sendUserProps(
     userData: LobbyUserData<Config, Loadout, Rating>,
   ): void {
-    const response: ServerMessage<
-      Config,
-      Loadout,
-      Rating,
-      never,
-      never,
-      never
-    > = {
-      type: "UpdateLobbyProps",
-      lobbyProps: {
-        userActiveGames: userData.activeGames,
-        player: userData.player,
-        ratings: userData.ratings,
-        queueEntries: userData.queueEntries,
-        roomInvitations: userData.roomInvitations,
-      },
+    this.lobbyProps = {
+      ...this.lobbyProps,
+      userActiveGames: userData.activeGames,
+      player: userData.player,
+      ratings: userData.ratings,
+      roomEntries: userData.roomEntries,
+      queueEntries: userData.queueEntries,
+      roomInvitations: userData.roomInvitations,
     };
-    this.send(JSON.stringify(response));
+    this.sendLobbyProps();
   }
 }
 
@@ -277,6 +308,8 @@ export class LobbySocketStore<
 > {
   private sockets: Map<Socket, ConnectionState<Config, Loadout, Rating>> =
     new Map();
+  private latestAllActiveGames?: ActiveGame<Config>[];
+  private latestAllAvailableRooms?: AvailableRoom<Config>[];
 
   constructor(
     private db: DB<
@@ -306,17 +339,32 @@ export class LobbySocketStore<
   ): Promise<void> {
     let connectionState = this.sockets.get(socket);
     if (connectionState == null) {
+      const [allActiveGames, allAvailableRooms] = await Promise.all([
+        this.getLatestAllActiveGames(),
+        this.getLatestAllAvailableRooms(),
+      ]);
       const userChangesReader = this.db.watchForLobbyUserChanges(userId)
         .getReader();
       const lobbySocket = new LobbySocket<Config, Loadout, Rating>(
         socket,
         userId,
+        {
+          allActiveGames,
+          allAvailableRooms,
+          userActiveGames: user.activeGames,
+          player: user.player,
+          ratings: user.ratings,
+          roomEntries: user.roomEntries,
+          queueEntries: user.queueEntries,
+          roomInvitations: user.roomInvitations,
+        },
       );
       connectionState = {
         lobbySocket,
         userChangesReader,
       };
       this.sockets.set(socket, connectionState);
+      lobbySocket.sendLobbyProps();
       streamUserChangesToSocket(
         userChangesReader,
         lobbySocket,
@@ -324,6 +372,8 @@ export class LobbySocketStore<
           await this.syncRoomSubscriptions(socket, userData.roomEntries);
         },
       );
+    } else {
+      connectionState.lobbySocket.sendUserProps(user);
     }
 
     await this.syncRoomSubscriptions(socket, user.roomEntries);
@@ -355,6 +405,28 @@ export class LobbySocketStore<
   }
 
   /**
+   * Returns the latest active games list, using a DB snapshot if the stream has
+   * not emitted yet.
+   */
+  private async getLatestAllActiveGames(): Promise<ActiveGame<Config>[]> {
+    if (this.latestAllActiveGames == null) {
+      this.latestAllActiveGames = await this.db.getAllActiveGames();
+    }
+    return this.latestAllActiveGames;
+  }
+
+  /**
+   * Returns the latest available rooms list, using a DB snapshot if the stream
+   * has not emitted yet.
+   */
+  private async getLatestAllAvailableRooms(): Promise<AvailableRoom<Config>[]> {
+    if (this.latestAllAvailableRooms == null) {
+      this.latestAllAvailableRooms = await this.db.getAllAvailableRooms();
+    }
+    return this.latestAllAvailableRooms;
+  }
+
+  /**
    * Subscribe to the activeGamesStream and send to all registered sockets.
    */
   private streamToAllSockets(
@@ -363,6 +435,7 @@ export class LobbySocketStore<
     activeGamesStream.pipeTo(
       new WritableStream({
         write: (allActiveGames: ActiveGame<Config>[]) => {
+          this.latestAllActiveGames = allActiveGames;
           for (const connectionState of this.sockets.values()) {
             connectionState.lobbySocket.sendActiveGames(
               allActiveGames,
@@ -379,6 +452,7 @@ export class LobbySocketStore<
     availableRoomsStream.pipeTo(
       new WritableStream({
         write: (allAvailableRooms: AvailableRoom<Config>[]) => {
+          this.latestAllAvailableRooms = allAvailableRooms;
           for (const connectionState of this.sockets.values()) {
             connectionState.lobbySocket.sendAvailableRooms(
               allAvailableRooms,

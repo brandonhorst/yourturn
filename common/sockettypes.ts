@@ -31,7 +31,7 @@ export type ServerMessage<
 > =
   | {
     type: "UpdateLobbyProps";
-    lobbyProps: Partial<LobbyViewData<Config, Loadout, Rating>>;
+    lobbyProps: LobbyViewData<Config, Loadout, Rating>;
   }
   | {
     type: "UpdateRoomEntry";
