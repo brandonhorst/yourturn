@@ -257,8 +257,6 @@ export class Server<
             socket,
             userId,
             latestUserData,
-            parsedMessage.allActiveGames,
-            parsedMessage.allAvailableRooms,
           );
           subscribed = true;
           break;
@@ -532,8 +530,6 @@ export class Server<
           await this.gameSocketStore.subscribe(
             socket,
             gameId,
-            request.currentPublicState,
-            playerId == null ? undefined : request.currentPlayerState,
             this.game.playerState,
             this.game.publicState,
             playerId,

@@ -19,12 +19,8 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   const [outcome, setOutcome] = useState<Outcome | undefined>(
     initialGameProps.outcome,
   );
-  const playerStateRef = useRef(playerState);
-  const publicStateRef = useRef(publicState);
   const outcomeRef = useRef(outcome);
 
-  playerStateRef.current = playerState;
-  publicStateRef.current = publicState;
   outcomeRef.current = outcome;
 
   useEffect(() => {
@@ -43,8 +39,6 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
         PublicState
       > = {
         type: "SubscribeGame",
-        currentPublicState: publicStateRef.current,
-        currentPlayerState: playerStateRef.current,
       };
       socket.send(JSON.stringify(request));
       subscribeSent = true;

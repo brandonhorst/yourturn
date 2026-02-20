@@ -1,21 +1,8 @@
-import type {
-  ActiveGame,
-  AvailableRoom,
-  LobbyViewData,
-  RoomEntry,
-} from "../types.ts";
+import type { LobbyViewData, RoomEntry } from "../types.ts";
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
-  | {
-    type: "SubscribeLobby";
-    allActiveGames: ActiveGame<Config>[];
-    allAvailableRooms: AvailableRoom<Config>[];
-  }
-  | {
-    type: "SubscribeGame";
-    currentPublicState: PublicState;
-    currentPlayerState?: PlayerState;
-  }
+  | { type: "SubscribeLobby" }
+  | { type: "SubscribeGame" }
   | { type: "Unsubscribe" }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | {

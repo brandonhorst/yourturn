@@ -1,20 +1,15 @@
 import type { DB, GameStorageData } from "./db.ts";
-import { jsonEquals, type Socket } from "./socketutils.ts";
+import type { Socket } from "./socketutils.ts";
 import type { PlayerStateObject, PublicStateObject } from "../types.ts";
 import { assert } from "@std/assert";
 import type { ServerMessage } from "../common/sockettypes.ts";
 import { getPlayerState, getPublicState } from "./gamedata.ts";
 
 /**
- * Represents a connected game socket with cached state for change detection.
- * Owns the underlying WebSocket and contains the "last" values used to detect
- * changes and avoid sending unnecessary updates.
+ * Represents a connected game socket.
+ * Owns the underlying WebSocket and sends game-state updates to the client.
  */
 class GameSocket<PlayerState, PublicState, Outcome> {
-  private lastPlayerState: PlayerState | undefined = undefined;
-  private lastPublicState: PublicState | undefined = undefined;
-  private lastOutcome: Outcome | undefined = undefined;
-
   constructor(
     private socket: Socket,
     public readonly playerId: number | undefined,
@@ -28,35 +23,13 @@ class GameSocket<PlayerState, PublicState, Outcome> {
   }
 
   /**
-   * Sets the cached values from the client's current game snapshot.
-   * This establishes a baseline before the socket subscribes to updates.
+   * Sends the current game state to the client.
    */
-  setSubscriptionBaseline(
+  sendGameState(
     playerState: PlayerState | undefined,
     publicState: PublicState,
     outcome: Outcome | undefined,
   ): void {
-    this.lastPlayerState = playerState;
-    this.lastPublicState = publicState;
-    this.lastOutcome = outcome;
-  }
-
-  /**
-   * Updates the game state if it has changed since the last update.
-   */
-  updateGameStateIfNecessary(
-    playerState: PlayerState | undefined,
-    publicState: PublicState,
-    outcome: Outcome | undefined,
-  ): void {
-    if (
-      jsonEquals(this.lastPlayerState, playerState) &&
-      jsonEquals(this.lastPublicState, publicState) &&
-      jsonEquals(this.lastOutcome, outcome)
-    ) {
-      return;
-    }
-
     const response: ServerMessage<
       never,
       never,
@@ -70,9 +43,6 @@ class GameSocket<PlayerState, PublicState, Outcome> {
       publicState,
       outcome,
     };
-    this.lastPlayerState = playerState;
-    this.lastPublicState = publicState;
-    this.lastOutcome = outcome;
     this.send(JSON.stringify(response));
   }
 }
@@ -143,7 +113,7 @@ async function streamGameChangesToSockets<
         });
       }
 
-      gameSocket.updateGameStateIfNecessary(
+      gameSocket.sendGameState(
         playerState,
         publicState,
         outcome,
@@ -187,8 +157,6 @@ export class GameSocketStore<
   async subscribe(
     socket: Socket,
     gameId: string,
-    publicState: PublicState,
-    playerState: PlayerState | undefined,
     playerStateLogic: (
       s: GameState,
       o: PlayerStateObject<Config>,
@@ -209,12 +177,6 @@ export class GameSocketStore<
     const gameSocket = connection.gameSockets.get(socket);
     assert(gameSocket != null);
 
-    gameSocket.setSubscriptionBaseline(
-      playerState,
-      publicState,
-      undefined,
-    );
-
     const gameData = await this.db.getGameStorageData(gameId);
     const newPlayerState = gameSocket.playerId == null
       ? undefined
@@ -228,7 +190,7 @@ export class GameSocketStore<
       publicStateLogic,
     );
 
-    gameSocket.updateGameStateIfNecessary(
+    gameSocket.sendGameState(
       newPlayerState,
       newPublicState,
       gameData.outcome,

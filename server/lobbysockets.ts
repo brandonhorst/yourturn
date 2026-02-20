@@ -5,17 +5,9 @@ import type {
   RoomWatchEvent,
 } from "./db.ts";
 import type { ServerMessage } from "../common/sockettypes.ts";
-import type {
-  ActiveGame,
-  AvailableRoom,
-  LobbyViewData,
-  Player,
-  QueueEntry,
-  RoomEntry,
-  RoomInvitation,
-} from "../types.ts";
+import type { ActiveGame, AvailableRoom, Player, RoomEntry } from "../types.ts";
 import { ulid } from "@std/ulid";
-import { jsonEquals, type Socket } from "./socketutils.ts";
+import type { Socket } from "./socketutils.ts";
 
 type MatchmakingEntry<Config, Loadout> =
   | {
@@ -36,52 +28,20 @@ type MatchmakingEntry<Config, Loadout> =
   };
 
 /**
- * Represents a connected lobby socket with cached state for change detection.
- * Owns the underlying WebSocket and contains the "last" values used to detect
- * changes and avoid sending unnecessary updates.
+ * Represents a connected lobby socket.
+ * Owns the underlying WebSocket and sends lobby updates to the client.
  */
 class LobbySocket<Config, Loadout, Rating> {
-  private lastActiveGames: ActiveGame<Config>[] = [];
-  private lastAvailableRooms: AvailableRoom<Config>[] = [];
-  private lastUserActiveGames: ActiveGame<Config>[] = [];
-  private lastPlayer: Player;
-  private lastRatings: Record<string, Rating> = {};
-  private lastQueueEntries: QueueEntry<Loadout>[] = [];
-  private lastRoomInvitations: RoomInvitation<Config>[] = [];
-
   constructor(
     private socket: Socket,
     public readonly userId: string,
-    initialPlayer: Player,
-    initialRatings: Record<string, Rating>,
-    initialActiveGames: ActiveGame<Config>[],
-    initialQueueEntries: QueueEntry<Loadout>[],
-    initialRoomInvitations: RoomInvitation<Config>[],
-  ) {
-    this.lastPlayer = initialPlayer;
-    this.lastRatings = initialRatings;
-    this.lastUserActiveGames = initialActiveGames;
-    this.lastQueueEntries = initialQueueEntries;
-    this.lastRoomInvitations = initialRoomInvitations;
-  }
+  ) {}
 
   /**
    * Sends a message through the underlying socket.
    */
   private send(message: string): void {
     this.socket.send(message);
-  }
-
-  /**
-   * Sets the cached values from the client's current lobby snapshot.
-   * This establishes a baseline before the socket subscribes to updates.
-   */
-  setSubscriptionBaseline(
-    allActiveGames: ActiveGame<Config>[],
-    allAvailableRooms: AvailableRoom<Config>[],
-  ): void {
-    this.lastActiveGames = allActiveGames;
-    this.lastAvailableRooms = allAvailableRooms;
   }
 
   /**
@@ -157,13 +117,9 @@ class LobbySocket<Config, Loadout, Rating> {
   }
 
   /**
-   * Updates all active games if they have changed since the last update.
+   * Sends active game updates to the client.
    */
-  updateActiveGamesIfNecessary(allActiveGames: ActiveGame<Config>[]): void {
-    if (jsonEquals(this.lastActiveGames, allActiveGames)) {
-      return;
-    }
-
+  sendActiveGames(allActiveGames: ActiveGame<Config>[]): void {
     const response: ServerMessage<
       Config,
       Loadout,
@@ -175,20 +131,15 @@ class LobbySocket<Config, Loadout, Rating> {
       type: "UpdateLobbyProps",
       lobbyProps: { allActiveGames },
     };
-    this.lastActiveGames = allActiveGames;
     this.send(JSON.stringify(response));
   }
 
   /**
-   * Updates available rooms if they have changed since the last update.
+   * Sends available room updates to the client.
    */
-  updateAvailableRoomsIfNecessary(
+  sendAvailableRooms(
     allAvailableRooms: AvailableRoom<Config>[],
   ): void {
-    if (jsonEquals(this.lastAvailableRooms, allAvailableRooms)) {
-      return;
-    }
-
     const response: ServerMessage<
       Config,
       Loadout,
@@ -200,53 +151,15 @@ class LobbySocket<Config, Loadout, Rating> {
       type: "UpdateLobbyProps",
       lobbyProps: { allAvailableRooms },
     };
-    this.lastAvailableRooms = allAvailableRooms;
     this.send(JSON.stringify(response));
   }
 
   /**
-   * Updates user-specific lobby props when the stored user data changes.
+   * Sends user-specific lobby props.
    */
-  updateUserPropsIfNecessary(
+  sendUserProps(
     userData: LobbyUserData<Config, Loadout, Rating>,
   ): void {
-    const lobbyProps: Partial<LobbyViewData<Config, Loadout, Rating>> = {};
-    let didUpdate = false;
-
-    if (!jsonEquals(this.lastUserActiveGames, userData.activeGames)) {
-      lobbyProps.userActiveGames = userData.activeGames;
-      this.lastUserActiveGames = userData.activeGames;
-      didUpdate = true;
-    }
-
-    if (!jsonEquals(this.lastPlayer, userData.player)) {
-      lobbyProps.player = userData.player;
-      this.lastPlayer = userData.player;
-      didUpdate = true;
-    }
-
-    if (!jsonEquals(this.lastRatings, userData.ratings)) {
-      lobbyProps.ratings = userData.ratings;
-      this.lastRatings = userData.ratings;
-      didUpdate = true;
-    }
-
-    if (!jsonEquals(this.lastQueueEntries, userData.queueEntries)) {
-      lobbyProps.queueEntries = userData.queueEntries;
-      this.lastQueueEntries = userData.queueEntries;
-      didUpdate = true;
-    }
-
-    if (!jsonEquals(this.lastRoomInvitations, userData.roomInvitations)) {
-      lobbyProps.roomInvitations = userData.roomInvitations;
-      this.lastRoomInvitations = userData.roomInvitations;
-      didUpdate = true;
-    }
-
-    if (!didUpdate) {
-      return;
-    }
-
     const response: ServerMessage<
       Config,
       Loadout,
@@ -256,7 +169,13 @@ class LobbySocket<Config, Loadout, Rating> {
       never
     > = {
       type: "UpdateLobbyProps",
-      lobbyProps,
+      lobbyProps: {
+        userActiveGames: userData.activeGames,
+        player: userData.player,
+        ratings: userData.ratings,
+        queueEntries: userData.queueEntries,
+        roomInvitations: userData.roomInvitations,
+      },
     };
     this.send(JSON.stringify(response));
   }
@@ -292,7 +211,7 @@ async function streamAssignmentsToSocket<Config, Loadout, Rating>(
 }
 
 /**
- * Streams user changes to the lobby socket and updates lobby props when needed.
+ * Streams user changes to the lobby socket and sends user lobby props.
  */
 async function streamUserChangesToSocket<Config, Loadout, Rating>(
   stream: ReadableStreamDefaultReader<
@@ -309,7 +228,7 @@ async function streamUserChangesToSocket<Config, Loadout, Rating>(
       break;
     }
 
-    lobbySocket.updateUserPropsIfNecessary(data.value);
+    lobbySocket.sendUserProps(data.value);
     await onUserData(data.value);
   }
 }
@@ -384,8 +303,6 @@ export class LobbySocketStore<
     socket: Socket,
     userId: string,
     user: LobbyUserData<Config, Loadout, Rating>,
-    allActiveGames: ActiveGame<Config>[],
-    allAvailableRooms: AvailableRoom<Config>[],
   ): Promise<void> {
     let connectionState = this.sockets.get(socket);
     if (connectionState == null) {
@@ -394,11 +311,6 @@ export class LobbySocketStore<
       const lobbySocket = new LobbySocket<Config, Loadout, Rating>(
         socket,
         userId,
-        user.player,
-        user.ratings,
-        user.activeGames,
-        user.queueEntries,
-        user.roomInvitations,
       );
       connectionState = {
         lobbySocket,
@@ -413,11 +325,6 @@ export class LobbySocketStore<
         },
       );
     }
-
-    connectionState.lobbySocket.setSubscriptionBaseline(
-      allActiveGames,
-      allAvailableRooms,
-    );
 
     await this.syncRoomSubscriptions(socket, user.roomEntries);
   }
@@ -457,7 +364,7 @@ export class LobbySocketStore<
       new WritableStream({
         write: (allActiveGames: ActiveGame<Config>[]) => {
           for (const connectionState of this.sockets.values()) {
-            connectionState.lobbySocket.updateActiveGamesIfNecessary(
+            connectionState.lobbySocket.sendActiveGames(
               allActiveGames,
             );
           }
@@ -473,7 +380,7 @@ export class LobbySocketStore<
       new WritableStream({
         write: (allAvailableRooms: AvailableRoom<Config>[]) => {
           for (const connectionState of this.sockets.values()) {
-            connectionState.lobbySocket.updateAvailableRoomsIfNecessary(
+            connectionState.lobbySocket.sendAvailableRooms(
               allAvailableRooms,
             );
           }

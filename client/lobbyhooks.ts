@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useState } from "preact/hooks";
 import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type { Socket } from "../client/hookutils.ts";
 import type { LobbyProps, LobbyViewData } from "../types.ts";
@@ -36,11 +36,6 @@ export function useLobbySocket<Config, Loadout, Rating>({
   const [roomInvitations, setRoomInvitations] = useState(
     initialLobbyProps.roomInvitations,
   );
-  const allActiveGamesRef = useRef(allActiveGames);
-  const allAvailableRoomsRef = useRef(allAvailableRooms);
-
-  allActiveGamesRef.current = allActiveGames;
-  allAvailableRoomsRef.current = allAvailableRooms;
 
   useEffect(() => {
     let subscribeSent = false;
@@ -58,8 +53,6 @@ export function useLobbySocket<Config, Loadout, Rating>({
         never
       > = {
         type: "SubscribeLobby",
-        allActiveGames: allActiveGamesRef.current,
-        allAvailableRooms: allAvailableRoomsRef.current,
       };
       socket.send(JSON.stringify(request));
       subscribeSent = true;
