@@ -4,7 +4,7 @@ import type {
   LobbyServerMessage,
 } from "../common/sockettypes.ts";
 import type { Socket } from "../client/hookutils.ts";
-import type { LobbyProps, LobbyViewProps } from "../types.ts";
+import type { LobbyProps, LobbyViewData } from "../types.ts";
 import { ulid } from "@std/ulid";
 
 // Subscribes an already-open lobby socket
@@ -15,10 +15,10 @@ export function useLobbySocket<Config, Loadout, Rating>({
   displayError,
 }: {
   socket: Socket;
-  initialLobbyProps: LobbyProps<Config, Loadout, Rating>;
+  initialLobbyProps: LobbyViewData<Config, Loadout, Rating>;
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
-}): LobbyViewProps<Config, Loadout, Rating> {
+}): LobbyProps<Config, Loadout, Rating> {
   const [allActiveGames, setActiveGames] = useState(
     initialLobbyProps.allActiveGames,
   );

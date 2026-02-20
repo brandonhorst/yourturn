@@ -8,7 +8,7 @@ import type { LobbyServerMessage } from "../common/sockettypes.ts";
 import type {
   ActiveGame,
   AvailableRoom,
-  LobbyProps,
+  LobbyViewData,
   Player,
   QueueEntry,
   RoomEntry,
@@ -168,7 +168,7 @@ class LobbySocket<Config, Loadout, Rating> {
   updateUserPropsIfNecessary(
     userData: LobbyUserData<Config, Loadout, Rating>,
   ): void {
-    const lobbyProps: Partial<LobbyProps<Config, Loadout, Rating>> = {};
+    const lobbyProps: Partial<LobbyViewData<Config, Loadout, Rating>> = {};
     let didUpdate = false;
 
     if (!jsonEquals(this.lastUserActiveGames, userData.activeGames)) {

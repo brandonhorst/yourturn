@@ -245,6 +245,8 @@ export interface Game<
   processOutcome(outcome: Outcome, currentRatings: Rating[]): Rating[];
 }
 
+// ViewData and Props
+
 export type ActiveGame<Config> = {
   gameId: string;
   players: Player[];
@@ -281,7 +283,7 @@ export type QueueEntry<Loadout> = {
   loadout: Loadout;
 };
 
-export type LobbyProps<Config, Loadout, Rating> = {
+export type LobbyViewData<Config, Loadout, Rating> = {
   allActiveGames: ActiveGame<Config>[];
   allAvailableRooms: AvailableRoom<Config>[];
   userActiveGames: ActiveGame<Config>[];
@@ -292,7 +294,7 @@ export type LobbyProps<Config, Loadout, Rating> = {
   roomInvitations: RoomInvitation<Config>[];
 };
 
-type CompletePlayerProps<PlayerState, PublicState, Outcome> = {
+type CompletePlayerViewData<PlayerState, PublicState, Outcome> = {
   players: Player[];
   publicState: PublicState;
   playerId: number;
@@ -301,7 +303,7 @@ type CompletePlayerProps<PlayerState, PublicState, Outcome> = {
   chat: ChatMessage[];
 };
 
-type IncompletePlayerProps<PlayerState, PublicState> = {
+type IncompletePlayerViewData<PlayerState, PublicState> = {
   players: Player[];
   publicState: PublicState;
   playerId: number;
@@ -310,7 +312,7 @@ type IncompletePlayerProps<PlayerState, PublicState> = {
   chat: ChatMessage[];
 };
 
-type CompleteObserverProps<PublicState, Outcome> = {
+type CompleteObserverViewData<PublicState, Outcome> = {
   players: Player[];
   publicState: PublicState;
   playerId: undefined;
@@ -319,7 +321,7 @@ type CompleteObserverProps<PublicState, Outcome> = {
   chat: ChatMessage[];
 };
 
-type IncompleteObserverProps<PublicState> = {
+type IncompleteObserverViewData<PublicState> = {
   players: Player[];
   publicState: PublicState;
   playerId: undefined;
@@ -328,39 +330,39 @@ type IncompleteObserverProps<PublicState> = {
   chat: ChatMessage[];
 };
 
-export type GameProps<PlayerState, PublicState, Outcome> =
-  | CompletePlayerProps<PlayerState, PublicState, Outcome>
-  | IncompletePlayerProps<PlayerState, PublicState>
-  | CompleteObserverProps<PublicState, Outcome>
-  | IncompleteObserverProps<PublicState>;
+export type GameViewData<PlayerState, PublicState, Outcome> =
+  | CompletePlayerViewData<PlayerState, PublicState, Outcome>
+  | IncompletePlayerViewData<PlayerState, PublicState>
+  | CompleteObserverViewData<PublicState, Outcome>
+  | IncompleteObserverViewData<PublicState>;
 
-type IncompletePlayerViewProps<Move, PlayerState, PublicState> =
-  & IncompletePlayerProps<PlayerState, PublicState>
+type IncompletePlayerProps<Move, PlayerState, PublicState> =
+  & IncompletePlayerViewData<PlayerState, PublicState>
   & {
     perform: (move: Move) => void;
     sendChatMessage: (message: string) => void;
   };
 
-type CompletePlayerViewProps<PlayerState, PublicState, Outcome> =
-  & CompletePlayerProps<PlayerState, PublicState, Outcome>
+type CompletePlayerProps<PlayerState, PublicState, Outcome> =
+  & CompletePlayerViewData<PlayerState, PublicState, Outcome>
   & { perform: undefined; sendChatMessage: (message: string) => void };
 
-type ObserveViewProps<PublicState, Outcome> =
+type ObserveProps<PublicState, Outcome> =
   & (
-    | CompleteObserverProps<PublicState, Outcome>
-    | IncompleteObserverProps<
+    | CompleteObserverViewData<PublicState, Outcome>
+    | IncompleteObserverViewData<
       PublicState
     >
   )
   & { perform: undefined; sendChatMessage: (message: string) => void };
 
-export type GameViewProps<Move, PlayerState, PublicState, Outcome> =
-  | CompletePlayerViewProps<PlayerState, PublicState, Outcome>
-  | IncompletePlayerViewProps<Move, PlayerState, PublicState>
-  | ObserveViewProps<PublicState, Outcome>;
+export type GameProps<Move, PlayerState, PublicState, Outcome> =
+  | CompletePlayerProps<PlayerState, PublicState, Outcome>
+  | IncompletePlayerProps<Move, PlayerState, PublicState>
+  | ObserveProps<PublicState, Outcome>;
 
-export type LobbyViewProps<Config, Loadout, Rating> =
-  & LobbyProps<Config, Loadout, Rating>
+export type LobbyProps<Config, Loadout, Rating> =
+  & LobbyViewData<Config, Loadout, Rating>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     createAndJoinRoom: (

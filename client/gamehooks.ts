@@ -4,13 +4,13 @@ import type {
   GameServerMessage,
 } from "../common/sockettypes.ts";
 import type { Socket } from "../client/hookutils.ts";
-import type { GameProps, GameViewProps } from "../types.ts";
+import type { GameProps, GameViewData } from "../types.ts";
 
 // Subscribes an already-open game socket
 export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   socket: Socket,
-  initialGameProps: GameProps<PlayerState, PublicState, Outcome>,
-): GameViewProps<Move, PlayerState, PublicState, Outcome> {
+  initialGameProps: GameViewData<PlayerState, PublicState, Outcome>,
+): GameProps<Move, PlayerState, PublicState, Outcome> {
   const playerId = initialGameProps.playerId;
   const players = initialGameProps.players;
   const [chat, setChat] = useState(initialGameProps.chat);
@@ -123,5 +123,5 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
     perform,
     sendChatMessage,
     outcome: outcome,
-  } as GameViewProps<Move, PlayerState, PublicState, Outcome>;
+  } as GameProps<Move, PlayerState, PublicState, Outcome>;
 }

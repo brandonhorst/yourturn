@@ -1,8 +1,8 @@
 import type {
   ActiveGame,
   Game,
-  GameProps,
-  LobbyProps,
+  GameViewData,
+  LobbyViewData,
   Player,
   QueueEntry,
   RoomEntry,
@@ -83,7 +83,7 @@ export class Server<
   async getInitialLobbyProps(
     token: string | undefined,
     invitationId?: string,
-  ): Promise<{ props: LobbyProps<Config, Loadout, Rating>; token: string }> {
+  ): Promise<{ props: LobbyViewData<Config, Loadout, Rating>; token: string }> {
     const allActiveGames = await fetchActiveGames(this.db);
     const allAvailableRooms = await fetchAvailableRooms(this.db);
     let user: Player | null = null;
@@ -91,7 +91,7 @@ export class Server<
     let userActiveGames: ActiveGame<Config>[] = [];
     let roomEntries: RoomEntry<Config, Loadout>[] = [];
     let queueEntries: QueueEntry<Loadout>[] = [];
-    let roomInvitations: LobbyProps<
+    let roomInvitations: LobbyViewData<
       Config,
       Loadout,
       Rating
@@ -187,7 +187,7 @@ export class Server<
   async getInitialGameProps(
     gameId: string,
     token: string | undefined,
-  ): Promise<GameProps<PlayerState, PublicState, Outcome>> {
+  ): Promise<GameViewData<PlayerState, PublicState, Outcome>> {
     const gameData = await this.db.getGameStorageData(gameId);
 
     let playerId: number | undefined;
@@ -210,7 +210,7 @@ export class Server<
       playerState,
       outcome: gameData.outcome,
       chat: gameData.chat,
-    } as GameProps<PlayerState, PublicState, Outcome>;
+    } as GameViewData<PlayerState, PublicState, Outcome>;
   }
 
   async configureLobbySocket(socket: WebSocket, token: string) {
