@@ -360,6 +360,8 @@ export interface Game<
   processOutcome(outcome: Outcome, currentRatings: Rating[]): Rating[];
 }
 
+// ViewData and Props
+
 export type ActivePublicGame<Config> = {
   gameId: Ulid;
   players: User[];
