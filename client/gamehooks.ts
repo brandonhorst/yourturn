@@ -13,7 +13,6 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
 ): GameProps<Move, PlayerState, PublicState, Outcome> {
   const playerId = initialGameProps.playerId;
   const players = initialGameProps.players;
-  const [chat, setChat] = useState(initialGameProps.chat);
   const [playerState, setPlayerState] = useState<PlayerState | undefined>(
     initialGameProps.playerState,
   );
@@ -23,12 +22,10 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   const [outcome, setOutcome] = useState<Outcome | undefined>(
     initialGameProps.outcome,
   );
-  const chatRef = useRef(chat);
   const playerStateRef = useRef(playerState);
   const publicStateRef = useRef(publicState);
   const outcomeRef = useRef(outcome);
 
-  chatRef.current = chat;
   playerStateRef.current = playerState;
   publicStateRef.current = publicState;
   outcomeRef.current = outcome;
@@ -45,7 +42,6 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
         type: "Subscribe",
         currentPublicState: publicStateRef.current,
         currentPlayerState: playerStateRef.current,
-        currentChat: chatRef.current,
       };
       socket.send(JSON.stringify(request));
       subscribeSent = true;
@@ -66,7 +62,6 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
           setOutcome(response.outcome);
           setPublicState(response.publicState);
           setPlayerState(response.playerState);
-          setChat(response.chat);
           if (response.outcome !== undefined) {
             socket.close();
           }
@@ -106,22 +101,12 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   }, [send]);
   const perform = playerId == null ? undefined : performCallback;
 
-  const sendChatMessage = useCallback((message: string) => {
-    const request: GameClientMessage<Move, PlayerState, PublicState> = {
-      type: "ChatMessage",
-      message,
-    };
-    send(request);
-  }, [send]);
-
   return {
     players: players,
     publicState: publicState,
     playerId: initialGameProps.playerId,
     playerState: playerState,
-    chat,
     perform,
-    sendChatMessage,
     outcome: outcome,
   } as GameProps<Move, PlayerState, PublicState, Outcome>;
 }

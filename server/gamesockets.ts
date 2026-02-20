@@ -1,10 +1,6 @@
 import type { DB, GameStorageData } from "./db.ts";
 import { jsonEquals, type Socket } from "./socketutils.ts";
-import type {
-  ChatMessage,
-  PlayerStateObject,
-  PublicStateObject,
-} from "../types.ts";
+import type { PlayerStateObject, PublicStateObject } from "../types.ts";
 import { assert } from "@std/assert";
 import type { GameServerMessage } from "../common/sockettypes.ts";
 import { getPlayerState, getPublicState } from "./gamedata.ts";
@@ -18,7 +14,6 @@ class GameSocket<PlayerState, PublicState, Outcome> {
   private lastPlayerState: PlayerState | undefined = undefined;
   private lastPublicState: PublicState | undefined = undefined;
   private lastOutcome: Outcome | undefined = undefined;
-  private lastChat: ChatMessage[] | undefined = undefined;
 
   constructor(
     private socket: Socket,
@@ -40,12 +35,10 @@ class GameSocket<PlayerState, PublicState, Outcome> {
     playerState: PlayerState | undefined,
     publicState: PublicState,
     outcome: Outcome | undefined,
-    chat: ChatMessage[],
   ): void {
     this.lastPlayerState = playerState;
     this.lastPublicState = publicState;
     this.lastOutcome = outcome;
-    this.lastChat = chat;
   }
 
   /**
@@ -55,13 +48,11 @@ class GameSocket<PlayerState, PublicState, Outcome> {
     playerState: PlayerState | undefined,
     publicState: PublicState,
     outcome: Outcome | undefined,
-    chat: ChatMessage[],
   ): void {
     if (
       jsonEquals(this.lastPlayerState, playerState) &&
       jsonEquals(this.lastPublicState, publicState) &&
-      jsonEquals(this.lastOutcome, outcome) &&
-      jsonEquals(this.lastChat, chat)
+      jsonEquals(this.lastOutcome, outcome)
     ) {
       return;
     }
@@ -71,12 +62,10 @@ class GameSocket<PlayerState, PublicState, Outcome> {
       playerState,
       publicState,
       outcome,
-      chat,
     };
     this.lastPlayerState = playerState;
     this.lastPublicState = publicState;
     this.lastOutcome = outcome;
-    this.lastChat = chat;
     this.send(JSON.stringify(response));
   }
 }
@@ -127,7 +116,6 @@ async function streamGameChangesToSockets<
     const connection = getConnection(gameId);
     const state = data.value.gameState;
     const outcome = data.value.outcome;
-    const chat = data.value.chat;
     const timestamp = new Date();
 
     const publicState = publicStateLogic(state, {
@@ -152,7 +140,6 @@ async function streamGameChangesToSockets<
         playerState,
         publicState,
         outcome,
-        chat,
       );
     }
   }
@@ -195,7 +182,6 @@ export class GameSocketStore<
     gameId: string,
     publicState: PublicState,
     playerState: PlayerState | undefined,
-    chat: ChatMessage[],
     playerStateLogic: (
       s: GameState,
       o: PlayerStateObject<Config>,
@@ -220,7 +206,6 @@ export class GameSocketStore<
       playerState,
       publicState,
       undefined,
-      chat,
     );
 
     const gameData = await this.db.getGameStorageData(gameId);
@@ -240,7 +225,6 @@ export class GameSocketStore<
       newPlayerState,
       newPublicState,
       gameData.outcome,
-      gameData.chat,
     );
   }
 

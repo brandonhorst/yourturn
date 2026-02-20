@@ -49,11 +49,6 @@ export type Player = {
   isGuest: boolean;
 };
 
-export type ChatMessage = {
-  player: Player;
-  message: string;
-};
-
 export type TokenData = {
   userId: string;
   expiration: Date;
@@ -300,7 +295,6 @@ type CompletePlayerViewData<PlayerState, PublicState, Outcome> = {
   playerId: number;
   playerState: PlayerState;
   outcome: Outcome;
-  chat: ChatMessage[];
 };
 
 type IncompletePlayerViewData<PlayerState, PublicState> = {
@@ -309,7 +303,6 @@ type IncompletePlayerViewData<PlayerState, PublicState> = {
   playerId: number;
   playerState: PlayerState;
   outcome: undefined;
-  chat: ChatMessage[];
 };
 
 type CompleteObserverViewData<PublicState, Outcome> = {
@@ -318,7 +311,6 @@ type CompleteObserverViewData<PublicState, Outcome> = {
   playerId: undefined;
   playerState: undefined;
   outcome: Outcome;
-  chat: ChatMessage[];
 };
 
 type IncompleteObserverViewData<PublicState> = {
@@ -327,7 +319,6 @@ type IncompleteObserverViewData<PublicState> = {
   playerId: undefined;
   playerState: undefined;
   outcome: undefined;
-  chat: ChatMessage[];
 };
 
 export type GameViewData<PlayerState, PublicState, Outcome> =
@@ -338,14 +329,11 @@ export type GameViewData<PlayerState, PublicState, Outcome> =
 
 type IncompletePlayerProps<Move, PlayerState, PublicState> =
   & IncompletePlayerViewData<PlayerState, PublicState>
-  & {
-    perform: (move: Move) => void;
-    sendChatMessage: (message: string) => void;
-  };
+  & { perform: (move: Move) => void };
 
 type CompletePlayerProps<PlayerState, PublicState, Outcome> =
   & CompletePlayerViewData<PlayerState, PublicState, Outcome>
-  & { perform: undefined; sendChatMessage: (message: string) => void };
+  & { perform: undefined };
 
 type ObserveProps<PublicState, Outcome> =
   & (
@@ -354,7 +342,7 @@ type ObserveProps<PublicState, Outcome> =
       PublicState
     >
   )
-  & { perform: undefined; sendChatMessage: (message: string) => void };
+  & { perform: undefined };
 
 export type GameProps<Move, PlayerState, PublicState, Outcome> =
   | CompletePlayerProps<PlayerState, PublicState, Outcome>

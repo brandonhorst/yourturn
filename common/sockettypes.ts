@@ -1,7 +1,6 @@
 import type {
   ActiveGame,
   AvailableRoom,
-  ChatMessage,
   LobbyViewData,
   RoomEntry,
 } from "../types.ts";
@@ -47,16 +46,13 @@ export type GameClientMessage<Move, PlayerState, PublicState> =
     type: "Subscribe";
     currentPublicState: PublicState;
     currentPlayerState?: PlayerState;
-    currentChat: ChatMessage[];
   }
   | { type: "Unsubscribe" }
-  | { type: "Move"; move: Move }
-  | { type: "ChatMessage"; message: string };
+  | { type: "Move"; move: Move };
 
 export type GameServerMessage<PlayerState, PublicState, Outcome> = {
   type: "UpdateGameState";
   publicState: PublicState;
   playerState: PlayerState | undefined;
   outcome: Outcome | undefined;
-  chat: ChatMessage[];
 };

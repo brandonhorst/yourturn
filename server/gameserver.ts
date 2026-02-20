@@ -17,7 +17,6 @@ import {
   getPlayerId,
   getPlayerState,
   getPublicState,
-  handleChatMessage,
   handleMove,
 } from "./gamedata.ts";
 import type { GameSocketStore } from "./gamesockets.ts";
@@ -209,7 +208,6 @@ export class Server<
       playerId,
       playerState,
       outcome: gameData.outcome,
-      chat: gameData.chat,
     } as GameViewData<PlayerState, PublicState, Outcome>;
   }
 
@@ -535,7 +533,6 @@ export class Server<
             gameId,
             request.currentPublicState,
             playerId == null ? undefined : request.currentPlayerState,
-            request.currentChat,
             this.game.playerState,
             this.game.publicState,
             playerId,
@@ -556,17 +553,6 @@ export class Server<
             gameId,
             playerId,
             request.move,
-          );
-          break;
-        case "ChatMessage":
-          if (userId == null) {
-            break;
-          }
-          await handleChatMessage(
-            this.db,
-            gameId,
-            userId,
-            request.message,
           );
           break;
       }
