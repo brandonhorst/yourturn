@@ -16,22 +16,11 @@ export interface Socket {
 // Hook that opens and manages a socket created by `createSocket`, then calls
 // `onMessage` for each JSON message. It reconnects on close with exponential
 // backoff and sends `initializeMessage` whenever a connection opens.
-export function useSocket<Req, Res>(
-  shouldOpen: boolean,
-  socketUrl: string,
-  initializeMessage: Req,
-  onMessage: (res: Res, close: () => void) => void,
-  onClose?: () => void,
-): Socket {
+export function useSocket(socketUrl: string): Socket {
   const ws = useRef<Socket | null>(null);
   const closedIntentionally = useRef(false);
   const reconnectAttempt = useRef(0);
   const maxReconnectDelay = 30000; // Maximum delay in ms (30 seconds)
-
-  const close = () => {
-    closedIntentionally.current = true;
-    ws.current?.close();
-  };
 
   const connectWebSocket = () => {
     ws.current = new WebSocket(socketUrl);
@@ -39,16 +28,8 @@ export function useSocket<Req, Res>(
     ws.current.addEventListener("open", () => {
       console.log("WebSocket opened");
       reconnectAttempt.current = 0; // Reset attempt counter on successful connection
-      if (initializeMessage != null) {
-        ws.current?.send(JSON.stringify(initializeMessage));
-      }
-    });
-    ws.current.addEventListener("message", (event) => {
-      const newValue = JSON.parse(event.data);
-      onMessage(newValue, close);
     });
     ws.current.addEventListener("close", () => {
-      onClose?.();
       console.log("WebSocket closed");
       if (closedIntentionally.current) {
         return;
@@ -69,16 +50,12 @@ export function useSocket<Req, Res>(
   };
 
   useEffect(() => {
-    if (shouldOpen) {
-      connectWebSocket();
+    connectWebSocket();
 
-      return () => {
-        closedIntentionally.current = true;
-        ws.current?.close();
-      };
-    } else {
-      return () => {};
-    }
+    return () => {
+      closedIntentionally.current = true;
+      ws.current?.close();
+    };
   }, []);
 
   return {
