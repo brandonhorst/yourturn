@@ -1,4 +1,12 @@
-import type { LobbyViewData, RoomEntry } from "../types.ts";
+import type {
+  ActiveGame,
+  AvailableRoom,
+  LobbyViewData,
+  Player,
+  QueueEntry,
+  RoomEntry,
+  RoomInvitation,
+} from "../types.ts";
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   // Lobby messages
@@ -34,6 +42,23 @@ export type ServerMessage<
   | {
     type: "UpdateLobbyProps";
     lobbyProps: LobbyViewData<Config, Loadout, Rating>;
+  }
+  | {
+    type: "UpdateLobbyUserProps";
+    userActiveGames: ActiveGame<Config>[];
+    player: Player;
+    ratings: Record<string, Rating>;
+    roomEntries: RoomEntry<Config, Loadout>[];
+    queueEntries: QueueEntry<Loadout>[];
+    roomInvitations: RoomInvitation<Config>[];
+  }
+  | {
+    type: "UpdateActiveGames";
+    allActiveGames: ActiveGame<Config>[];
+  }
+  | {
+    type: "UpdateAvailableRooms";
+    allAvailableRooms: AvailableRoom<Config>[];
   }
   | {
     type: "UpdateRoomEntry";

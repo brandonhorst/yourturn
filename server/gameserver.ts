@@ -186,10 +186,6 @@ export class Server<
       throw new Error("Missing socket user id");
     }
 
-    let lobbySubscribed = false;
-    const subscribedGameIds = new Set<string>();
-    const playerIdsByGame = new Map<string, number | undefined>();
-
     /**
      * Sends an error response to the client over this websocket.
      */
@@ -206,36 +202,20 @@ export class Server<
     };
 
     /**
-     * Resolves and memoizes the user's player ID for a specific game.
+     * Resolves the user's player ID for a specific game.
      */
     const getPlayerIdForGame = async (
       gameId: string,
     ): Promise<number | undefined> => {
-      const cachedPlayerId = playerIdsByGame.get(gameId);
-      if (cachedPlayerId !== undefined || playerIdsByGame.has(gameId)) {
-        return cachedPlayerId;
-      }
-
       const gameData = await this.db.getGameStorageData(gameId);
-      const playerId = getPlayerId(gameData, userId);
-      playerIdsByGame.set(gameId, playerId);
-      return playerId;
+      return getPlayerId(gameData, userId);
     };
 
     /**
      * Cleans up all lobby and game subscriptions when the socket closes.
      */
     const handleSocketClose = async () => {
-      if (lobbySubscribed) {
-        await this.socketStore.unsubscribeLobby(socket);
-        lobbySubscribed = false;
-      }
-
-      for (const subscribedGameId of subscribedGameIds) {
-        this.socketStore.unsubscribeGame(socket, subscribedGameId);
-      }
-      subscribedGameIds.clear();
-      playerIdsByGame.clear();
+      await this.socketStore.unsubscribeSocket(socket);
     };
 
     /**
@@ -259,12 +239,10 @@ export class Server<
           }
 
           await this.socketStore.subscribeLobby(socket, userId, latestUserData);
-          lobbySubscribed = true;
           break;
         }
         case "UnsubscribeLobby":
           await this.socketStore.unsubscribeLobby(socket);
-          lobbySubscribed = false;
           break;
         case "JoinQueue": {
           const queue = this.game.queues[request.queueId];
@@ -290,13 +268,18 @@ export class Server<
             break;
           }
 
-          await this.socketStore.joinQueue(
-            socket,
-            request.queueId,
-            userId,
-            user,
-            request.loadout,
-          );
+          try {
+            await this.socketStore.joinQueue(
+              socket,
+              request.queueId,
+              userId,
+              user,
+              request.loadout,
+            );
+          } catch (err) {
+            console.error("Failed to join queue", err);
+            sendDisplayError("Unable to join queue.");
+          }
           break;
         }
         case "CreateAndJoinRoom": {
@@ -319,17 +302,22 @@ export class Server<
             break;
           }
 
-          await this.socketStore.createAndJoinRoom(
-            socket,
-            {
-              numPlayers: request.numPlayers,
-              config: request.config,
-              private: request.private,
-            },
-            userId,
-            user,
-            request.loadout,
-          );
+          try {
+            await this.socketStore.createAndJoinRoom(
+              socket,
+              {
+                numPlayers: request.numPlayers,
+                config: request.config,
+                private: request.private,
+              },
+              userId,
+              user,
+              request.loadout,
+            );
+          } catch (err) {
+            console.error("Failed to create and join room", err);
+            sendDisplayError("Unable to create room.");
+          }
           break;
         }
         case "JoinRoom": {
@@ -370,14 +358,21 @@ export class Server<
             break;
           }
 
-          const joined = await this.socketStore.joinRoom(
-            socket,
-            request.roomId,
-            userId,
-            user,
-            request.loadout,
-            { consumeInvitation: hasInvitation },
-          );
+          let joined = false;
+          try {
+            joined = await this.socketStore.joinRoom(
+              socket,
+              request.roomId,
+              userId,
+              user,
+              request.loadout,
+              { consumeInvitation: hasInvitation },
+            );
+          } catch (err) {
+            console.error("Failed to join room", err);
+            sendDisplayError("Unable to join room.");
+            break;
+          }
           if (!joined) {
             sendDisplayError("Unable to join room.");
           }
@@ -416,10 +411,20 @@ export class Server<
           }
           break;
         case "LeaveQueue":
-          await this.socketStore.leaveQueue(socket, request.queueId);
+          try {
+            await this.socketStore.leaveQueue(socket, request.queueId);
+          } catch (err) {
+            console.error("Failed to leave queue", err);
+            sendDisplayError("Unable to leave queue.");
+          }
           break;
         case "LeaveRoom":
-          await this.socketStore.leaveRoom(socket, request.roomId);
+          try {
+            await this.socketStore.leaveRoom(socket, request.roomId);
+          } catch (err) {
+            console.error("Failed to leave room", err);
+            sendDisplayError("Unable to leave room.");
+          }
           break;
         case "SubscribeGame":
           try {
@@ -431,17 +436,14 @@ export class Server<
               this.game.publicState,
               playerId,
             );
-            subscribedGameIds.add(request.gameId);
           } catch (err) {
             console.error("Failed to subscribe game socket", err);
             this.socketStore.unsubscribeGame(socket, request.gameId);
-            subscribedGameIds.delete(request.gameId);
             sendDisplayError("Unable to subscribe to game.");
           }
           break;
         case "UnsubscribeGame":
           this.socketStore.unsubscribeGame(socket, request.gameId);
-          subscribedGameIds.delete(request.gameId);
           break;
         case "Move":
           try {

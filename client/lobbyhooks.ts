@@ -82,6 +82,20 @@ export function useLobbySocket<Config, Loadout, Rating>({
           setQueueEntries(response.lobbyProps.queueEntries);
           setRoomInvitations(response.lobbyProps.roomInvitations);
           break;
+        case "UpdateLobbyUserProps":
+          setUserActiveGames(response.userActiveGames);
+          setPlayer(response.player);
+          setRatings(response.ratings);
+          setRoomEntries(response.roomEntries);
+          setQueueEntries(response.queueEntries);
+          setRoomInvitations(response.roomInvitations);
+          break;
+        case "UpdateActiveGames":
+          setActiveGames(response.allActiveGames);
+          break;
+        case "UpdateAvailableRooms":
+          setAvailableRooms(response.allAvailableRooms);
+          break;
         case "UpdateRoomEntry":
           setRoomEntries((existing) => {
             const existingIndex = existing.findIndex((entry) =>

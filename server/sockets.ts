@@ -17,320 +17,73 @@ import type {
 import type { ServerMessage } from "../common/sockettypes.ts";
 import { getPlayerState, getPublicState } from "./gamedata.ts";
 import { ulid } from "@std/ulid";
-import { assert } from "@std/assert";
 
-type MatchmakingEntry<Config, Loadout> =
-  | {
-    type: "queue";
-    queueId: string;
-    entryId: string;
-    assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>;
-  }
-  | {
-    type: "room";
-    roomId: string;
-    entryId: string;
-    loadout: Loadout;
-    assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>;
-    roomChangesReader: ReadableStreamDefaultReader<
-      RoomWatchEvent<Config, Loadout>
-    >;
-  };
+type QueueSubscription = {
+  queueId: string;
+  entryId: string;
+  assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>;
+};
 
-/**
- * Socket wrapper used by the store to send both lobby and game messages.
- */
-class Socket<Config, Loadout, Rating, PlayerState, PublicState, Outcome> {
-  private lobbyProps?: LobbyViewData<Config, Loadout, Rating>;
-
-  constructor(private socket: WebSocket) {}
-
-  /**
-   * Initializes lobby state for this socket.
-   */
-  setLobbyContext(initialLobbyProps: LobbyViewData<Config, Loadout, Rating>) {
-    this.lobbyProps = initialLobbyProps;
-  }
-
-  /**
-   * Clears all cached lobby state for this socket.
-   */
-  clearLobbyContext() {
-    this.lobbyProps = undefined;
-  }
-
-  /**
-   * Sends a raw string message over the underlying WebSocket.
-   */
-  private send(message: string): void {
-    this.socket.send(message);
-  }
-
-  /**
-   * Returns cached lobby props and asserts that lobby context exists.
-   */
-  private getLobbyProps(): LobbyViewData<Config, Loadout, Rating> {
-    assert(this.lobbyProps != null);
-    return this.lobbyProps;
-  }
-
-  /**
-   * Sends a game assignment notification to the client.
-   */
-  sendGameAssignment(gameId: string): void {
-    const message: ServerMessage<
-      Config,
-      Loadout,
-      Rating,
-      never,
-      never,
-      never
-    > = {
-      type: "GameAssignment",
-      gameId,
-    };
-    this.send(JSON.stringify(message));
-  }
-
-  /**
-   * Sends a display error message to the client.
-   */
-  sendDisplayError(errorMessage: string): void {
-    const message: ServerMessage<
-      Config,
-      Loadout,
-      Rating,
-      never,
-      never,
-      never
-    > = {
-      type: "DisplayError",
-      message: errorMessage,
-    };
-    this.send(JSON.stringify(message));
-  }
-
-  /**
-   * Sends the current lobby props snapshot to the client.
-   */
-  sendLobbyProps(): void {
-    const response: ServerMessage<
-      Config,
-      Loadout,
-      Rating,
-      never,
-      never,
-      never
-    > = {
-      type: "UpdateLobbyProps",
-      lobbyProps: this.getLobbyProps(),
-    };
-    this.send(JSON.stringify(response));
-  }
-
-  /**
-   * Updates one room entry in cached lobby props and notifies the client.
-   */
-  sendRoomEntryUpdate(roomEntry: RoomEntry<Config, Loadout>): void {
-    const lobbyProps = this.getLobbyProps();
-    const existingIndex = lobbyProps.roomEntries.findIndex((entry) =>
-      entry.roomId === roomEntry.roomId
-    );
-    if (existingIndex === -1) {
-      this.lobbyProps = {
-        ...lobbyProps,
-        roomEntries: [...lobbyProps.roomEntries, roomEntry],
-      };
-    } else {
-      const roomEntries = [...lobbyProps.roomEntries];
-      roomEntries[existingIndex] = roomEntry;
-      this.lobbyProps = {
-        ...lobbyProps,
-        roomEntries,
-      };
-    }
-
-    const message: ServerMessage<
-      Config,
-      Loadout,
-      Rating,
-      never,
-      never,
-      never
-    > = {
-      type: "UpdateRoomEntry",
-      roomEntry,
-    };
-    this.send(JSON.stringify(message));
-  }
-
-  /**
-   * Removes one room entry from cached lobby props and notifies the client.
-   */
-  sendRoomEntryRemoved(roomId: string): void {
-    const lobbyProps = this.getLobbyProps();
-    this.lobbyProps = {
-      ...lobbyProps,
-      roomEntries: lobbyProps.roomEntries.filter((entry) =>
-        entry.roomId !== roomId
-      ),
-    };
-
-    const message: ServerMessage<
-      Config,
-      Loadout,
-      Rating,
-      never,
-      never,
-      never
-    > = {
-      type: "RemoveRoomEntry",
-      roomId,
-    };
-    this.send(JSON.stringify(message));
-  }
-
-  /**
-   * Sends active game updates to the client.
-   */
-  sendActiveGames(allActiveGames: ActiveGame<Config>[]): void {
-    const lobbyProps = this.getLobbyProps();
-    this.lobbyProps = {
-      ...lobbyProps,
-      allActiveGames,
-    };
-    this.sendLobbyProps();
-  }
-
-  /**
-   * Sends available room updates to the client.
-   */
-  sendAvailableRooms(allAvailableRooms: AvailableRoom<Config>[]): void {
-    const lobbyProps = this.getLobbyProps();
-    this.lobbyProps = {
-      ...lobbyProps,
-      allAvailableRooms,
-    };
-    this.sendLobbyProps();
-  }
-
-  /**
-   * Sends user-specific lobby props.
-   */
-  sendUserProps(userData: LobbyUserData<Config, Loadout, Rating>): void {
-    const lobbyProps = this.getLobbyProps();
-    this.lobbyProps = {
-      ...lobbyProps,
-      userActiveGames: userData.activeGames,
-      player: userData.player,
-      ratings: userData.ratings,
-      roomEntries: userData.roomEntries,
-      queueEntries: userData.queueEntries,
-      roomInvitations: userData.roomInvitations,
-    };
-    this.sendLobbyProps();
-  }
-
-  /**
-   * Sends the current game state to the client.
-   */
-  sendGameState(
-    playerState: PlayerState | undefined,
-    publicState: PublicState,
-    outcome: Outcome | undefined,
-  ): void {
-    const response: ServerMessage<
-      never,
-      never,
-      never,
-      PlayerState,
-      PublicState,
-      Outcome
-    > = {
-      type: "UpdateGameState",
-      playerState,
-      publicState,
-      outcome,
-    };
-    this.send(JSON.stringify(response));
-  }
-}
-
-/**
- * Lobby-specific connection state for one websocket.
- */
-type LobbyConnectionState<Config, Loadout, Rating> = {
-  userId: string;
-  matchmakingEntries?: Readonly<MatchmakingEntry<Config, Loadout>>[];
-  userChangesReader?: ReadableStreamDefaultReader<
-    LobbyUserData<Config, Loadout, Rating>
+type RoomSubscription<Config, Loadout> = {
+  roomId: string;
+  entryId: string;
+  loadout: Loadout;
+  assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>;
+  roomChangesReader: ReadableStreamDefaultReader<
+    RoomWatchEvent<Config, Loadout>
   >;
 };
 
 /**
- * Game subscriber metadata for one websocket within a game channel.
+ * Lobby-specific state tracked for one websocket.
  */
-type GameSocketSubscription<
-  Config,
-  Loadout,
-  Rating,
-  PlayerState,
-  PublicState,
-  Outcome,
-> = {
-  socket: Socket<Config, Loadout, Rating, PlayerState, PublicState, Outcome>;
+type LobbyConnectionState<Config, Loadout, Rating> = {
+  userId: string;
+  userChangesReader: ReadableStreamDefaultReader<
+    LobbyUserData<Config, Loadout, Rating>
+  >;
+  queueSubscriptions: Map<string, QueueSubscription>;
+  roomSubscriptions: Map<string, RoomSubscription<Config, Loadout>>;
+};
+
+/**
+ * One websocket subscriber within a game channel.
+ */
+type GameSocketSubscription = {
+  socket: WebSocket;
   playerId: number | undefined;
 };
 
 /**
- * Connection state for one game channel.
+ * Shared stream and subscriber state for a single game.
  */
-type GameConnection<
-  Config,
-  GameState,
-  Loadout,
-  Rating,
-  PlayerState,
-  PublicState,
-  Outcome,
-> = {
-  gameSockets: Map<
-    WebSocket,
-    GameSocketSubscription<
-      Config,
-      Loadout,
-      Rating,
-      PlayerState,
-      PublicState,
-      Outcome
-    >
-  >;
+type GameConnection<Config, GameState, PlayerState, PublicState, Outcome> = {
+  gameSockets: Map<WebSocket, GameSocketSubscription>;
   changesReader: ReadableStreamDefaultReader<
     GameStorageData<Config, GameState, Outcome>
   >;
+  playerStateLogic: (
+    state: GameState,
+    options: PlayerStateObject<Config>,
+  ) => PlayerState;
+  publicStateLogic: (
+    state: GameState,
+    options: PublicStateObject<Config>,
+  ) => PublicState;
 };
 
 /**
- * Combined socket state for a websocket across lobby and game subscriptions.
+ * Combined state for a websocket across lobby and game subscriptions.
  */
-type SocketConnectionState<
-  Config,
-  GameState,
-  Loadout,
-  Rating,
-  PlayerState,
-  PublicState,
-  Outcome,
-> = {
-  socket: Socket<Config, Loadout, Rating, PlayerState, PublicState, Outcome>;
+type SocketConnectionState<Config, Loadout, Rating> = {
   lobby?: LobbyConnectionState<Config, Loadout, Rating>;
   gameIds: Set<string>;
 };
 
 /**
- * Streams assignment updates to the lobby socket until the stream ends.
+ * Serializes and sends one server message over a websocket.
  */
-async function streamAssignmentsToSocket<
+function sendServerMessage<
   Config,
   Loadout,
   Rating,
@@ -338,155 +91,32 @@ async function streamAssignmentsToSocket<
   PublicState,
   Outcome,
 >(
-  stream: ReadableStreamDefaultReader<AssignmentStorageData>,
-  socket: Socket<Config, Loadout, Rating, PlayerState, PublicState, Outcome>,
-) {
-  while (true) {
-    const data = await stream.read();
-    if (data.done) {
-      break;
-    }
-
-    socket.sendGameAssignment(data.value.gameId);
-  }
-}
-
-/**
- * Streams user changes to the lobby socket and sends user lobby props.
- */
-async function streamUserChangesToSocket<
-  Config,
-  Loadout,
-  Rating,
-  PlayerState,
-  PublicState,
-  Outcome,
->(
-  stream: ReadableStreamDefaultReader<
-    LobbyUserData<Config, Loadout, Rating>
-  >,
-  socket: Socket<Config, Loadout, Rating, PlayerState, PublicState, Outcome>,
-  onUserData: (
-    userData: LobbyUserData<Config, Loadout, Rating>,
-  ) => Promise<void>,
-) {
-  while (true) {
-    const data = await stream.read();
-    if (data.done) {
-      break;
-    }
-
-    socket.sendUserProps(data.value);
-    await onUserData(data.value);
-  }
-}
-
-/**
- * Streams room changes to a lobby socket for one room subscription.
- */
-async function streamRoomChangesToSocket<
-  Config,
-  Loadout,
-  Rating,
-  PlayerState,
-  PublicState,
-  Outcome,
->(
-  roomId: string,
-  loadout: Loadout,
-  stream: ReadableStreamDefaultReader<RoomWatchEvent<Config, Loadout>>,
-  socket: Socket<Config, Loadout, Rating, PlayerState, PublicState, Outcome>,
-  onRoomClosed: () => Promise<void>,
-) {
-  while (true) {
-    const data = await stream.read();
-    if (data.done) {
-      break;
-    }
-
-    if (data.value.type === "deleted") {
-      socket.sendRoomEntryRemoved(roomId);
-      await onRoomClosed();
-      break;
-    }
-
-    socket.sendRoomEntryUpdate({
-      roomId,
-      numPlayers: data.value.room.numPlayers,
-      players: data.value.room.members.map((member) => member.player),
-      config: data.value.room.config,
-      loadout,
-    });
-  }
-}
-
-/**
- * Streams game changes to all subscribed sockets for a game.
- */
-async function streamGameChangesToSockets<
-  Config,
-  GameState,
-  Loadout,
-  Rating,
-  PlayerState,
-  PublicState,
-  Outcome,
->(
-  gameId: string,
-  playerStateLogic: (
-    state: GameState,
-    options: PlayerStateObject<Config>,
-  ) => PlayerState,
-  publicStateLogic: (
-    state: GameState,
-    options: PublicStateObject<Config>,
-  ) => PublicState,
-  stream: ReadableStreamDefaultReader<
-    GameStorageData<Config, GameState, Outcome>
-  >,
-  getConnection: (
-    gameId: string,
-  ) => GameConnection<
+  socket: WebSocket,
+  message: ServerMessage<
     Config,
-    GameState,
     Loadout,
     Rating,
     PlayerState,
     PublicState,
     Outcome
   >,
-) {
-  while (true) {
-    const data = await stream.read();
-    if (data.done) {
-      break;
-    }
+): void {
+  socket.send(JSON.stringify(message));
+}
 
-    const connection = getConnection(gameId);
-    const state = data.value.gameState;
-    const outcome = data.value.outcome;
-    const timestamp = new Date();
-
-    const publicState = publicStateLogic(state, {
-      config: data.value.config,
-      numPlayers: data.value.userIds.length,
-      timestamp,
-    });
-
-    for (const gameSocket of connection.gameSockets.values()) {
-      let playerState: PlayerState | undefined;
-
-      if (gameSocket.playerId != null) {
-        playerState = playerStateLogic(state, {
-          playerId: gameSocket.playerId,
-          config: data.value.config,
-          numPlayers: data.value.userIds.length,
-          timestamp,
-        });
-      }
-
-      gameSocket.socket.sendGameState(playerState, publicState, outcome);
-    }
+/**
+ * Cancels and unlocks a stream reader.
+ */
+function closeReader<T>(reader: ReadableStreamDefaultReader<T>): void {
+  try {
+    reader.cancel();
+  } catch {
+    // Reader may already be closed.
+  }
+  try {
+    reader.releaseLock();
+  } catch {
+    // Reader may already have released its lock.
   }
 }
 
@@ -502,30 +132,13 @@ export class SocketStore<
 > {
   private sockets: Map<
     WebSocket,
-    SocketConnectionState<
-      Config,
-      GameState,
-      Loadout,
-      Rating,
-      PlayerState,
-      PublicState,
-      Outcome
-    >
+    SocketConnectionState<Config, Loadout, Rating>
   > = new Map();
+  private lobbySockets: Set<WebSocket> = new Set();
   private gameConnections: Map<
     string,
-    GameConnection<
-      Config,
-      GameState,
-      Loadout,
-      Rating,
-      PlayerState,
-      PublicState,
-      Outcome
-    >
+    GameConnection<Config, GameState, PlayerState, PublicState, Outcome>
   > = new Map();
-  private latestAllActiveGames?: ActiveGame<Config>[];
-  private latestAllAvailableRooms?: AvailableRoom<Config>[];
 
   constructor(
     private db: DB<
@@ -541,59 +154,42 @@ export class SocketStore<
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
     availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
   ) {
-    this.streamToAllSockets(activeGamesStream);
-    this.streamRoomsToAllSockets(availableRoomsStream);
+    this.streamActiveGamesToLobbySockets(activeGamesStream);
+    this.streamAvailableRoomsToLobbySockets(availableRoomsStream);
   }
 
   /**
-   * Subscribes a websocket to lobby channels and user updates.
+   * Subscribes a websocket to lobby state and user updates.
    */
   async subscribeLobby(
     socket: WebSocket,
     userId: string,
-    user: LobbyUserData<Config, Loadout, Rating>,
+    userData: LobbyUserData<Config, Loadout, Rating>,
   ): Promise<void> {
     const connectionState = this.getOrCreateSocketConnection(socket);
 
     if (connectionState.lobby == null) {
-      const [allActiveGames, allAvailableRooms] = await Promise.all([
-        this.getLatestAllActiveGames(),
-        this.getLatestAllAvailableRooms(),
-      ]);
       const userChangesReader = this.db.watchForLobbyUserChanges(userId)
         .getReader();
-      connectionState.socket.setLobbyContext({
-        allActiveGames,
-        allAvailableRooms,
-        userActiveGames: user.activeGames,
-        player: user.player,
-        ratings: user.ratings,
-        roomEntries: user.roomEntries,
-        queueEntries: user.queueEntries,
-        roomInvitations: user.roomInvitations,
-      });
+
       connectionState.lobby = {
         userId,
         userChangesReader,
+        queueSubscriptions: new Map(),
+        roomSubscriptions: new Map(),
       };
-      connectionState.socket.sendLobbyProps();
-      streamUserChangesToSocket(
-        userChangesReader,
-        connectionState.socket,
-        async (userData) => {
-          await this.syncRoomSubscriptions(socket, userData.roomEntries);
-        },
-      );
+      this.lobbySockets.add(socket);
+      void this.streamUserChangesToSocket(socket, userChangesReader);
     } else {
       connectionState.lobby.userId = userId;
-      connectionState.socket.sendUserProps(user);
     }
 
-    await this.syncRoomSubscriptions(socket, user.roomEntries);
+    await this.sendLobbySnapshot(socket, userData);
+    await this.syncRoomSubscriptions(socket, userData.roomEntries);
   }
 
   /**
-   * Unsubscribes a websocket from lobby channels and cleans up lobby resources.
+   * Unsubscribes a websocket from all lobby channels and matchmaking entries.
    */
   async unsubscribeLobby(socket: WebSocket): Promise<void> {
     const connectionState = this.sockets.get(socket);
@@ -602,29 +198,46 @@ export class SocketStore<
     }
 
     const lobbyState = connectionState.lobby;
-    const entries = [...(lobbyState.matchmakingEntries ?? [])];
-    for (const entry of entries) {
-      if (entry.type === "queue") {
-        await this.cleanupQueueEntry(socket, entry, { removeFromDb: true });
-      } else {
-        await this.cleanupRoomEntry(socket, entry.roomId, {
-          removeFromDb: true,
-        });
-      }
+
+    for (const queueId of [...lobbyState.queueSubscriptions.keys()]) {
+      await this.cleanupQueueSubscription(socket, queueId, {
+        removeFromDb: true,
+      });
     }
 
-    if (lobbyState.userChangesReader != null) {
-      lobbyState.userChangesReader.cancel();
-      lobbyState.userChangesReader.releaseLock();
+    for (const roomId of [...lobbyState.roomSubscriptions.keys()]) {
+      await this.cleanupRoomSubscription(socket, roomId, {
+        removeFromDb: true,
+        notifyClient: false,
+      });
     }
 
-    connectionState.socket.clearLobbyContext();
+    closeReader(lobbyState.userChangesReader);
     connectionState.lobby = undefined;
+    this.lobbySockets.delete(socket);
     this.pruneIdleSocket(socket);
   }
 
   /**
-   * Adds a user to a queue and starts watching assignment updates.
+   * Unsubscribes a websocket from all lobby and game subscriptions.
+   */
+  async unsubscribeSocket(socket: WebSocket): Promise<void> {
+    await this.unsubscribeLobby(socket);
+
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
+      return;
+    }
+
+    for (const gameId of [...connectionState.gameIds]) {
+      this.unsubscribeGame(socket, gameId);
+    }
+
+    this.pruneIdleSocket(socket);
+  }
+
+  /**
+   * Adds a user to a queue and watches for assignment updates.
    */
   async joinQueue(
     socket: WebSocket,
@@ -633,28 +246,31 @@ export class SocketStore<
     user: Player,
     loadout: Loadout,
   ): Promise<void> {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
-      return;
+    const lobbyState = this.getLobbyConnectionState(socket);
+
+    if (lobbyState.queueSubscriptions.has(queueId)) {
+      await this.cleanupQueueSubscription(socket, queueId, {
+        removeFromDb: true,
+      });
     }
 
     const entryId = ulid();
-
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
-    streamAssignmentsToSocket(assignmentsReader, connectionState.socket);
 
-    await this.db.addToQueue(queueId, entryId, userId, user, loadout);
+    try {
+      await this.db.addToQueue(queueId, entryId, userId, user, loadout);
+    } catch (err) {
+      closeReader(assignmentsReader);
+      throw err;
+    }
 
-    const existingEntries = connectionState.lobby.matchmakingEntries ?? [];
-    connectionState.lobby.matchmakingEntries = [
-      ...existingEntries,
-      {
-        type: "queue",
-        queueId,
-        entryId,
-        assignmentsReader,
-      },
-    ];
+    lobbyState.queueSubscriptions.set(queueId, {
+      queueId,
+      entryId,
+      assignmentsReader,
+    });
+
+    void this.streamAssignmentsToSocket(socket, assignmentsReader);
   }
 
   /**
@@ -668,26 +284,12 @@ export class SocketStore<
     loadout: Loadout,
   ): Promise<void> {
     const roomId = ulid();
-    try {
-      await this.db.createRoom(roomId, roomConfig);
-      await this.joinRoom(
-        socket,
-        roomId,
-        userId,
-        user,
-        loadout,
-      );
-    } catch (err) {
-      const connectionState = this.sockets.get(socket);
-      if (connectionState != null) {
-        console.error("Failed to create and join room", err);
-        connectionState.socket.sendDisplayError("Unable to create room.");
-      }
-    }
+    await this.db.createRoom(roomId, roomConfig);
+    await this.joinRoom(socket, roomId, userId, user, loadout);
   }
 
   /**
-   * Adds a user to a room and subscribes the websocket to room updates.
+   * Adds a user to a room and starts assignment and room-change streams.
    */
   async joinRoom(
     socket: WebSocket,
@@ -697,9 +299,10 @@ export class SocketStore<
     loadout: Loadout,
     options?: { consumeInvitation?: boolean },
   ): Promise<boolean> {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
-      return false;
+    const lobbyState = this.getLobbyConnectionState(socket);
+
+    if (lobbyState.roomSubscriptions.has(roomId)) {
+      return true;
     }
 
     const entryId = ulid();
@@ -713,45 +316,40 @@ export class SocketStore<
         loadout,
         options,
       );
-    } catch (err) {
-      console.error("Failed to join room", err);
+    } catch {
       return false;
     }
 
-    await this.ensureRoomSubscription(socket, roomId, loadout, entryId);
+    await this.startRoomSubscription(socket, {
+      roomId,
+      loadout,
+      entryId,
+    });
+
     return true;
   }
 
   /**
-   * Leaves one queue subscription for a websocket.
+   * Leaves one queue and stops that queue's assignment stream.
    */
   async leaveQueue(socket: WebSocket, queueId: string): Promise<void> {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
-      return;
-    }
-
-    const entries = connectionState.lobby.matchmakingEntries ?? [];
-    const queueEntry = entries.find((entry) =>
-      entry.type === "queue" && entry.queueId === queueId
-    );
-
-    if (queueEntry == null || queueEntry.type !== "queue") {
-      return;
-    }
-
-    await this.cleanupQueueEntry(socket, queueEntry, { removeFromDb: true });
+    await this.cleanupQueueSubscription(socket, queueId, {
+      removeFromDb: true,
+    });
   }
 
   /**
-   * Leaves one room subscription for a websocket.
+   * Leaves one room and stops its assignment and room-change streams.
    */
   async leaveRoom(socket: WebSocket, roomId: string): Promise<void> {
-    await this.cleanupRoomEntry(socket, roomId, { removeFromDb: true });
+    await this.cleanupRoomSubscription(socket, roomId, {
+      removeFromDb: true,
+      notifyClient: true,
+    });
   }
 
   /**
-   * Subscribes a websocket to a game's update channel.
+   * Subscribes a websocket to one game's update stream.
    */
   async subscribeGame(
     socket: WebSocket,
@@ -772,40 +370,40 @@ export class SocketStore<
       this.createGameConnection(gameId, playerStateLogic, publicStateLogic);
     }
 
-    const gameConnection = this.getGameConnection(gameId);
-    if (!gameConnection.gameSockets.has(socket)) {
-      gameConnection.gameSockets.set(socket, {
-        socket: connectionState.socket,
-        playerId,
-      });
-      connectionState.gameIds.add(gameId);
+    const gameConnection = this.gameConnections.get(gameId);
+    if (gameConnection == null) {
+      throw new Error(`Game connection ${gameId} not found`);
     }
 
-    const gameSocket = gameConnection.gameSockets.get(socket);
-    assert(gameSocket != null);
+    gameConnection.gameSockets.set(socket, {
+      socket,
+      playerId,
+    });
+    connectionState.gameIds.add(gameId);
 
     const gameData = await this.db.getGameStorageData(gameId);
-    const newPlayerState = gameSocket.playerId == null
+    const nextPlayerState = playerId == null
       ? undefined
-      : getPlayerState(
-        gameData,
-        playerStateLogic,
-        gameSocket.playerId,
-      );
-    const newPublicState = getPublicState(
-      gameData,
-      publicStateLogic,
-    );
+      : getPlayerState(gameData, playerStateLogic, playerId);
+    const nextPublicState = getPublicState(gameData, publicStateLogic);
 
-    gameSocket.socket.sendGameState(
-      newPlayerState,
-      newPublicState,
-      gameData.outcome,
-    );
+    sendServerMessage<
+      never,
+      never,
+      never,
+      PlayerState,
+      PublicState,
+      Outcome
+    >(socket, {
+      type: "UpdateGameState",
+      playerState: nextPlayerState,
+      publicState: nextPublicState,
+      outcome: gameData.outcome,
+    });
   }
 
   /**
-   * Unsubscribes a websocket from one game update channel.
+   * Unsubscribes a websocket from one game's update stream.
    */
   unsubscribeGame(socket: WebSocket, gameId: string): void {
     const gameConnection = this.gameConnections.get(gameId);
@@ -824,8 +422,7 @@ export class SocketStore<
     }
 
     if (gameConnection.gameSockets.size === 0) {
-      gameConnection.changesReader.cancel();
-      gameConnection.changesReader.releaseLock();
+      closeReader(gameConnection.changesReader);
       this.gameConnections.delete(gameId);
     }
 
@@ -833,69 +430,205 @@ export class SocketStore<
   }
 
   /**
-   * Returns the latest active game list, falling back to a DB snapshot.
+   * Streams lobby user updates for one websocket.
    */
-  private async getLatestAllActiveGames(): Promise<ActiveGame<Config>[]> {
-    if (this.latestAllActiveGames == null) {
-      this.latestAllActiveGames = await this.db.getAllActiveGames();
+  private async streamUserChangesToSocket(
+    socket: WebSocket,
+    userChangesReader: ReadableStreamDefaultReader<
+      LobbyUserData<Config, Loadout, Rating>
+    >,
+  ): Promise<void> {
+    try {
+      while (true) {
+        const data = await userChangesReader.read();
+        if (data.done) {
+          break;
+        }
+
+        const userData = data.value;
+        sendServerMessage<Config, Loadout, Rating, never, never, never>(
+          socket,
+          {
+            type: "UpdateLobbyUserProps",
+            userActiveGames: userData.activeGames,
+            player: userData.player,
+            ratings: userData.ratings,
+            roomEntries: userData.roomEntries,
+            queueEntries: userData.queueEntries,
+            roomInvitations: userData.roomInvitations,
+          },
+        );
+
+        await this.syncRoomSubscriptions(socket, userData.roomEntries);
+      }
+    } catch {
+      // Reader cancellation is expected during unsubscribe.
     }
-    return this.latestAllActiveGames;
   }
 
   /**
-   * Returns the latest available room list, falling back to a DB snapshot.
+   * Streams assignment updates for one queue or room entry.
    */
-  private async getLatestAllAvailableRooms(): Promise<AvailableRoom<Config>[]> {
-    if (this.latestAllAvailableRooms == null) {
-      this.latestAllAvailableRooms = await this.db.getAllAvailableRooms();
+  private async streamAssignmentsToSocket(
+    socket: WebSocket,
+    assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>,
+  ): Promise<void> {
+    try {
+      while (true) {
+        const data = await assignmentsReader.read();
+        if (data.done) {
+          break;
+        }
+
+        sendServerMessage<Config, Loadout, Rating, never, never, never>(
+          socket,
+          {
+            type: "GameAssignment",
+            gameId: data.value.gameId,
+          },
+        );
+        break;
+      }
+    } catch {
+      // Reader cancellation is expected during unsubscribe.
+    } finally {
+      closeReader(assignmentsReader);
     }
-    return this.latestAllAvailableRooms;
   }
 
   /**
-   * Broadcasts active game list updates to all sockets subscribed to lobby data.
+   * Streams room updates for one room subscription.
    */
-  private streamToAllSockets(
+  private async streamRoomChangesToSocket(
+    socket: WebSocket,
+    roomId: string,
+    loadout: Loadout,
+    roomChangesReader: ReadableStreamDefaultReader<
+      RoomWatchEvent<Config, Loadout>
+    >,
+  ): Promise<void> {
+    try {
+      while (true) {
+        const data = await roomChangesReader.read();
+        if (data.done) {
+          break;
+        }
+
+        if (data.value.type === "deleted") {
+          sendServerMessage<Config, Loadout, Rating, never, never, never>(
+            socket,
+            {
+              type: "RemoveRoomEntry",
+              roomId,
+            },
+          );
+          await this.cleanupRoomSubscription(socket, roomId, {
+            removeFromDb: false,
+            notifyClient: false,
+          });
+          break;
+        }
+
+        sendServerMessage<Config, Loadout, Rating, never, never, never>(
+          socket,
+          {
+            type: "UpdateRoomEntry",
+            roomEntry: {
+              roomId,
+              numPlayers: data.value.room.numPlayers,
+              players: data.value.room.members.map((member) => member.player),
+              config: data.value.room.config,
+              loadout,
+            },
+          },
+        );
+      }
+    } catch {
+      // Reader cancellation is expected during unsubscribe.
+    }
+  }
+
+  /**
+   * Sends a full lobby snapshot to one websocket.
+   */
+  private async sendLobbySnapshot(
+    socket: WebSocket,
+    userData: LobbyUserData<Config, Loadout, Rating>,
+  ): Promise<void> {
+    const [allActiveGames, allAvailableRooms] = await Promise.all([
+      this.db.getAllActiveGames(),
+      this.db.getAllAvailableRooms(),
+    ]);
+
+    const lobbyProps: LobbyViewData<Config, Loadout, Rating> = {
+      allActiveGames,
+      allAvailableRooms,
+      userActiveGames: userData.activeGames,
+      player: userData.player,
+      ratings: userData.ratings,
+      roomEntries: userData.roomEntries,
+      queueEntries: userData.queueEntries,
+      roomInvitations: userData.roomInvitations,
+    };
+
+    sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+      type: "UpdateLobbyProps",
+      lobbyProps,
+    });
+  }
+
+  /**
+   * Broadcasts active game list updates to all lobby subscribers.
+   */
+  private streamActiveGamesToLobbySockets(
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
   ): void {
     activeGamesStream.pipeTo(
       new WritableStream({
         write: (allActiveGames: ActiveGame<Config>[]) => {
-          this.latestAllActiveGames = allActiveGames;
-          for (const connectionState of this.sockets.values()) {
-            if (connectionState.lobby == null) {
-              continue;
-            }
-            connectionState.socket.sendActiveGames(allActiveGames);
+          for (const socket of this.lobbySockets.values()) {
+            sendServerMessage<Config, Loadout, Rating, never, never, never>(
+              socket,
+              {
+                type: "UpdateActiveGames",
+                allActiveGames,
+              },
+            );
           }
         },
       }),
-    );
+    ).catch((err) => {
+      console.error("Failed to broadcast active game updates", err);
+    });
   }
 
   /**
-   * Broadcasts available room list updates to all sockets subscribed to lobby data.
+   * Broadcasts available room list updates to all lobby subscribers.
    */
-  private streamRoomsToAllSockets(
+  private streamAvailableRoomsToLobbySockets(
     availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
   ): void {
     availableRoomsStream.pipeTo(
       new WritableStream({
         write: (allAvailableRooms: AvailableRoom<Config>[]) => {
-          this.latestAllAvailableRooms = allAvailableRooms;
-          for (const connectionState of this.sockets.values()) {
-            if (connectionState.lobby == null) {
-              continue;
-            }
-            connectionState.socket.sendAvailableRooms(allAvailableRooms);
+          for (const socket of this.lobbySockets.values()) {
+            sendServerMessage<Config, Loadout, Rating, never, never, never>(
+              socket,
+              {
+                type: "UpdateAvailableRooms",
+                allAvailableRooms,
+              },
+            );
           }
         },
       }),
-    );
+    ).catch((err) => {
+      console.error("Failed to broadcast available room updates", err);
+    });
   }
 
   /**
-   * Reconciles room watchers with the latest room entries for this user.
+   * Reconciles room streams against the latest joined rooms for a websocket.
    */
   private async syncRoomSubscriptions(
     socket: WebSocket,
@@ -906,125 +639,123 @@ export class SocketStore<
       return;
     }
 
-    const activeRoomIds = new Set(roomEntries.map((entry) => entry.roomId));
-    for (const roomEntry of roomEntries) {
-      await this.ensureRoomSubscription(
-        socket,
-        roomEntry.roomId,
-        roomEntry.loadout,
-      );
+    const lobbyState = connectionState.lobby;
+    const roomEntryById = new Map(
+      roomEntries.map((roomEntry) => [roomEntry.roomId, roomEntry]),
+    );
+
+    for (const [roomId, roomEntry] of roomEntryById.entries()) {
+      if (lobbyState.roomSubscriptions.has(roomId)) {
+        continue;
+      }
+
+      await this.startRoomSubscription(socket, {
+        roomId,
+        loadout: roomEntry.loadout,
+      });
     }
 
-    const currentEntries = [
-      ...(connectionState.lobby.matchmakingEntries ?? []),
-    ];
-    for (const entry of currentEntries) {
-      if (entry.type !== "room") {
-        continue;
-      }
-      if (activeRoomIds.has(entry.roomId)) {
+    for (const roomId of [...lobbyState.roomSubscriptions.keys()]) {
+      if (roomEntryById.has(roomId)) {
         continue;
       }
 
-      await this.cleanupRoomEntry(
-        socket,
-        entry.roomId,
-        { removeFromDb: false },
-      );
+      await this.cleanupRoomSubscription(socket, roomId, {
+        removeFromDb: false,
+        notifyClient: true,
+      });
     }
   }
 
   /**
-   * Ensures one room-specific subscription exists for the given websocket.
+   * Starts assignment and room-change streams for a single room.
    */
-  private async ensureRoomSubscription(
+  private async startRoomSubscription(
     socket: WebSocket,
-    roomId: string,
-    loadout: Loadout,
-    knownEntryId?: string,
+    options: { roomId: string; loadout: Loadout; entryId?: string },
   ): Promise<void> {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
+    const lobbyState = this.getLobbyConnectionState(socket);
+
+    if (lobbyState.roomSubscriptions.has(options.roomId)) {
       return;
     }
 
-    const entries = connectionState.lobby.matchmakingEntries ?? [];
-    const existing = entries.find((entry) =>
-      entry.type === "room" && entry.roomId === roomId
-    );
-    if (existing != null && existing.type === "room") {
-      return;
-    }
-
-    let entryId = knownEntryId;
-    let roomSnapshot = await this.db.getRoom(roomId);
-    if (roomSnapshot == null) {
-      connectionState.socket.sendRoomEntryRemoved(roomId);
-      return;
-    }
+    let entryId = options.entryId;
 
     if (entryId == null) {
-      const member = roomSnapshot.members.find((member) =>
-        member.userId === connectionState.lobby?.userId
-      );
-      if (member == null) {
-        connectionState.socket.sendRoomEntryRemoved(roomId);
+      const room = await this.db.getRoom(options.roomId);
+      if (room == null) {
+        sendServerMessage<Config, Loadout, Rating, never, never, never>(
+          socket,
+          {
+            type: "RemoveRoomEntry",
+            roomId: options.roomId,
+          },
+        );
         return;
       }
+
+      const member = room.members.find((roomMember) =>
+        roomMember.userId === lobbyState.userId
+      );
+      if (member == null) {
+        sendServerMessage<Config, Loadout, Rating, never, never, never>(
+          socket,
+          {
+            type: "RemoveRoomEntry",
+            roomId: options.roomId,
+          },
+        );
+        return;
+      }
+
       entryId = member.entryId;
     }
 
     const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
-    streamAssignmentsToSocket(assignmentsReader, connectionState.socket);
+    const roomChangesReader = this.db.watchForRoomChanges(options.roomId)
+      .getReader();
 
-    const roomChangesReader = this.db.watchForRoomChanges(roomId).getReader();
-    streamRoomChangesToSocket(
-      roomId,
-      loadout,
+    lobbyState.roomSubscriptions.set(options.roomId, {
+      roomId: options.roomId,
+      entryId,
+      loadout: options.loadout,
+      assignmentsReader,
       roomChangesReader,
-      connectionState.socket,
-      async () => {
-        await this.cleanupRoomEntry(
-          socket,
-          roomId,
-          {
-            removeFromDb: false,
-            notifyClient: false,
-          },
-        );
-      },
+    });
+
+    void this.streamAssignmentsToSocket(socket, assignmentsReader);
+    void this.streamRoomChangesToSocket(
+      socket,
+      options.roomId,
+      options.loadout,
+      roomChangesReader,
     );
 
-    roomSnapshot = await this.db.getRoom(roomId);
+    const roomSnapshot = await this.db.getRoom(options.roomId);
     if (roomSnapshot != null) {
-      connectionState.socket.sendRoomEntryUpdate({
-        roomId,
-        numPlayers: roomSnapshot.numPlayers,
-        players: roomSnapshot.members.map((member) => member.player),
-        config: roomSnapshot.config,
-        loadout,
-      });
+      sendServerMessage<Config, Loadout, Rating, never, never, never>(
+        socket,
+        {
+          type: "UpdateRoomEntry",
+          roomEntry: {
+            roomId: options.roomId,
+            numPlayers: roomSnapshot.numPlayers,
+            players: roomSnapshot.members.map((member) => member.player),
+            config: roomSnapshot.config,
+            loadout: options.loadout,
+          },
+        },
+      );
     }
-
-    connectionState.lobby.matchmakingEntries = [
-      ...entries,
-      {
-        type: "room",
-        roomId,
-        entryId,
-        loadout,
-        assignmentsReader,
-        roomChangesReader,
-      },
-    ];
   }
 
   /**
-   * Cleans up one queue entry and optionally removes it from the database.
+   * Cleans up one queue subscription and optionally removes it from storage.
    */
-  private async cleanupQueueEntry(
+  private async cleanupQueueSubscription(
     socket: WebSocket,
-    queueEntry: Extract<MatchmakingEntry<Config, Loadout>, { type: "queue" }>,
+    queueId: string,
     options: { removeFromDb: boolean },
   ): Promise<void> {
     const connectionState = this.sockets.get(socket);
@@ -1032,58 +763,76 @@ export class SocketStore<
       return;
     }
 
-    queueEntry.assignmentsReader.cancel();
-    queueEntry.assignmentsReader.releaseLock();
-
-    if (options.removeFromDb) {
-      await this.db.removeFromQueue(queueEntry.queueId, queueEntry.entryId);
+    const lobbyState = connectionState.lobby;
+    const queueSubscription = lobbyState.queueSubscriptions.get(queueId);
+    if (queueSubscription == null) {
+      return;
     }
 
-    connectionState.lobby.matchmakingEntries = (connectionState.lobby
-      .matchmakingEntries ?? []).filter((entry) => entry !== queueEntry);
+    closeReader(queueSubscription.assignmentsReader);
+
+    if (options.removeFromDb) {
+      try {
+        await this.db.removeFromQueue(
+          queueSubscription.queueId,
+          queueSubscription.entryId,
+        );
+      } catch (err) {
+        console.error("Failed to remove queue subscription", err);
+      }
+    }
+
+    lobbyState.queueSubscriptions.delete(queueId);
   }
 
   /**
-   * Cleans up one room entry and optionally removes room membership in the DB.
+   * Cleans up one room subscription and optionally removes room membership.
    */
-  private async cleanupRoomEntry(
+  private async cleanupRoomSubscription(
     socket: WebSocket,
     roomId: string,
-    options: { removeFromDb: boolean; notifyClient?: boolean },
+    options: { removeFromDb: boolean; notifyClient: boolean },
   ): Promise<void> {
     const connectionState = this.sockets.get(socket);
     if (connectionState == null || connectionState.lobby == null) {
       return;
     }
 
-    const entries = connectionState.lobby.matchmakingEntries ?? [];
-    const roomEntry = entries.find((entry) =>
-      entry.type === "room" && entry.roomId === roomId
-    );
-    if (roomEntry == null || roomEntry.type !== "room") {
+    const lobbyState = connectionState.lobby;
+    const roomSubscription = lobbyState.roomSubscriptions.get(roomId);
+    if (roomSubscription == null) {
       return;
     }
 
-    roomEntry.assignmentsReader.cancel();
-    roomEntry.assignmentsReader.releaseLock();
-    roomEntry.roomChangesReader.cancel();
-    roomEntry.roomChangesReader.releaseLock();
+    closeReader(roomSubscription.assignmentsReader);
+    closeReader(roomSubscription.roomChangesReader);
 
     if (options.removeFromDb) {
-      await this.db.removeFromRoom(roomEntry.roomId, roomEntry.entryId);
+      try {
+        await this.db.removeFromRoom(
+          roomSubscription.roomId,
+          roomSubscription.entryId,
+        );
+      } catch (err) {
+        console.error("Failed to remove room subscription", err);
+      }
     }
 
-    connectionState.lobby.matchmakingEntries = entries.filter((entry) =>
-      entry !== roomEntry
-    );
+    lobbyState.roomSubscriptions.delete(roomId);
 
-    if (options.notifyClient ?? true) {
-      connectionState.socket.sendRoomEntryRemoved(roomId);
+    if (options.notifyClient) {
+      sendServerMessage<Config, Loadout, Rating, never, never, never>(
+        socket,
+        {
+          type: "RemoveRoomEntry",
+          roomId,
+        },
+      );
     }
   }
 
   /**
-   * Creates and registers a game connection stream for one game ID.
+   * Creates and registers one game connection stream.
    */
   private createGameConnection(
     gameId: string,
@@ -1097,84 +846,116 @@ export class SocketStore<
     ) => PublicState,
   ): void {
     const changesReader = this.db.watchForGameChanges(gameId).getReader();
-    streamGameChangesToSockets(
-      gameId,
-      playerStateLogic,
-      publicStateLogic,
-      changesReader,
-      this.getGameConnection.bind(this),
-    );
 
-    const connection: GameConnection<
-      Config,
-      GameState,
-      Loadout,
-      Rating,
-      PlayerState,
-      PublicState,
-      Outcome
-    > = {
+    this.gameConnections.set(gameId, {
       gameSockets: new Map(),
       changesReader,
-    };
-    this.gameConnections.set(gameId, connection);
+      playerStateLogic,
+      publicStateLogic,
+    });
+
+    void this.streamGameChangesToSockets(gameId, changesReader);
   }
 
   /**
-   * Returns one game connection and asserts that it exists.
+   * Streams one game channel's updates to all subscribed sockets.
    */
-  private getGameConnection(
+  private async streamGameChangesToSockets(
     gameId: string,
-  ): GameConnection<
-    Config,
-    GameState,
-    Loadout,
-    Rating,
-    PlayerState,
-    PublicState,
-    Outcome
-  > {
-    const connection = this.gameConnections.get(gameId);
-    assert(connection != null);
-    return connection;
+    changesReader: ReadableStreamDefaultReader<
+      GameStorageData<Config, GameState, Outcome>
+    >,
+  ): Promise<void> {
+    try {
+      while (true) {
+        const data = await changesReader.read();
+        if (data.done) {
+          break;
+        }
+
+        const gameConnection = this.gameConnections.get(gameId);
+        if (gameConnection == null) {
+          break;
+        }
+
+        const gameData = data.value;
+        const state = gameData.gameState;
+        const numPlayers = gameData.userIds.length;
+        const timestamp = new Date();
+
+        const nextPublicState = gameConnection.publicStateLogic(state, {
+          config: gameData.config,
+          numPlayers,
+          timestamp,
+        });
+
+        for (const gameSocket of gameConnection.gameSockets.values()) {
+          const nextPlayerState = gameSocket.playerId == null
+            ? undefined
+            : gameConnection.playerStateLogic(state, {
+              playerId: gameSocket.playerId,
+              config: gameData.config,
+              numPlayers,
+              timestamp,
+            });
+
+          sendServerMessage<
+            never,
+            never,
+            never,
+            PlayerState,
+            PublicState,
+            Outcome
+          >(
+            gameSocket.socket,
+            {
+              type: "UpdateGameState",
+              playerState: nextPlayerState,
+              publicState: nextPublicState,
+              outcome: gameData.outcome,
+            },
+          );
+        }
+      }
+    } catch {
+      // Reader cancellation is expected during unsubscribe.
+    }
   }
 
   /**
-   * Returns a socket connection state, creating one if needed.
+   * Returns the lobby connection state for a socket or throws when absent.
+   */
+  private getLobbyConnectionState(
+    socket: WebSocket,
+  ): LobbyConnectionState<Config, Loadout, Rating> {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null || connectionState.lobby == null) {
+      throw new Error("Socket is not subscribed to lobby");
+    }
+
+    return connectionState.lobby;
+  }
+
+  /**
+   * Returns a socket connection state, creating one when missing.
    */
   private getOrCreateSocketConnection(
     socket: WebSocket,
-  ): SocketConnectionState<
-    Config,
-    GameState,
-    Loadout,
-    Rating,
-    PlayerState,
-    PublicState,
-    Outcome
-  > {
-    let connection = this.sockets.get(socket);
-    if (connection != null) {
-      return connection;
+  ): SocketConnectionState<Config, Loadout, Rating> {
+    const existing = this.sockets.get(socket);
+    if (existing != null) {
+      return existing;
     }
 
-    connection = {
-      socket: new Socket<
-        Config,
-        Loadout,
-        Rating,
-        PlayerState,
-        PublicState,
-        Outcome
-      >(socket),
+    const connectionState: SocketConnectionState<Config, Loadout, Rating> = {
       gameIds: new Set(),
     };
-    this.sockets.set(socket, connection);
-    return connection;
+    this.sockets.set(socket, connectionState);
+    return connectionState;
   }
 
   /**
-   * Removes idle socket state when no lobby or game subscriptions remain.
+   * Removes socket bookkeeping when no subscriptions remain.
    */
   private pruneIdleSocket(socket: WebSocket): void {
     const connectionState = this.sockets.get(socket);
@@ -1187,6 +968,7 @@ export class SocketStore<
     if (connectionState.gameIds.size > 0) {
       return;
     }
+
     this.sockets.delete(socket);
   }
 }
