@@ -1,3 +1,2 @@
-export { useLobbySocket } from "./client/lobbyhooks.ts";
-export { useGameSocket } from "./client/gamehooks.ts";
-export { useSocket } from "./client/hookutils.ts";
+export { useGameChannel, useLobbyChannel } from "./client/channels.ts";
+export { useSocket } from "./client/socket.ts";

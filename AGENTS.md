@@ -47,9 +47,8 @@ The server-side code is organized around WebSocket handling:
 
 Client-side hooks are organized by functionality:
 
-- `client/lobbyhooks.ts` - Lobby and matchmaking state management
-- `client/gamehooks.ts` - Game play and observation state management
-- `client/hookutils.ts` - Shared utilities for WebSocket management
+- `client/channels.ts` - Lobby/game channel subscription hooks
+- `client/socket.ts` - Shared socket connection utilities
 
 ### Game Interface
 

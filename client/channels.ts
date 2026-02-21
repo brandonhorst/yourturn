@@ -1,11 +1,167 @@
-import { useCallback, useEffect, useState } from "preact/hooks";
-import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
-import type { Socket } from "../client/hookutils.ts";
-import type { LobbyProps, LobbyViewData } from "../types.ts";
 import { ulid } from "@std/ulid";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
+import type {
+  GameProps,
+  GameViewData,
+  LobbyProps,
+  LobbyViewData,
+  Socket,
+} from "../types.ts";
 
-// Subscribes to a lobby on an already-open socket
-export function useLobbySocket<Config, Loadout, Rating>({
+// Subscribes to a specific game on an already-open socket.
+export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
+  socket: Socket,
+  gameId: string,
+  initialGameProps: GameViewData<PlayerState, PublicState, Outcome>,
+): GameProps<Move, PlayerState, PublicState, Outcome> {
+  const playerId = initialGameProps.playerId;
+  const players = initialGameProps.players;
+  const [playerState, setPlayerState] = useState<PlayerState | undefined>(
+    initialGameProps.playerState,
+  );
+  const [publicState, setPublicState] = useState<PublicState>(
+    initialGameProps.publicState,
+  );
+  const [outcome, setOutcome] = useState<Outcome | undefined>(
+    initialGameProps.outcome,
+  );
+  const outcomeRef = useRef(outcome);
+
+  outcomeRef.current = outcome;
+
+  useEffect(() => {
+    let isSubscribed = false;
+
+    // Sends the game subscription request at most once per hook lifecycle.
+    function sendSubscribe() {
+      if (isSubscribed || outcomeRef.current !== undefined) {
+        return;
+      }
+
+      const request: ClientMessage<
+        never,
+        never,
+        Move,
+        PlayerState,
+        PublicState
+      > = {
+        type: "SubscribeGame",
+        gameId,
+      };
+      socket.send(JSON.stringify(request));
+      isSubscribed = true;
+    }
+
+    // Sends the game unsubscription request only when this hook subscribed.
+    function sendUnsubscribe() {
+      if (!isSubscribed) {
+        return;
+      }
+      // Mark unsubscribed before sending so teardown can't send twice.
+      isSubscribed = false;
+      const request: ClientMessage<
+        never,
+        never,
+        Move,
+        PlayerState,
+        PublicState
+      > = {
+        type: "UnsubscribeGame",
+        gameId,
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown/unsubscribe attempts.
+      }
+    }
+
+    function onOpen() {
+      sendSubscribe();
+    }
+
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
+        never,
+        never,
+        never,
+        PlayerState,
+        PublicState,
+        Outcome
+      >;
+      switch (response.type) {
+        case "UpdateGameState":
+          setOutcome(response.outcome);
+          setPublicState(response.publicState);
+          setPlayerState(response.playerState);
+          if (response.outcome !== undefined) {
+            sendUnsubscribe();
+          }
+          break;
+      }
+    }
+
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
+    if (outcomeRef.current === undefined) {
+      try {
+        sendSubscribe();
+      } catch {
+        // The socket may still be connecting; we'll subscribe once it opens.
+      }
+    }
+
+    return () => {
+      sendUnsubscribe();
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
+    };
+  }, [gameId, socket]);
+
+  const send = useCallback(
+    (
+      request: ClientMessage<
+        never,
+        never,
+        Move,
+        PlayerState,
+        PublicState
+      >,
+    ) => {
+      socket.send(JSON.stringify(request));
+    },
+    [socket],
+  );
+
+  const performCallback = useCallback((move: Move) => {
+    const request: ClientMessage<
+      never,
+      never,
+      Move,
+      PlayerState,
+      PublicState
+    > = {
+      type: "Move",
+      gameId,
+      move,
+    };
+    send(request);
+  }, [gameId, send]);
+  const perform = playerId == null ? undefined : performCallback;
+
+  return {
+    players: players,
+    publicState: publicState,
+    playerId: initialGameProps.playerId,
+    playerState: playerState,
+    perform,
+    outcome: outcome,
+  } as GameProps<Move, PlayerState, PublicState, Outcome>;
+}
+
+// Subscribes to a lobby on an already-open socket.
+export function useLobbyChannel<Config, Loadout, Rating>({
   socket,
   initialLobbyProps,
   navigate,

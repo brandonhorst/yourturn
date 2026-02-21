@@ -1,20 +1,9 @@
 import { useEffect, useRef } from "preact/hooks";
-
-type MessageListener = (message: string) => void;
-type OpenListener = () => void;
-
-export interface Socket {
-  // Registers a handler for incoming WebSocket message events.
-  addMessageListener: (handler: MessageListener) => void;
-  // Removes a previously registered message handler.
-  removeMessageListener: (handler: MessageListener) => void;
-  // Registers a handler for the WebSocket open event.
-  addOpenListener: (handler: OpenListener) => void;
-  // Removes a previously registered open handler.
-  removeOpenListener: (handler: OpenListener) => void;
-  close: () => void;
-  send: (data: string) => void;
-}
+import type {
+  Socket,
+  SocketMessageListener,
+  SocketOpenListener,
+} from "../types.ts";
 
 // Hook that opens and manages a socket created by `createSocket`, then calls
 // `onMessage` for each JSON message. It reconnects on close with exponential
@@ -62,30 +51,26 @@ export function useSocket(socketUrl: string): Socket {
   }, []);
 
   return {
-    addMessageListener: (handler: MessageListener) => {
+    addMessageListener: (handler: SocketMessageListener) => {
       ws.current?.addEventListener(
         "message",
         (event) => handler(event.data),
       );
     },
-    removeMessageListener: (handler: MessageListener) => {
+    removeMessageListener: (handler: SocketMessageListener) => {
       ws.current?.removeEventListener(
         "message",
         (event) => handler(event.data),
       );
     },
-    addOpenListener: (handler: OpenListener) => {
+    addOpenListener: (handler: SocketOpenListener) => {
       ws.current?.addEventListener("open", handler);
     },
-    removeOpenListener: (handler: OpenListener) => {
+    removeOpenListener: (handler: SocketOpenListener) => {
       ws.current?.removeEventListener("open", handler);
     },
     send: (msg: string) => {
       ws.current?.send(msg);
-    },
-    close: () => {
-      closedIntentionally.current = true;
-      ws.current?.close();
     },
   };
 }
