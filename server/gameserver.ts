@@ -65,14 +65,21 @@ export class Server<
     >,
   ) {}
 
+  /**
+   * Builds the initial lobby payload for an existing user.
+   * Returns a fresh auth token that can be used to reconnect later.
+   */
   async getInitialLobbyProps(
-    token: string | undefined,
+    userId: string,
     invitationId?: string,
   ): Promise<{ props: LobbyViewData<Config, Loadout, Rating>; token: string }> {
+    if (userId === "") {
+      throw new Error("Missing lobby user id");
+    }
+
     const allActiveGames = await fetchActiveGames(this.db);
     const allAvailableRooms = await fetchAvailableRooms(this.db);
     let user: Player | null = null;
-    let userId: string | null = null;
     let userActiveGames: ActiveGame<Config>[] = [];
     let roomEntries: RoomEntry<Config, Loadout>[] = [];
     let queueEntries: QueueEntry<Loadout>[] = [];
@@ -82,63 +89,31 @@ export class Server<
       Rating
     >["roomInvitations"] = [];
     let ratings: Record<string, Rating> = {};
-    let lobbyToken = token;
     const invitation = invitationId == null
       ? null
       : await this.db.getRoomInvitation(invitationId);
 
-    if (token != null) {
-      const tokenData = await this.db.getToken(token);
-      if (tokenData != null && tokenData.expiration > new Date()) {
-        const storedUser = await this.db.getLobbyUserData(
-          tokenData.userId,
-        );
-        user = storedUser?.player ?? null;
-        userId = tokenData.userId;
-        userActiveGames = storedUser?.activeGames ?? [];
-        roomEntries = storedUser?.roomEntries ?? [];
-        queueEntries = storedUser?.queueEntries ?? [];
-        roomInvitations = storedUser?.roomInvitations ?? [];
-        const normalized = this.normalizeRatings(storedUser?.ratings ?? {});
-        ratings = normalized.ratings;
-        if (normalized.didChange && userId != null) {
-          await this.db.updateUserStorageData(userId, { ratings });
-        }
-      }
+    const storedUser = await this.db.getLobbyUserData(userId);
+    if (storedUser == null) {
+      throw new Error("Unknown lobby user");
     }
 
-    if (user == null) {
-      user = await this.createGuestUser();
-      userId = ulid();
-      lobbyToken = crypto.randomUUID();
-      const expiration = new Date(Date.now() + tokenTtlMs);
-
-      // TODO combine these into one call
-      await this.db.createNewUserStorageData(userId, {
-        player: user,
-        activeGames: [],
-        ratings: this.buildInitialRatings(),
-        joinedRooms: [],
-        queueEntries: [],
-        roomInvitations: invitation == null ? [] : [invitation],
-      });
-      await this.db.storeToken(lobbyToken, { userId, expiration });
-      userActiveGames = [];
-      roomEntries = [];
-      queueEntries = [];
-      roomInvitations = invitation == null ? [] : [invitation];
-      ratings = this.buildInitialRatings();
+    user = storedUser.player;
+    userActiveGames = storedUser.activeGames;
+    roomEntries = storedUser.roomEntries;
+    queueEntries = storedUser.queueEntries;
+    roomInvitations = storedUser.roomInvitations;
+    const normalized = this.normalizeRatings(storedUser.ratings);
+    ratings = normalized.ratings;
+    if (normalized.didChange) {
+      await this.db.updateUserStorageData(userId, { ratings });
     }
 
-    if (lobbyToken == null) {
-      throw new Error("Missing lobby auth token");
-    }
-    if (user == null) {
-      throw new Error("Missing lobby user");
-    }
-    if (userId == null) {
-      throw new Error("Missing lobby user id");
-    }
+    const lobbyToken = crypto.randomUUID();
+    await this.db.storeToken(lobbyToken, {
+      userId,
+      expiration: new Date(Date.now() + tokenTtlMs),
+    });
 
     if (invitation != null) {
       const hasInvitation = roomInvitations.some((invite) =>
@@ -169,17 +144,20 @@ export class Server<
     };
   }
 
+  /**
+   * Builds the initial game payload for a viewer or player.
+   */
   async getInitialGameProps(
     gameId: string,
-    token: string | undefined,
+    userId: string,
   ): Promise<GameViewData<PlayerState, PublicState, Outcome>> {
+    if (userId === "") {
+      throw new Error("Missing game user id");
+    }
+
     const gameData = await this.db.getGameStorageData(gameId);
 
-    let playerId: number | undefined;
-    const userId = await this.getUserIdFromToken(token);
-    if (userId != null) {
-      playerId = getPlayerId(gameData, userId);
-    }
+    const playerId = getPlayerId(gameData, userId);
 
     const publicState = getPublicState(gameData, this.game.publicState);
     const playerState = playerId == null ? undefined : getPlayerState(
@@ -197,23 +175,20 @@ export class Server<
     } as GameViewData<PlayerState, PublicState, Outcome>;
   }
 
-  async configureLobbySocket(socket: WebSocket, token: string) {
-    if (token === "") {
-      throw new Error("Missing lobby auth token");
+  /**
+   * Configures the lobby socket for a resolved user ID.
+   */
+  async configureLobbySocket(socket: WebSocket, userId: string) {
+    if (userId === "") {
+      throw new Error("Missing lobby user id");
     }
 
-    const tokenData = await this.db.getToken(token);
-    if (tokenData == null || tokenData.expiration <= new Date()) {
-      throw new Error("Invalid lobby auth token");
-    }
-
-    const storedUser = await this.db.getLobbyUserData(tokenData.userId);
+    const storedUser = await this.db.getLobbyUserData(userId);
     if (storedUser == null) {
       throw new Error("Unknown lobby user");
     }
 
     const user = storedUser.player;
-    const userId = tokenData.userId;
     let subscribed = false;
 
     const handleLobbySocketOpen = () => {
@@ -479,11 +454,17 @@ export class Server<
     socket.addEventListener("close", handleLobbySocketClose);
   }
 
-  async configureGameSocket(
+  /**
+   * Configures the game socket for a resolved user ID.
+   */
+  configureGameSocket(
     socket: WebSocket,
-    token: string | undefined,
+    userId: string,
   ) {
-    const userId = await this.getUserIdFromToken(token);
+    if (userId === "") {
+      throw new Error("Missing game user id");
+    }
+
     const subscribedGameIds = new Set<string>();
     const playerIdsByGame = new Map<string, number | undefined>();
 
@@ -496,10 +477,6 @@ export class Server<
       const cachedPlayerId = playerIdsByGame.get(gameId);
       if (cachedPlayerId !== undefined || playerIdsByGame.has(gameId)) {
         return cachedPlayerId;
-      }
-      if (userId == null) {
-        playerIdsByGame.set(gameId, undefined);
-        return;
       }
 
       const gameData = await this.db.getGameStorageData(gameId);
@@ -581,17 +558,33 @@ export class Server<
     socket.addEventListener("close", handleGameSocketClose);
   }
 
-  private async getUserIdFromToken(
+  /**
+   * Resolves a token to a valid user ID, creating a guest user when needed.
+   */
+  public async resolveToken(
     token: string | undefined,
-  ): Promise<string | undefined> {
-    if (token == null || token === "") {
-      return;
+  ): Promise<string> {
+    if (token != null && token !== "") {
+      const tokenData = await this.db.getToken(token);
+      if (tokenData != null && tokenData.expiration > new Date()) {
+        const storedUser = await this.db.getLobbyUserData(tokenData.userId);
+        if (storedUser != null) {
+          return tokenData.userId;
+        }
+      }
     }
-    const tokenData = await this.db.getToken(token);
-    if (tokenData == null || tokenData.expiration <= new Date()) {
-      return;
-    }
-    return tokenData.userId;
+
+    const user = await this.createGuestUser();
+    const userId = ulid();
+    await this.db.createNewUserStorageData(userId, {
+      player: user,
+      activeGames: [],
+      ratings: this.buildInitialRatings(),
+      joinedRooms: [],
+      queueEntries: [],
+      roomInvitations: [],
+    });
+    return userId;
   }
 
   /**
@@ -621,6 +614,9 @@ export class Server<
     return { ratings: merged, didChange };
   }
 
+  /**
+   * Creates a unique guest player profile in memory before persistence.
+   */
   private async createGuestUser(): Promise<Player> {
     for (let attempt = 0; attempt < 10000; attempt++) {
       const suffix = Math.floor(Math.random() * 10000).toString().padStart(
