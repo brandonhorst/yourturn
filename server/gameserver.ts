@@ -481,14 +481,32 @@ export class Server<
 
   async configureGameSocket(
     socket: WebSocket,
-    gameId: string,
     token: string | undefined,
   ) {
     const userId = await this.getUserIdFromToken(token);
-    const gameData = await this.db.getGameStorageData(gameId);
-    const playerId = userId == null ? undefined : getPlayerId(gameData, userId);
+    const subscribedGameIds = new Set<string>();
+    const playerIdsByGame = new Map<string, number | undefined>();
 
-    let subscribed = false;
+    /**
+     * Resolves and memoizes the user's player ID for a specific game.
+     */
+    const getPlayerIdForGame = async (
+      gameId: string,
+    ): Promise<number | undefined> => {
+      const cachedPlayerId = playerIdsByGame.get(gameId);
+      if (cachedPlayerId !== undefined || playerIdsByGame.has(gameId)) {
+        return cachedPlayerId;
+      }
+      if (userId == null) {
+        playerIdsByGame.set(gameId, undefined);
+        return;
+      }
+
+      const gameData = await this.db.getGameStorageData(gameId);
+      const playerId = getPlayerId(gameData, userId);
+      playerIdsByGame.set(gameId, playerId);
+      return playerId;
+    };
 
     const handleGameSocketMessage = async (event: MessageEvent) => {
       const request: ClientMessage<
@@ -500,39 +518,63 @@ export class Server<
       > = JSON.parse(event.data);
       switch (request.type) {
         case "SubscribeGame":
-          await this.socketStore.subscribeGame(
-            socket,
-            gameId,
-            this.game.playerState,
-            this.game.publicState,
-            playerId,
-          );
-          subscribed = true;
+          try {
+            const playerId = await getPlayerIdForGame(request.gameId);
+            await this.socketStore.subscribeGame(
+              socket,
+              request.gameId,
+              this.game.playerState,
+              this.game.publicState,
+              playerId,
+            );
+            subscribedGameIds.add(request.gameId);
+          } catch (err) {
+            console.error("Failed to subscribe game socket", err);
+            this.socketStore.unsubscribeGame(socket, request.gameId);
+            subscribedGameIds.delete(request.gameId);
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Unable to subscribe to game.",
+              },
+            ));
+          }
           break;
         case "UnsubscribeGame":
-          this.socketStore.unsubscribeGame(socket, gameId);
-          subscribed = false;
+          this.socketStore.unsubscribeGame(socket, request.gameId);
+          subscribedGameIds.delete(request.gameId);
           break;
         case "Move":
-          if (playerId == null) {
-            break;
+          try {
+            const playerId = await getPlayerIdForGame(request.gameId);
+            if (playerId == null) {
+              break;
+            }
+            await handleMove(
+              this.db,
+              this.game,
+              request.gameId,
+              playerId,
+              request.move,
+            );
+          } catch (err) {
+            console.error("Failed to process move", err);
+            socket.send(JSON.stringify(
+              {
+                type: "DisplayError",
+                message: "Unable to process move.",
+              },
+            ));
           }
-          await handleMove(
-            this.db,
-            this.game,
-            gameId,
-            playerId,
-            request.move,
-          );
           break;
       }
     };
 
     const handleGameSocketClose = () => {
-      if (!subscribed) {
-        return;
+      for (const subscribedGameId of subscribedGameIds) {
+        this.socketStore.unsubscribeGame(socket, subscribedGameId);
       }
-      this.socketStore.unsubscribeGame(socket, gameId);
+      subscribedGameIds.clear();
     };
 
     socket.addEventListener("message", handleGameSocketMessage);

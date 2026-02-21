@@ -3,9 +3,10 @@ import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type { Socket } from "../client/hookutils.ts";
 import type { GameProps, GameViewData } from "../types.ts";
 
-// Subscribes to a game on an already-open socket
+// Subscribes to a specific game on an already-open socket.
 export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
   socket: Socket,
+  gameId: string,
   initialGameProps: GameViewData<PlayerState, PublicState, Outcome>,
 ): GameProps<Move, PlayerState, PublicState, Outcome> {
   const playerId = initialGameProps.playerId;
@@ -39,6 +40,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
         PublicState
       > = {
         type: "SubscribeGame",
+        gameId,
       };
       socket.send(JSON.stringify(request));
       subscribeSent = true;
@@ -88,6 +90,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
         PublicState
       > = {
         type: "UnsubscribeGame",
+        gameId,
       };
       try {
         socket.send(JSON.stringify(request));
@@ -97,7 +100,7 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
       socket.removeMessageListener(onMessage);
       socket.removeOpenListener(onOpen);
     };
-  }, [socket]);
+  }, [gameId, socket]);
 
   const send = useCallback(
     (
@@ -123,10 +126,11 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
       PublicState
     > = {
       type: "Move",
+      gameId,
       move,
     };
     send(request);
-  }, [send]);
+  }, [gameId, send]);
   const perform = playerId == null ? undefined : performCallback;
 
   return {

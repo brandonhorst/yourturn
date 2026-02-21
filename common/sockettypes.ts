@@ -19,9 +19,9 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "LeaveQueue"; queueId: string }
   | { type: "LeaveRoom"; roomId: string }
   // Game messages
-  | { type: "SubscribeGame" }
-  | { type: "Move"; move: Move }
-  | { type: "UnsubscribeGame" };
+  | { type: "SubscribeGame"; gameId: string }
+  | { type: "Move"; gameId: string; move: Move }
+  | { type: "UnsubscribeGame"; gameId: string };
 
 export type ServerMessage<
   Config,
