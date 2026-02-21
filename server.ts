@@ -1,7 +1,6 @@
 import type { ActiveGame, Game } from "./types.ts";
-import { GameSocketStore } from "./server/gamesockets.ts";
 import { DB } from "./server/db.ts";
-import { LobbySocketStore } from "./server/lobbysockets.ts";
+import { SocketStore } from "./server/sockets.ts";
 import { Server } from "./server/gameserver.ts";
 
 export async function initializeServer<
@@ -52,7 +51,7 @@ export async function initializeServer<
     .watchForActiveGameListChanges();
   const availableRoomsStream = db.watchForAvailableRoomListChanges();
 
-  const lobbySocketStore = new LobbySocketStore<
+  const socketStore = new SocketStore<
     Config,
     GameState,
     Move,
@@ -66,21 +65,10 @@ export async function initializeServer<
     activeGamesStream,
     availableRoomsStream,
   );
-  const gameSocketStore = new GameSocketStore<
-    Config,
-    GameState,
-    Move,
-    PlayerState,
-    PublicState,
-    Outcome,
-    Rating,
-    Loadout
-  >(db);
 
   return new Server(
     game,
     db,
-    lobbySocketStore,
-    gameSocketStore,
+    socketStore,
   );
 }

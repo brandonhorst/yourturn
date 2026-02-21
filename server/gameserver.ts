@@ -16,9 +16,8 @@ import {
   getPublicState,
   handleMove,
 } from "./gamedata.ts";
-import type { GameSocketStore } from "./gamesockets.ts";
 import type { DB } from "./db.ts";
-import type { LobbySocketStore } from "./lobbysockets.ts";
+import type { SocketStore } from "./sockets.ts";
 import { ulid } from "@std/ulid";
 
 const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
@@ -54,17 +53,7 @@ export class Server<
       Rating,
       Loadout
     >,
-    private lobbySocketStore: LobbySocketStore<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
-    private gameSocketStore: GameSocketStore<
+    private socketStore: SocketStore<
       Config,
       GameState,
       Move,
@@ -253,7 +242,7 @@ export class Server<
             ));
             break;
           }
-          await this.lobbySocketStore.subscribe(
+          await this.socketStore.subscribeLobby(
             socket,
             userId,
             latestUserData,
@@ -262,7 +251,7 @@ export class Server<
           break;
         }
         case "Unsubscribe":
-          await this.lobbySocketStore.unsubscribe(socket);
+          await this.socketStore.unsubscribeLobby(socket);
           subscribed = false;
           break;
         case "JoinQueue": {
@@ -293,7 +282,7 @@ export class Server<
             numPlayers: queue.numPlayers,
             config: queue.config,
           };
-          await this.lobbySocketStore.joinQueue(
+          await this.socketStore.joinQueue(
             socket,
             queueConfig.queueId,
             userId,
@@ -328,7 +317,7 @@ export class Server<
             return;
           }
 
-          await this.lobbySocketStore.createAndJoinRoom(
+          await this.socketStore.createAndJoinRoom(
             socket,
             {
               numPlayers: parsedMessage.numPlayers,
@@ -398,7 +387,7 @@ export class Server<
             ));
             return;
           }
-          const joined = await this.lobbySocketStore.joinRoom(
+          const joined = await this.socketStore.joinRoom(
             socket,
             parsedMessage.roomId,
             userId,
@@ -469,10 +458,10 @@ export class Server<
           break;
         }
         case "LeaveQueue":
-          await this.lobbySocketStore.leaveQueue(socket, parsedMessage.queueId);
+          await this.socketStore.leaveQueue(socket, parsedMessage.queueId);
           break;
         case "LeaveRoom":
-          await this.lobbySocketStore.leaveRoom(socket, parsedMessage.roomId);
+          await this.socketStore.leaveRoom(socket, parsedMessage.roomId);
           break;
         case "UpdateUsername": {
           const newUsername = parsedMessage.username;
@@ -498,7 +487,7 @@ export class Server<
       if (!subscribed) {
         return;
       }
-      await this.lobbySocketStore.unsubscribe(socket);
+      await this.socketStore.unsubscribeLobby(socket);
     };
 
     socket.addEventListener("open", handleLobbySocketOpen);
@@ -527,7 +516,7 @@ export class Server<
       > = JSON.parse(event.data);
       switch (request.type) {
         case "SubscribeGame":
-          await this.gameSocketStore.subscribe(
+          await this.socketStore.subscribeGame(
             socket,
             gameId,
             this.game.playerState,
@@ -537,7 +526,7 @@ export class Server<
           subscribed = true;
           break;
         case "Unsubscribe":
-          this.gameSocketStore.unsubscribe(socket, gameId);
+          this.socketStore.unsubscribeGame(socket, gameId);
           subscribed = false;
           break;
         case "Move":
@@ -559,7 +548,7 @@ export class Server<
       if (!subscribed) {
         return;
       }
-      this.gameSocketStore.unsubscribe(socket, gameId);
+      this.socketStore.unsubscribeGame(socket, gameId);
     };
 
     socket.addEventListener("message", handleGameSocketMessage);
