@@ -18,7 +18,6 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "CommitRoom"; roomId: string }
   | { type: "LeaveQueue"; queueId: string }
   | { type: "LeaveRoom"; roomId: string }
-  | { type: "UpdateUsername"; username: string }
   // Game messages
   | { type: "SubscribeGame" }
   | { type: "Move"; move: Move }

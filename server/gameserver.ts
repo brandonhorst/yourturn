@@ -212,7 +212,7 @@ export class Server<
       throw new Error("Unknown lobby user");
     }
 
-    let user = storedUser.player;
+    const user = storedUser.player;
     const userId = tokenData.userId;
     let subscribed = false;
 
@@ -463,22 +463,6 @@ export class Server<
         case "LeaveRoom":
           await this.socketStore.leaveRoom(socket, parsedMessage.roomId);
           break;
-        case "UpdateUsername": {
-          const newUsername = parsedMessage.username;
-          if (newUsername === user.username) {
-            break;
-          }
-          const usernameTaken = await this.db.usernameExists(newUsername);
-          if (usernameTaken) {
-            break;
-          }
-
-          const updatedUser: Player = { ...user, username: newUsername };
-          await this.db.updateUserStorageData(userId, { player: updatedUser });
-          user = updatedUser;
-
-          break;
-        }
       }
     };
 

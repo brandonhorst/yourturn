@@ -363,5 +363,4 @@ export type LobbyProps<Config, Loadout, Rating> =
     commitRoom: (roomId: string) => void;
     leaveQueue: (queueId: string) => void;
     leaveRoom: (roomId: string) => void;
-    updateUsername: (username: string) => void;
   };

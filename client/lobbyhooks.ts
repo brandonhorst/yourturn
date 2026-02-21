@@ -198,10 +198,6 @@ export function useLobbySocket<Config, Loadout, Rating>({
     send({ type: "LeaveRoom", roomId });
   }, [send]);
 
-  const updateUsername = useCallback((username: string) => {
-    send({ type: "UpdateUsername", username });
-  }, [send]);
-
   return {
     allActiveGames,
     allAvailableRooms,
@@ -219,6 +215,5 @@ export function useLobbySocket<Config, Loadout, Rating>({
     commitRoom,
     leaveQueue,
     leaveRoom,
-    updateUsername,
   };
 }
