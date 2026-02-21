@@ -176,297 +176,34 @@ export class Server<
   }
 
   /**
-   * Configures the lobby socket for a resolved user ID.
+   * Configures one websocket to handle both lobby and game messages.
    */
-  async configureLobbySocket(socket: WebSocket, userId: string) {
-    if (userId === "") {
-      throw new Error("Missing lobby user id");
-    }
-
-    const storedUser = await this.db.getLobbyUserData(userId);
-    if (storedUser == null) {
-      throw new Error("Unknown lobby user");
-    }
-
-    const user = storedUser.player;
-    let subscribed = false;
-
-    const handleLobbySocketOpen = () => {
-      console.log("lobby socket opened");
-    };
-
-    const handleLobbySocketMessage = async (event: MessageEvent) => {
-      const message = event.data;
-      console.log("Lobby Socket Message", message);
-      const parsedMessage: ClientMessage<
-        Config,
-        Loadout,
-        Move,
-        PlayerState,
-        PublicState
-      > = JSON.parse(message);
-      switch (parsedMessage.type) {
-        case "SubscribeLobby": {
-          const latestUserData = await this.db.getLobbyUserData(userId);
-          if (latestUserData == null) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Unknown lobby user.",
-              },
-            ));
-            break;
-          }
-          await this.socketStore.subscribeLobby(
-            socket,
-            userId,
-            latestUserData,
-          );
-          subscribed = true;
-          break;
-        }
-        case "UnsubscribeLobby":
-          await this.socketStore.unsubscribeLobby(socket);
-          subscribed = false;
-          break;
-        case "JoinQueue": {
-          const queue = this.game.queues[parsedMessage.queueId];
-          if (queue == null) {
-            console.log(
-              "Attempted to join non-existant queue",
-              parsedMessage.queueId,
-            );
-            return;
-          }
-          if (
-            !(this.game.isValidLoadout?.(
-              parsedMessage.loadout,
-              queue.config,
-            ) ?? false)
-          ) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Invalid loadout.",
-              },
-            ));
-            return;
-          }
-          const queueConfig = {
-            queueId: parsedMessage.queueId,
-            numPlayers: queue.numPlayers,
-            config: queue.config,
-          };
-          await this.socketStore.joinQueue(
-            socket,
-            queueConfig.queueId,
-            userId,
-            user,
-            parsedMessage.loadout,
-          );
-          break;
-        }
-        case "CreateAndJoinRoom": {
-          if (!(this.game.isValidRoom?.(parsedMessage.config) ?? false)) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Invalid room config.",
-              },
-            ));
-            return;
-          }
-
-          if (
-            !(this.game.isValidLoadout?.(
-              parsedMessage.loadout,
-              parsedMessage.config,
-            ) ?? false)
-          ) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Invalid loadout.",
-              },
-            ));
-            return;
-          }
-
-          await this.socketStore.createAndJoinRoom(
-            socket,
-            {
-              numPlayers: parsedMessage.numPlayers,
-              config: parsedMessage.config,
-              private: parsedMessage.private,
-            },
-            userId,
-            user,
-            parsedMessage.loadout,
-          );
-          break;
-        }
-        case "JoinRoom": {
-          const room = await this.db.getRoom(parsedMessage.roomId);
-          if (room == null) {
-            await this.db.removeRoomInvitation(userId, parsedMessage.roomId);
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Room not found.",
-              },
-            ));
-            return;
-          }
-          if (room.members.some((member) => member.userId === userId)) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "You are already in this room.",
-              },
-            ));
-            return;
-          }
-          if (
-            !(this.game.isValidLoadout?.(
-              parsedMessage.loadout,
-              room.config,
-            ) ?? false)
-          ) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Invalid loadout.",
-              },
-            ));
-            return;
-          }
-          if (room.members.length >= room.numPlayers) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Room is full.",
-              },
-            ));
-            return;
-          }
-          const hasInvitation = await this.db.hasRoomInvitation(
-            userId,
-            parsedMessage.roomId,
-          );
-          if (room.private && !hasInvitation) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Room is private.",
-              },
-            ));
-            return;
-          }
-          const joined = await this.socketStore.joinRoom(
-            socket,
-            parsedMessage.roomId,
-            userId,
-            user,
-            parsedMessage.loadout,
-            { consumeInvitation: hasInvitation },
-          );
-          if (!joined) {
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Unable to join room.",
-              },
-            ));
-          }
-          break;
-        }
-        case "CommitRoom": {
-          try {
-            await this.db.commitRoom(
-              parsedMessage.roomId,
-            );
-          } catch (err) {
-            console.error("Failed to commit room", err);
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Unable to commit room.",
-              },
-            ));
-          }
-          break;
-        }
-        case "InviteUser": {
-          try {
-            await this.db.inviteUserToRoom(
-              parsedMessage.roomId,
-              userId,
-              parsedMessage.userId,
-            );
-          } catch (err) {
-            console.error("Failed to invite user", err);
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Unable to invite user.",
-              },
-            ));
-          }
-          break;
-        }
-        case "CreateInvitation": {
-          try {
-            await this.db.createRoomInvitation(
-              parsedMessage.invitationId,
-              parsedMessage.roomId,
-              userId,
-            );
-          } catch (err) {
-            console.error("Failed to create invitation", err);
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Unable to create invitation.",
-              },
-            ));
-          }
-          break;
-        }
-        case "LeaveQueue":
-          await this.socketStore.leaveQueue(socket, parsedMessage.queueId);
-          break;
-        case "LeaveRoom":
-          await this.socketStore.leaveRoom(socket, parsedMessage.roomId);
-          break;
-      }
-    };
-
-    const handleLobbySocketClose = async () => {
-      console.log("lobby socket closed");
-      if (!subscribed) {
-        return;
-      }
-      await this.socketStore.unsubscribeLobby(socket);
-    };
-
-    socket.addEventListener("open", handleLobbySocketOpen);
-    socket.addEventListener("message", handleLobbySocketMessage);
-    socket.addEventListener("close", handleLobbySocketClose);
-  }
-
-  /**
-   * Configures the game socket for a resolved user ID.
-   */
-  configureGameSocket(
+  configureSocket(
     socket: WebSocket,
     userId: string,
   ) {
     if (userId === "") {
-      throw new Error("Missing game user id");
+      throw new Error("Missing socket user id");
     }
 
+    let lobbySubscribed = false;
     const subscribedGameIds = new Set<string>();
     const playerIdsByGame = new Map<string, number | undefined>();
+
+    /**
+     * Sends an error response to the client over this websocket.
+     */
+    const sendDisplayError = (message: string): void => {
+      socket.send(JSON.stringify({ type: "DisplayError", message }));
+    };
+
+    /**
+     * Fetches the latest lobby user record for room and queue actions.
+     */
+    const getLobbyUser = async (): Promise<Player | null> => {
+      const storedUser = await this.db.getLobbyUserData(userId);
+      return storedUser?.player ?? null;
+    };
 
     /**
      * Resolves and memoizes the user's player ID for a specific game.
@@ -485,7 +222,26 @@ export class Server<
       return playerId;
     };
 
-    const handleGameSocketMessage = async (event: MessageEvent) => {
+    /**
+     * Cleans up all lobby and game subscriptions when the socket closes.
+     */
+    const handleSocketClose = async () => {
+      if (lobbySubscribed) {
+        await this.socketStore.unsubscribeLobby(socket);
+        lobbySubscribed = false;
+      }
+
+      for (const subscribedGameId of subscribedGameIds) {
+        this.socketStore.unsubscribeGame(socket, subscribedGameId);
+      }
+      subscribedGameIds.clear();
+      playerIdsByGame.clear();
+    };
+
+    /**
+     * Routes any client message to the matching lobby or game handler.
+     */
+    const handleSocketMessage = async (event: MessageEvent) => {
       const request: ClientMessage<
         Config,
         Loadout,
@@ -493,7 +249,178 @@ export class Server<
         PlayerState,
         PublicState
       > = JSON.parse(event.data);
+
       switch (request.type) {
+        case "SubscribeLobby": {
+          const latestUserData = await this.db.getLobbyUserData(userId);
+          if (latestUserData == null) {
+            sendDisplayError("Unknown lobby user.");
+            break;
+          }
+
+          await this.socketStore.subscribeLobby(socket, userId, latestUserData);
+          lobbySubscribed = true;
+          break;
+        }
+        case "UnsubscribeLobby":
+          await this.socketStore.unsubscribeLobby(socket);
+          lobbySubscribed = false;
+          break;
+        case "JoinQueue": {
+          const queue = this.game.queues[request.queueId];
+          if (queue == null) {
+            console.log(
+              "Attempted to join non-existant queue",
+              request.queueId,
+            );
+            break;
+          }
+
+          if (
+            !(this.game.isValidLoadout?.(request.loadout, queue.config) ??
+              false)
+          ) {
+            sendDisplayError("Invalid loadout.");
+            break;
+          }
+
+          const user = await getLobbyUser();
+          if (user == null) {
+            sendDisplayError("Unknown lobby user.");
+            break;
+          }
+
+          await this.socketStore.joinQueue(
+            socket,
+            request.queueId,
+            userId,
+            user,
+            request.loadout,
+          );
+          break;
+        }
+        case "CreateAndJoinRoom": {
+          if (!(this.game.isValidRoom?.(request.config) ?? false)) {
+            sendDisplayError("Invalid room config.");
+            break;
+          }
+
+          if (
+            !(this.game.isValidLoadout?.(request.loadout, request.config) ??
+              false)
+          ) {
+            sendDisplayError("Invalid loadout.");
+            break;
+          }
+
+          const user = await getLobbyUser();
+          if (user == null) {
+            sendDisplayError("Unknown lobby user.");
+            break;
+          }
+
+          await this.socketStore.createAndJoinRoom(
+            socket,
+            {
+              numPlayers: request.numPlayers,
+              config: request.config,
+              private: request.private,
+            },
+            userId,
+            user,
+            request.loadout,
+          );
+          break;
+        }
+        case "JoinRoom": {
+          const room = await this.db.getRoom(request.roomId);
+          if (room == null) {
+            await this.db.removeRoomInvitation(userId, request.roomId);
+            sendDisplayError("Room not found.");
+            break;
+          }
+          if (room.members.some((member) => member.userId === userId)) {
+            sendDisplayError("You are already in this room.");
+            break;
+          }
+          if (
+            !(this.game.isValidLoadout?.(request.loadout, room.config) ??
+              false)
+          ) {
+            sendDisplayError("Invalid loadout.");
+            break;
+          }
+          if (room.members.length >= room.numPlayers) {
+            sendDisplayError("Room is full.");
+            break;
+          }
+
+          const hasInvitation = await this.db.hasRoomInvitation(
+            userId,
+            request.roomId,
+          );
+          if (room.private && !hasInvitation) {
+            sendDisplayError("Room is private.");
+            break;
+          }
+
+          const user = await getLobbyUser();
+          if (user == null) {
+            sendDisplayError("Unknown lobby user.");
+            break;
+          }
+
+          const joined = await this.socketStore.joinRoom(
+            socket,
+            request.roomId,
+            userId,
+            user,
+            request.loadout,
+            { consumeInvitation: hasInvitation },
+          );
+          if (!joined) {
+            sendDisplayError("Unable to join room.");
+          }
+          break;
+        }
+        case "CommitRoom":
+          try {
+            await this.db.commitRoom(request.roomId);
+          } catch (err) {
+            console.error("Failed to commit room", err);
+            sendDisplayError("Unable to commit room.");
+          }
+          break;
+        case "InviteUser":
+          try {
+            await this.db.inviteUserToRoom(
+              request.roomId,
+              userId,
+              request.userId,
+            );
+          } catch (err) {
+            console.error("Failed to invite user", err);
+            sendDisplayError("Unable to invite user.");
+          }
+          break;
+        case "CreateInvitation":
+          try {
+            await this.db.createRoomInvitation(
+              request.invitationId,
+              request.roomId,
+              userId,
+            );
+          } catch (err) {
+            console.error("Failed to create invitation", err);
+            sendDisplayError("Unable to create invitation.");
+          }
+          break;
+        case "LeaveQueue":
+          await this.socketStore.leaveQueue(socket, request.queueId);
+          break;
+        case "LeaveRoom":
+          await this.socketStore.leaveRoom(socket, request.roomId);
+          break;
         case "SubscribeGame":
           try {
             const playerId = await getPlayerIdForGame(request.gameId);
@@ -509,12 +436,7 @@ export class Server<
             console.error("Failed to subscribe game socket", err);
             this.socketStore.unsubscribeGame(socket, request.gameId);
             subscribedGameIds.delete(request.gameId);
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Unable to subscribe to game.",
-              },
-            ));
+            sendDisplayError("Unable to subscribe to game.");
           }
           break;
         case "UnsubscribeGame":
@@ -536,26 +458,14 @@ export class Server<
             );
           } catch (err) {
             console.error("Failed to process move", err);
-            socket.send(JSON.stringify(
-              {
-                type: "DisplayError",
-                message: "Unable to process move.",
-              },
-            ));
+            sendDisplayError("Unable to process move.");
           }
           break;
       }
     };
 
-    const handleGameSocketClose = () => {
-      for (const subscribedGameId of subscribedGameIds) {
-        this.socketStore.unsubscribeGame(socket, subscribedGameId);
-      }
-      subscribedGameIds.clear();
-    };
-
-    socket.addEventListener("message", handleGameSocketMessage);
-    socket.addEventListener("close", handleGameSocketClose);
+    socket.addEventListener("message", handleSocketMessage);
+    socket.addEventListener("close", handleSocketClose);
   }
 
   /**
