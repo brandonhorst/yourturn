@@ -1,10 +1,9 @@
 import type { LobbyViewData, RoomEntry } from "../types.ts";
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
+  // Lobby messages
   | { type: "SubscribeLobby" }
-  | { type: "SubscribeGame" }
   | { type: "UnsubscribeLobby" }
-  | { type: "UnsubscribeGame" }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | {
     type: "CreateAndJoinRoom";
@@ -20,7 +19,10 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "LeaveQueue"; queueId: string }
   | { type: "LeaveRoom"; roomId: string }
   | { type: "UpdateUsername"; username: string }
-  | { type: "Move"; move: Move };
+  // Game messages
+  | { type: "SubscribeGame" }
+  | { type: "Move"; move: Move }
+  | { type: "UnsubscribeGame" };
 
 export type ServerMessage<
   Config,
