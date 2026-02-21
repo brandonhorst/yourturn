@@ -119,6 +119,20 @@ export function useLobbySocket<Config, Loadout, Rating>({
     }
 
     return () => {
+      const request: ClientMessage<
+        Config,
+        Loadout,
+        never,
+        never,
+        never
+      > = {
+        type: "UnsubscribeLobby",
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown.
+      }
       socket.removeMessageListener(onMessage);
       socket.removeOpenListener(onOpen);
     };

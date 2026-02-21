@@ -80,6 +80,20 @@ export function useGameSocket<Move, PlayerState, PublicState, Outcome>(
     }
 
     return () => {
+      const request: ClientMessage<
+        never,
+        never,
+        Move,
+        PlayerState,
+        PublicState
+      > = {
+        type: "UnsubscribeGame",
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown.
+      }
       socket.removeMessageListener(onMessage);
       socket.removeOpenListener(onOpen);
     };

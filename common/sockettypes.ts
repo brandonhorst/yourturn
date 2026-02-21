@@ -3,7 +3,8 @@ import type { LobbyViewData, RoomEntry } from "../types.ts";
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "SubscribeLobby" }
   | { type: "SubscribeGame" }
-  | { type: "Unsubscribe" }
+  | { type: "UnsubscribeLobby" }
+  | { type: "UnsubscribeGame" }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | {
     type: "CreateAndJoinRoom";

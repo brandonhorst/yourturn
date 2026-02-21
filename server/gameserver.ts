@@ -250,7 +250,7 @@ export class Server<
           subscribed = true;
           break;
         }
-        case "Unsubscribe":
+        case "UnsubscribeLobby":
           await this.socketStore.unsubscribeLobby(socket);
           subscribed = false;
           break;
@@ -525,7 +525,7 @@ export class Server<
           );
           subscribed = true;
           break;
-        case "Unsubscribe":
+        case "UnsubscribeGame":
           this.socketStore.unsubscribeGame(socket, gameId);
           subscribed = false;
           break;
