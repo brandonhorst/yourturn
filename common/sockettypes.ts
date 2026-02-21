@@ -1,15 +1,18 @@
 import type {
-  ActiveGame,
-  AvailableRoom,
+  ActivePublicGamesViewData,
+  AvailablePublicRoomsViewData,
   LobbyViewData,
-  Player,
-  QueueEntry,
   RoomEntry,
-  RoomInvitation,
 } from "../types.ts";
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
-  // Lobby messages
+  // Active Public Games Channel
+  | { type: "SubscribeActivePublicGames" }
+  | { type: "UnsubscribeActivePublicGames" }
+  // Available Public Rooms Channel
+  | { type: "SubscribeAvailablePublicRooms" }
+  | { type: "UnsubscribeAvailablePublicRooms" }
+  // Lobby Channel
   | { type: "SubscribeLobby" }
   | { type: "UnsubscribeLobby" }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
@@ -26,7 +29,7 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "CommitRoom"; roomId: string }
   | { type: "LeaveQueue"; queueId: string }
   | { type: "LeaveRoom"; roomId: string }
-  // Game messages
+  // Game Channel
   | { type: "SubscribeGame"; gameId: string }
   | { type: "Move"; gameId: string; move: Move }
   | { type: "UnsubscribeGame"; gameId: string };
@@ -44,21 +47,12 @@ export type ServerMessage<
     lobbyProps: LobbyViewData<Config, Loadout, Rating>;
   }
   | {
-    type: "UpdateLobbyUserProps";
-    userActiveGames: ActiveGame<Config>[];
-    player: Player;
-    ratings: Record<string, Rating>;
-    roomEntries: RoomEntry<Config, Loadout>[];
-    queueEntries: QueueEntry<Loadout>[];
-    roomInvitations: RoomInvitation<Config>[];
+    type: "UpdateActivePublicGames";
+    activePublicGamesProps: ActivePublicGamesViewData<Config>;
   }
   | {
-    type: "UpdateActiveGames";
-    allActiveGames: ActiveGame<Config>[];
-  }
-  | {
-    type: "UpdateAvailableRooms";
-    allAvailableRooms: AvailableRoom<Config>[];
+    type: "UpdateAvailablePublicRooms";
+    availablePublicRoomsProps: AvailablePublicRoomsViewData<Config>;
   }
   | {
     type: "UpdateRoomEntry";

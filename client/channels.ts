@@ -2,6 +2,8 @@ import { ulid } from "@std/ulid";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type {
+  ActivePublicGamesViewData,
+  AvailablePublicRoomsViewData,
   GameProps,
   GameViewData,
   LobbyProps,
@@ -160,6 +162,176 @@ export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
   } as GameProps<Move, PlayerState, PublicState, Outcome>;
 }
 
+// Subscribes to the global active public games channel on an open socket.
+export function useActivePublicGamesChannel<Config>({
+  socket,
+  initialActivePublicGamesProps,
+}: {
+  socket: Socket;
+  initialActivePublicGamesProps: ActivePublicGamesViewData<Config>;
+}): ActivePublicGamesViewData<Config> {
+  const [allActiveGames, setActiveGames] = useState(
+    initialActivePublicGamesProps.allActiveGames,
+  );
+
+  useEffect(() => {
+    let subscribeSent = false;
+
+    function sendSubscribe() {
+      if (subscribeSent) {
+        return;
+      }
+
+      const request: ClientMessage<
+        Config,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "SubscribeActivePublicGames",
+      };
+      socket.send(JSON.stringify(request));
+      subscribeSent = true;
+    }
+
+    function onOpen() {
+      sendSubscribe();
+    }
+
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
+        Config,
+        never,
+        never,
+        never,
+        never,
+        never
+      >;
+      switch (response.type) {
+        case "UpdateActivePublicGames":
+          setActiveGames(response.activePublicGamesProps.allActiveGames);
+          break;
+      }
+    }
+
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
+    try {
+      sendSubscribe();
+    } catch {
+      // The socket may still be connecting; we'll subscribe once it opens.
+    }
+
+    return () => {
+      const request: ClientMessage<
+        Config,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "UnsubscribeActivePublicGames",
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown.
+      }
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
+    };
+  }, [socket]);
+
+  return { allActiveGames };
+}
+
+// Subscribes to the global available public rooms channel on an open socket.
+export function useAvailablePublicRoomsChannel<Config>({
+  socket,
+  initialAvailablePublicRoomsProps,
+}: {
+  socket: Socket;
+  initialAvailablePublicRoomsProps: AvailablePublicRoomsViewData<Config>;
+}): AvailablePublicRoomsViewData<Config> {
+  const [allAvailableRooms, setAvailableRooms] = useState(
+    initialAvailablePublicRoomsProps.allAvailableRooms,
+  );
+
+  useEffect(() => {
+    let subscribeSent = false;
+
+    function sendSubscribe() {
+      if (subscribeSent) {
+        return;
+      }
+
+      const request: ClientMessage<
+        Config,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "SubscribeAvailablePublicRooms",
+      };
+      socket.send(JSON.stringify(request));
+      subscribeSent = true;
+    }
+
+    function onOpen() {
+      sendSubscribe();
+    }
+
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
+        Config,
+        never,
+        never,
+        never,
+        never,
+        never
+      >;
+      switch (response.type) {
+        case "UpdateAvailablePublicRooms":
+          setAvailableRooms(
+            response.availablePublicRoomsProps.allAvailableRooms,
+          );
+          break;
+      }
+    }
+
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
+    try {
+      sendSubscribe();
+    } catch {
+      // The socket may still be connecting; we'll subscribe once it opens.
+    }
+
+    return () => {
+      const request: ClientMessage<
+        Config,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "UnsubscribeAvailablePublicRooms",
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown.
+      }
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
+    };
+  }, [socket]);
+
+  return { allAvailableRooms };
+}
+
 // Subscribes to a lobby on an already-open socket.
 export function useLobbyChannel<Config, Loadout, Rating>({
   socket,
@@ -172,12 +344,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
 }): LobbyProps<Config, Loadout, Rating> {
-  const [allActiveGames, setActiveGames] = useState(
-    initialLobbyProps.allActiveGames,
-  );
-  const [allAvailableRooms, setAvailableRooms] = useState(
-    initialLobbyProps.allAvailableRooms,
-  );
   const [userActiveGames, setUserActiveGames] = useState(
     initialLobbyProps.userActiveGames,
   );
@@ -229,28 +395,12 @@ export function useLobbyChannel<Config, Loadout, Rating>({
       >;
       switch (response.type) {
         case "UpdateLobbyProps":
-          setActiveGames(response.lobbyProps.allActiveGames);
-          setAvailableRooms(response.lobbyProps.allAvailableRooms);
           setUserActiveGames(response.lobbyProps.userActiveGames);
           setPlayer(response.lobbyProps.player);
           setRatings(response.lobbyProps.ratings);
           setRoomEntries(response.lobbyProps.roomEntries);
           setQueueEntries(response.lobbyProps.queueEntries);
           setRoomInvitations(response.lobbyProps.roomInvitations);
-          break;
-        case "UpdateLobbyUserProps":
-          setUserActiveGames(response.userActiveGames);
-          setPlayer(response.player);
-          setRatings(response.ratings);
-          setRoomEntries(response.roomEntries);
-          setQueueEntries(response.queueEntries);
-          setRoomInvitations(response.roomInvitations);
-          break;
-        case "UpdateActiveGames":
-          setActiveGames(response.allActiveGames);
-          break;
-        case "UpdateAvailableRooms":
-          setAvailableRooms(response.allAvailableRooms);
           break;
         case "UpdateRoomEntry":
           setRoomEntries((existing) => {
@@ -369,8 +519,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
   }, [send]);
 
   return {
-    allActiveGames,
-    allAvailableRooms,
     userActiveGames,
     player,
     ratings,

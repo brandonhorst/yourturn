@@ -7,6 +7,8 @@ import type {
 } from "./db.ts";
 import type {
   ActiveGame,
+  ActivePublicGamesViewData,
+  AvailablePublicRoomsViewData,
   AvailableRoom,
   LobbyViewData,
   Player,
@@ -78,6 +80,8 @@ type GameConnection<Config, GameState, PlayerState, PublicState, Outcome> = {
 type SocketConnectionState<Config, Loadout, Rating> = {
   lobby?: LobbyConnectionState<Config, Loadout, Rating>;
   gameIds: Set<string>;
+  hasActivePublicGamesSubscription: boolean;
+  hasAvailablePublicRoomsSubscription: boolean;
 };
 
 /**
@@ -134,7 +138,8 @@ export class SocketStore<
     WebSocket,
     SocketConnectionState<Config, Loadout, Rating>
   > = new Map();
-  private lobbySockets: Set<WebSocket> = new Set();
+  private activePublicGamesSockets: Set<WebSocket> = new Set();
+  private availablePublicRoomsSockets: Set<WebSocket> = new Set();
   private gameConnections: Map<
     string,
     GameConnection<Config, GameState, PlayerState, PublicState, Outcome>
@@ -154,8 +159,8 @@ export class SocketStore<
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
     availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
   ) {
-    this.streamActiveGamesToLobbySockets(activeGamesStream);
-    this.streamAvailableRoomsToLobbySockets(availableRoomsStream);
+    this.streamActivePublicGamesToSockets(activeGamesStream);
+    this.streamAvailablePublicRoomsToSockets(availableRoomsStream);
   }
 
   /**
@@ -178,13 +183,12 @@ export class SocketStore<
         queueSubscriptions: new Map(),
         roomSubscriptions: new Map(),
       };
-      this.lobbySockets.add(socket);
       void this.streamUserChangesToSocket(socket, userChangesReader);
     } else {
       connectionState.lobby.userId = userId;
     }
 
-    await this.sendLobbySnapshot(socket, userData);
+    this.sendLobbySnapshot(socket, userData);
     await this.syncRoomSubscriptions(socket, userData.roomEntries);
   }
 
@@ -214,7 +218,54 @@ export class SocketStore<
 
     closeReader(lobbyState.userChangesReader);
     connectionState.lobby = undefined;
-    this.lobbySockets.delete(socket);
+    this.pruneIdleSocket(socket);
+  }
+
+  /**
+   * Subscribes a websocket to active public game list updates.
+   */
+  async subscribeActivePublicGames(socket: WebSocket): Promise<void> {
+    const connectionState = this.getOrCreateSocketConnection(socket);
+    connectionState.hasActivePublicGamesSubscription = true;
+    this.activePublicGamesSockets.add(socket);
+    await this.sendActivePublicGamesSnapshot(socket);
+  }
+
+  /**
+   * Unsubscribes a websocket from active public game list updates.
+   */
+  unsubscribeActivePublicGames(socket: WebSocket): void {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
+      return;
+    }
+
+    connectionState.hasActivePublicGamesSubscription = false;
+    this.activePublicGamesSockets.delete(socket);
+    this.pruneIdleSocket(socket);
+  }
+
+  /**
+   * Subscribes a websocket to available public room list updates.
+   */
+  async subscribeAvailablePublicRooms(socket: WebSocket): Promise<void> {
+    const connectionState = this.getOrCreateSocketConnection(socket);
+    connectionState.hasAvailablePublicRoomsSubscription = true;
+    this.availablePublicRoomsSockets.add(socket);
+    await this.sendAvailablePublicRoomsSnapshot(socket);
+  }
+
+  /**
+   * Unsubscribes a websocket from available public room list updates.
+   */
+  unsubscribeAvailablePublicRooms(socket: WebSocket): void {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
+      return;
+    }
+
+    connectionState.hasAvailablePublicRoomsSubscription = false;
+    this.availablePublicRoomsSockets.delete(socket);
     this.pruneIdleSocket(socket);
   }
 
@@ -223,6 +274,8 @@ export class SocketStore<
    */
   async unsubscribeSocket(socket: WebSocket): Promise<void> {
     await this.unsubscribeLobby(socket);
+    this.unsubscribeActivePublicGames(socket);
+    this.unsubscribeAvailablePublicRooms(socket);
 
     const connectionState = this.sockets.get(socket);
     if (connectionState == null) {
@@ -446,18 +499,7 @@ export class SocketStore<
         }
 
         const userData = data.value;
-        sendServerMessage<Config, Loadout, Rating, never, never, never>(
-          socket,
-          {
-            type: "UpdateLobbyUserProps",
-            userActiveGames: userData.activeGames,
-            player: userData.player,
-            ratings: userData.ratings,
-            roomEntries: userData.roomEntries,
-            queueEntries: userData.queueEntries,
-            roomInvitations: userData.roomInvitations,
-          },
-        );
+        this.sendLobbySnapshot(socket, userData);
 
         await this.syncRoomSubscriptions(socket, userData.roomEntries);
       }
@@ -551,18 +593,11 @@ export class SocketStore<
   /**
    * Sends a full lobby snapshot to one websocket.
    */
-  private async sendLobbySnapshot(
+  private sendLobbySnapshot(
     socket: WebSocket,
     userData: LobbyUserData<Config, Loadout, Rating>,
-  ): Promise<void> {
-    const [allActiveGames, allAvailableRooms] = await Promise.all([
-      this.db.getAllActiveGames(),
-      this.db.getAllAvailableRooms(),
-    ]);
-
+  ): void {
     const lobbyProps: LobbyViewData<Config, Loadout, Rating> = {
-      allActiveGames,
-      allAvailableRooms,
       userActiveGames: userData.activeGames,
       player: userData.player,
       ratings: userData.ratings,
@@ -578,22 +613,42 @@ export class SocketStore<
   }
 
   /**
-   * Broadcasts active game list updates to all lobby subscribers.
+   * Sends the latest active public games snapshot to one websocket.
    */
-  private streamActiveGamesToLobbySockets(
+  private async sendActivePublicGamesSnapshot(
+    socket: WebSocket,
+  ): Promise<void> {
+    const allActiveGames = await this.db.getAllActiveGames();
+    this.sendActivePublicGamesUpdate(socket, allActiveGames);
+  }
+
+  /**
+   * Sends one active public games update payload to one websocket.
+   */
+  private sendActivePublicGamesUpdate(
+    socket: WebSocket,
+    allActiveGames: ActiveGame<Config>[],
+  ): void {
+    const activePublicGamesProps: ActivePublicGamesViewData<Config> = {
+      allActiveGames,
+    };
+    sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+      type: "UpdateActivePublicGames",
+      activePublicGamesProps,
+    });
+  }
+
+  /**
+   * Broadcasts active game list updates to all active public game subscribers.
+   */
+  private streamActivePublicGamesToSockets(
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
   ): void {
     activeGamesStream.pipeTo(
       new WritableStream({
         write: (allActiveGames: ActiveGame<Config>[]) => {
-          for (const socket of this.lobbySockets.values()) {
-            sendServerMessage<Config, Loadout, Rating, never, never, never>(
-              socket,
-              {
-                type: "UpdateActiveGames",
-                allActiveGames,
-              },
-            );
+          for (const socket of this.activePublicGamesSockets.values()) {
+            this.sendActivePublicGamesUpdate(socket, allActiveGames);
           }
         },
       }),
@@ -603,22 +658,42 @@ export class SocketStore<
   }
 
   /**
-   * Broadcasts available room list updates to all lobby subscribers.
+   * Sends the latest available public rooms snapshot to one websocket.
    */
-  private streamAvailableRoomsToLobbySockets(
+  private async sendAvailablePublicRoomsSnapshot(
+    socket: WebSocket,
+  ): Promise<void> {
+    const allAvailableRooms = await this.db.getAllAvailableRooms();
+    this.sendAvailablePublicRoomsUpdate(socket, allAvailableRooms);
+  }
+
+  /**
+   * Sends one available public rooms update payload to one websocket.
+   */
+  private sendAvailablePublicRoomsUpdate(
+    socket: WebSocket,
+    allAvailableRooms: AvailableRoom<Config>[],
+  ): void {
+    const availablePublicRoomsProps: AvailablePublicRoomsViewData<Config> = {
+      allAvailableRooms,
+    };
+    sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+      type: "UpdateAvailablePublicRooms",
+      availablePublicRoomsProps,
+    });
+  }
+
+  /**
+   * Broadcasts available room list updates to all public room subscribers.
+   */
+  private streamAvailablePublicRoomsToSockets(
     availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
   ): void {
     availableRoomsStream.pipeTo(
       new WritableStream({
         write: (allAvailableRooms: AvailableRoom<Config>[]) => {
-          for (const socket of this.lobbySockets.values()) {
-            sendServerMessage<Config, Loadout, Rating, never, never, never>(
-              socket,
-              {
-                type: "UpdateAvailableRooms",
-                allAvailableRooms,
-              },
-            );
+          for (const socket of this.availablePublicRoomsSockets.values()) {
+            this.sendAvailablePublicRoomsUpdate(socket, allAvailableRooms);
           }
         },
       }),
@@ -949,6 +1024,8 @@ export class SocketStore<
 
     const connectionState: SocketConnectionState<Config, Loadout, Rating> = {
       gameIds: new Set(),
+      hasActivePublicGamesSubscription: false,
+      hasAvailablePublicRoomsSubscription: false,
     };
     this.sockets.set(socket, connectionState);
     return connectionState;
@@ -966,6 +1043,12 @@ export class SocketStore<
       return;
     }
     if (connectionState.gameIds.size > 0) {
+      return;
+    }
+    if (connectionState.hasActivePublicGamesSubscription) {
+      return;
+    }
+    if (connectionState.hasAvailablePublicRoomsSubscription) {
       return;
     }
 

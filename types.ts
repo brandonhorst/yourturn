@@ -293,9 +293,15 @@ export type QueueEntry<Loadout> = {
   loadout: Loadout;
 };
 
-export type LobbyViewData<Config, Loadout, Rating> = {
+export type ActivePublicGamesViewData<Config> = {
   allActiveGames: ActiveGame<Config>[];
+};
+
+export type AvailablePublicRoomsViewData<Config> = {
   allAvailableRooms: AvailableRoom<Config>[];
+};
+
+export type LobbyViewData<Config, Loadout, Rating> = {
   userActiveGames: ActiveGame<Config>[];
   player: Player;
   ratings: Record<string, Rating>;

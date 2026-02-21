@@ -1,5 +1,7 @@
 import type {
   ActiveGame,
+  ActivePublicGamesViewData,
+  AvailablePublicRoomsViewData,
   Game,
   GameViewData,
   LobbyViewData,
@@ -9,8 +11,6 @@ import type {
 } from "../types.ts";
 import type { ClientMessage } from "../common/sockettypes.ts";
 import {
-  fetchActiveGames,
-  fetchAvailableRooms,
   getPlayerId,
   getPlayerState,
   getPublicState,
@@ -77,8 +77,6 @@ export class Server<
       throw new Error("Missing lobby user id");
     }
 
-    const allActiveGames = await fetchActiveGames(this.db);
-    const allAvailableRooms = await fetchAvailableRooms(this.db);
     let user: Player | null = null;
     let userActiveGames: ActiveGame<Config>[] = [];
     let roomEntries: RoomEntry<Config, Loadout>[] = [];
@@ -131,8 +129,6 @@ export class Server<
 
     return {
       props: {
-        allActiveGames,
-        allAvailableRooms,
         userActiveGames,
         player: user,
         ratings,
@@ -141,6 +137,28 @@ export class Server<
         roomInvitations,
       },
       token: lobbyToken,
+    };
+  }
+
+  /**
+   * Builds the initial payload for the active public games channel.
+   */
+  async getInitialActivePublicGamesProps(): Promise<
+    ActivePublicGamesViewData<Config>
+  > {
+    return {
+      allActiveGames: await this.db.getAllActiveGames(),
+    };
+  }
+
+  /**
+   * Builds the initial payload for the available public rooms channel.
+   */
+  async getInitialAvailablePublicRoomsProps(): Promise<
+    AvailablePublicRoomsViewData<Config>
+  > {
+    return {
+      allAvailableRooms: await this.db.getAllAvailableRooms(),
     };
   }
 
@@ -243,6 +261,18 @@ export class Server<
         }
         case "UnsubscribeLobby":
           await this.socketStore.unsubscribeLobby(socket);
+          break;
+        case "SubscribeActivePublicGames":
+          await this.socketStore.subscribeActivePublicGames(socket);
+          break;
+        case "UnsubscribeActivePublicGames":
+          this.socketStore.unsubscribeActivePublicGames(socket);
+          break;
+        case "SubscribeAvailablePublicRooms":
+          await this.socketStore.subscribeAvailablePublicRooms(socket);
+          break;
+        case "UnsubscribeAvailablePublicRooms":
+          this.socketStore.unsubscribeAvailablePublicRooms(socket);
           break;
         case "JoinQueue": {
           const queue = this.game.queues[request.queueId];
