@@ -11,7 +11,7 @@ import type {
 } from "../types.ts";
 import type { ClientMessage } from "../common/sockettypes.ts";
 import { GameStateService } from "./gamestateservice.ts";
-import type { DB } from "./db.ts";
+import type { DB, GameStorageData } from "./db.ts";
 import type { SocketStore } from "./sockets.ts";
 import { ulid } from "@std/ulid";
 
@@ -191,18 +191,26 @@ export class Server<
     const gameData = await this.db.getGameStorageData(gameId);
 
     const playerId = this.gameStateService.getPlayerId(gameData, userId);
+    return this.buildGameViewData(gameData, playerId);
+  }
 
-    const publicState = this.gameStateService.getPublicState(gameData);
-    const playerState = playerId == null
-      ? undefined
-      : this.gameStateService.getPlayerState(gameData, playerId);
-
+  /**
+   * Builds the initial game view payload for a specific player or observer.
+   */
+  private buildGameViewData(
+    gameData: GameStorageData<Config, GameState, Outcome>,
+    playerId: number | undefined,
+  ): GameViewData<PlayerState, PublicState, Outcome> {
+    const gameStateUpdate = this.gameStateService.buildGameStateUpdate(
+      gameData,
+      playerId,
+    );
     return {
       players: gameData.players,
-      publicState,
       playerId,
-      playerState,
-      outcome: gameData.outcome,
+      playerState: gameStateUpdate.playerState,
+      publicState: gameStateUpdate.publicState,
+      outcome: gameStateUpdate.outcome,
     } as GameViewData<PlayerState, PublicState, Outcome>;
   }
 
@@ -298,8 +306,7 @@ export class Server<
           }
 
           if (
-            !(this.game.isValidLoadout?.(request.loadout, queue.config) ??
-              true)
+            !this.gameStateService.isValidLoadout(request.loadout, queue.config)
           ) {
             sendDisplayError("Invalid loadout.");
             break;
@@ -332,8 +339,10 @@ export class Server<
           }
 
           if (
-            !(this.game.isValidLoadout?.(request.loadout, request.config) ??
-              true)
+            !this.gameStateService.isValidLoadout(
+              request.loadout,
+              request.config,
+            )
           ) {
             sendDisplayError("Invalid loadout.");
             break;
@@ -375,8 +384,7 @@ export class Server<
             break;
           }
           if (
-            !(this.game.isValidLoadout?.(request.loadout, room.config) ??
-              true)
+            !this.gameStateService.isValidLoadout(request.loadout, room.config)
           ) {
             sendDisplayError("Invalid loadout.");
             break;

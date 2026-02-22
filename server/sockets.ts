@@ -446,10 +446,10 @@ export class SocketStore<
     connectionState.gameIds.add(gameId);
 
     const gameData = await this.db.getGameStorageData(gameId);
-    const nextPlayerState = playerId == null
-      ? undefined
-      : gameStateService.getPlayerState(gameData, playerId);
-    const nextPublicState = gameStateService.getPublicState(gameData);
+    const gameStateUpdate = gameStateService.buildGameStateUpdate(
+      gameData,
+      playerId,
+    );
 
     sendServerMessage<
       never,
@@ -460,9 +460,9 @@ export class SocketStore<
       Outcome
     >(socket, {
       type: "UpdateGameState",
-      playerState: nextPlayerState,
-      publicState: nextPublicState,
-      outcome: gameData.outcome,
+      playerState: gameStateUpdate.playerState,
+      publicState: gameStateUpdate.publicState,
+      outcome: gameStateUpdate.outcome,
     });
   }
 
@@ -964,13 +964,14 @@ export class SocketStore<
         );
 
         for (const gameSocket of gameConnection.gameSockets.values()) {
-          const nextPlayerState = gameSocket.playerId == null
-            ? undefined
-            : gameStateService.getPlayerState(
-              gameData,
-              gameSocket.playerId,
+          const gameStateUpdate = gameStateService.buildGameStateUpdate(
+            gameData,
+            gameSocket.playerId,
+            {
               timestamp,
-            );
+              publicState: nextPublicState,
+            },
+          );
 
           sendServerMessage<
             never,
@@ -983,9 +984,9 @@ export class SocketStore<
             gameSocket.socket,
             {
               type: "UpdateGameState",
-              playerState: nextPlayerState,
-              publicState: nextPublicState,
-              outcome: gameData.outcome,
+              playerState: gameStateUpdate.playerState,
+              publicState: gameStateUpdate.publicState,
+              outcome: gameStateUpdate.outcome,
             },
           );
         }

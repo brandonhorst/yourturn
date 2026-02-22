@@ -8,6 +8,12 @@ import type {
   PublicStateObject,
 } from "../types.ts";
 
+type GameStateUpdate<PlayerState, PublicState, Outcome> = {
+  playerState: PlayerState | undefined;
+  publicState: PublicState;
+  outcome: Outcome | undefined;
+};
+
 /**
  * Encapsulates game-derived state projection and move processing helpers.
  */
@@ -118,6 +124,36 @@ export class GameStateService<
       timestamp,
     };
     return this.game.publicState(state, publicStateObject);
+  }
+
+  /**
+   * Builds update payload fields for one game's public and player-specific view.
+   */
+  buildGameStateUpdate(
+    gameData: GameStorageData<Config, GameState, Outcome>,
+    playerId: number | undefined,
+    options?: { timestamp?: Date; publicState?: PublicState },
+  ): GameStateUpdate<PlayerState, PublicState, Outcome> {
+    const timestamp = options?.timestamp ?? new Date();
+    const publicState = options?.publicState ??
+      this.getPublicState(gameData, timestamp);
+    const playerState = playerId == null
+      ? undefined
+      : this.getPlayerState(gameData, playerId, timestamp);
+
+    return {
+      playerState,
+      publicState,
+      outcome: gameData.outcome,
+    };
+  }
+
+  /**
+   * Validates a loadout for a config using the game's loadout validator.
+   * When a game omits isValidLoadout, every loadout is treated as valid.
+   */
+  isValidLoadout(loadout: Loadout, config: Config): boolean {
+    return this.game.isValidLoadout?.(loadout, config) ?? true;
   }
 
   /**
