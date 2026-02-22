@@ -1,7 +1,7 @@
 import type { ActiveGame, Game } from "./types.ts";
 import { DB } from "./server/db.ts";
 import { SocketStore } from "./server/sockets.ts";
-import { Server } from "./server/gameserver.ts";
+import { Server } from "./server/server.ts";
 
 export async function initializeServer<
   Config,

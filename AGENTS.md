@@ -38,8 +38,8 @@ The server-side code is organized around a single WebSocket connection that can
 subscribe to multiple channels:
 
 - `server.ts` - Main initializer; creates `DB`, `SocketStore`, and `Server`
-- `server/gameserver.ts` - Public server API, token/user setup, and client
-  message routing
+- `server/server.ts` - Public server API, token/user setup, and client message
+  routing
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for lobby,
   room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, invitations,
