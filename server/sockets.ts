@@ -12,12 +12,10 @@ import type {
   AvailableRoom,
   LobbyViewData,
   Player,
-  PlayerStateObject,
-  PublicStateObject,
   RoomEntry,
 } from "../types.ts";
 import type { ServerMessage } from "../common/sockettypes.ts";
-import { getPlayerState, getPublicState } from "./gamedata.ts";
+import type { GameStateService } from "./gamestateservice.ts";
 import { ulid } from "@std/ulid";
 
 type QueueSubscription = {
@@ -59,19 +57,11 @@ type GameSocketSubscription = {
 /**
  * Shared stream and subscriber state for a single game.
  */
-type GameConnection<Config, GameState, PlayerState, PublicState, Outcome> = {
+type GameConnection<Config, GameState, Outcome> = {
   gameSockets: Map<WebSocket, GameSocketSubscription>;
   changesReader: ReadableStreamDefaultReader<
     GameStorageData<Config, GameState, Outcome>
   >;
-  playerStateLogic: (
-    state: GameState,
-    options: PlayerStateObject<Config>,
-  ) => PlayerState;
-  publicStateLogic: (
-    state: GameState,
-    options: PublicStateObject<Config>,
-  ) => PublicState;
 };
 
 /**
@@ -138,11 +128,21 @@ export class SocketStore<
     WebSocket,
     SocketConnectionState<Config, Loadout, Rating>
   > = new Map();
+  private gameStateService?: GameStateService<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  >;
   private activePublicGamesSockets: Set<WebSocket> = new Set();
   private availablePublicRoomsSockets: Set<WebSocket> = new Set();
   private gameConnections: Map<
     string,
-    GameConnection<Config, GameState, PlayerState, PublicState, Outcome>
+    GameConnection<Config, GameState, Outcome>
   > = new Map();
 
   constructor(
@@ -161,6 +161,24 @@ export class SocketStore<
   ) {
     this.streamActivePublicGamesToSockets(activeGamesStream);
     this.streamAvailablePublicRoomsToSockets(availableRoomsStream);
+  }
+
+  /**
+   * Registers game-derived state helpers shared by game subscriptions.
+   */
+  setGameStateService(
+    gameStateService: GameStateService<
+      Config,
+      GameState,
+      Move,
+      PlayerState,
+      PublicState,
+      Outcome,
+      Rating,
+      Loadout
+    >,
+  ): void {
+    this.gameStateService = gameStateService;
   }
 
   /**
@@ -407,20 +425,13 @@ export class SocketStore<
   async subscribeGame(
     socket: WebSocket,
     gameId: string,
-    playerStateLogic: (
-      state: GameState,
-      options: PlayerStateObject<Config>,
-    ) => PlayerState,
-    publicStateLogic: (
-      state: GameState,
-      options: PublicStateObject<Config>,
-    ) => PublicState,
     playerId?: number,
   ): Promise<void> {
+    const gameStateService = this.requireGameStateService();
     const connectionState = this.getOrCreateSocketConnection(socket);
 
     if (!this.gameConnections.has(gameId)) {
-      this.createGameConnection(gameId, playerStateLogic, publicStateLogic);
+      this.createGameConnection(gameId);
     }
 
     const gameConnection = this.gameConnections.get(gameId);
@@ -437,8 +448,8 @@ export class SocketStore<
     const gameData = await this.db.getGameStorageData(gameId);
     const nextPlayerState = playerId == null
       ? undefined
-      : getPlayerState(gameData, playerStateLogic, playerId);
-    const nextPublicState = getPublicState(gameData, publicStateLogic);
+      : gameStateService.getPlayerState(gameData, playerId);
+    const nextPublicState = gameStateService.getPublicState(gameData);
 
     sendServerMessage<
       never,
@@ -911,22 +922,12 @@ export class SocketStore<
    */
   private createGameConnection(
     gameId: string,
-    playerStateLogic: (
-      state: GameState,
-      options: PlayerStateObject<Config>,
-    ) => PlayerState,
-    publicStateLogic: (
-      state: GameState,
-      options: PublicStateObject<Config>,
-    ) => PublicState,
   ): void {
     const changesReader = this.db.watchForGameChanges(gameId).getReader();
 
     this.gameConnections.set(gameId, {
       gameSockets: new Map(),
       changesReader,
-      playerStateLogic,
-      publicStateLogic,
     });
 
     void this.streamGameChangesToSockets(gameId, changesReader);
@@ -941,6 +942,7 @@ export class SocketStore<
       GameStorageData<Config, GameState, Outcome>
     >,
   ): Promise<void> {
+    const gameStateService = this.requireGameStateService();
     try {
       while (true) {
         const data = await changesReader.read();
@@ -954,25 +956,21 @@ export class SocketStore<
         }
 
         const gameData = data.value;
-        const state = gameData.gameState;
-        const numPlayers = gameData.userIds.length;
         const timestamp = new Date();
 
-        const nextPublicState = gameConnection.publicStateLogic(state, {
-          config: gameData.config,
-          numPlayers,
+        const nextPublicState = gameStateService.getPublicState(
+          gameData,
           timestamp,
-        });
+        );
 
         for (const gameSocket of gameConnection.gameSockets.values()) {
           const nextPlayerState = gameSocket.playerId == null
             ? undefined
-            : gameConnection.playerStateLogic(state, {
-              playerId: gameSocket.playerId,
-              config: gameData.config,
-              numPlayers,
+            : gameStateService.getPlayerState(
+              gameData,
+              gameSocket.playerId,
               timestamp,
-            });
+            );
 
           sendServerMessage<
             never,
@@ -995,6 +993,25 @@ export class SocketStore<
     } catch {
       // Reader cancellation is expected during unsubscribe.
     }
+  }
+
+  /**
+   * Returns the configured game helpers or throws when missing.
+   */
+  private requireGameStateService(): GameStateService<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  > {
+    if (this.gameStateService == null) {
+      throw new Error("SocketStore game state service is not configured");
+    }
+    return this.gameStateService;
   }
 
   /**

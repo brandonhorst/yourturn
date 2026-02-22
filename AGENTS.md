@@ -44,8 +44,8 @@ subscribe to multiple channels:
   room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, invitations,
   assignments, active games, and tokens
-- `server/gamedata.ts` - Game state projection and move processing, including
-  outcome handling and ranked rating updates
+- `server/gamestateservice.ts` - Game state projection and move processing,
+  including outcome handling and ranked rating updates
 
 ### Client Architecture
 

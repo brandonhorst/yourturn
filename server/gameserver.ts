@@ -10,12 +10,7 @@ import type {
   RoomEntry,
 } from "../types.ts";
 import type { ClientMessage } from "../common/sockettypes.ts";
-import {
-  getPlayerId,
-  getPlayerState,
-  getPublicState,
-  handleMove,
-} from "./gamedata.ts";
+import { GameStateService } from "./gamestateservice.ts";
 import type { DB } from "./db.ts";
 import type { SocketStore } from "./sockets.ts";
 import { ulid } from "@std/ulid";
@@ -32,6 +27,17 @@ export class Server<
   Rating,
   Loadout,
 > {
+  private gameStateService: GameStateService<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  >;
+
   constructor(
     private game: Game<
       Config,
@@ -63,7 +69,10 @@ export class Server<
       Rating,
       Loadout
     >,
-  ) {}
+  ) {
+    this.gameStateService = new GameStateService(this.game);
+    this.socketStore.setGameStateService(this.gameStateService);
+  }
 
   /**
    * Builds the initial lobby payload for an existing user.
@@ -146,8 +155,11 @@ export class Server<
   async getInitialActivePublicGamesProps(): Promise<
     ActivePublicGamesViewData<Config>
   > {
+    const allActiveGames = await this.gameStateService.fetchActiveGames(
+      this.db,
+    );
     return {
-      allActiveGames: await this.db.getAllActiveGames(),
+      allActiveGames,
     };
   }
 
@@ -157,8 +169,11 @@ export class Server<
   async getInitialAvailablePublicRoomsProps(): Promise<
     AvailablePublicRoomsViewData<Config>
   > {
+    const allAvailableRooms = await this.gameStateService.fetchAvailableRooms(
+      this.db,
+    );
     return {
-      allAvailableRooms: await this.db.getAllAvailableRooms(),
+      allAvailableRooms,
     };
   }
 
@@ -175,14 +190,12 @@ export class Server<
 
     const gameData = await this.db.getGameStorageData(gameId);
 
-    const playerId = getPlayerId(gameData, userId);
+    const playerId = this.gameStateService.getPlayerId(gameData, userId);
 
-    const publicState = getPublicState(gameData, this.game.publicState);
-    const playerState = playerId == null ? undefined : getPlayerState(
-      gameData,
-      this.game.playerState,
-      playerId,
-    );
+    const publicState = this.gameStateService.getPublicState(gameData);
+    const playerState = playerId == null
+      ? undefined
+      : this.gameStateService.getPlayerState(gameData, playerId);
 
     return {
       players: gameData.players,
@@ -226,7 +239,7 @@ export class Server<
       gameId: string,
     ): Promise<number | undefined> => {
       const gameData = await this.db.getGameStorageData(gameId);
-      return getPlayerId(gameData, userId);
+      return this.gameStateService.getPlayerId(gameData, userId);
     };
 
     /**
@@ -462,8 +475,6 @@ export class Server<
             await this.socketStore.subscribeGame(
               socket,
               request.gameId,
-              this.game.playerState,
-              this.game.publicState,
               playerId,
             );
           } catch (err) {
@@ -481,9 +492,8 @@ export class Server<
             if (playerId == null) {
               break;
             }
-            await handleMove(
+            await this.gameStateService.handleMove(
               this.db,
-              this.game,
               request.gameId,
               playerId,
               request.move,
