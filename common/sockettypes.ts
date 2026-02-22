@@ -7,14 +7,11 @@ import type {
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   // Active Public Games Channel
-  | { type: "SubscribeActivePublicGames" }
-  | { type: "UnsubscribeActivePublicGames" }
+  | { type: "SubscribeActivePublicGames"; subscriptionId: string }
   // Available Public Rooms Channel
-  | { type: "SubscribeAvailablePublicRooms" }
-  | { type: "UnsubscribeAvailablePublicRooms" }
+  | { type: "SubscribeAvailablePublicRooms"; subscriptionId: string }
   // Lobby Channel
-  | { type: "SubscribeLobby" }
-  | { type: "UnsubscribeLobby" }
+  | { type: "SubscribeLobby"; subscriptionId: string }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | {
     type: "CreateAndJoinRoom";
@@ -30,9 +27,9 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "LeaveQueue"; queueId: string }
   | { type: "LeaveRoom"; roomId: string }
   // Game Channel
-  | { type: "SubscribeGame"; gameId: string }
+  | { type: "SubscribeGame"; subscriptionId: string; gameId: string }
   | { type: "Move"; gameId: string; move: Move }
-  | { type: "UnsubscribeGame"; gameId: string };
+  | { type: "Unsubscribe"; subscriptionId: string };
 
 export type ServerMessage<
   Config,
@@ -44,25 +41,30 @@ export type ServerMessage<
 > =
   | {
     type: "UpdateLobbyProps";
+    subscriptionId: string;
     lobbyProps: LobbyViewData<Config, Loadout, Rating>;
   }
   | {
     type: "UpdateActivePublicGames";
+    subscriptionId: string;
     activePublicGamesProps: ActivePublicGamesViewData<Config>;
   }
   | {
     type: "UpdateAvailablePublicRooms";
+    subscriptionId: string;
     availablePublicRoomsProps: AvailablePublicRoomsViewData<Config>;
   }
   | {
     type: "UpdateRoomEntry";
+    subscriptionId: string;
     roomEntry: RoomEntry<Config, Loadout>;
   }
-  | { type: "RemoveRoomEntry"; roomId: string }
-  | { type: "GameAssignment"; gameId: string }
+  | { type: "RemoveRoomEntry"; subscriptionId: string; roomId: string }
+  | { type: "GameAssignment"; subscriptionId: string; gameId: string }
   | { type: "DisplayError"; message: string }
   | {
     type: "UpdateGameState";
+    subscriptionId: string;
     publicState: PublicState;
     playerState: PlayerState | undefined;
     outcome: Outcome | undefined;

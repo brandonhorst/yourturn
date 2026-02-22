@@ -277,23 +277,25 @@ export class Server<
             break;
           }
 
-          await this.socketStore.subscribeLobby(socket, userId, latestUserData);
+          await this.socketStore.subscribeLobby(
+            socket,
+            request.subscriptionId,
+            userId,
+            latestUserData,
+          );
           break;
         }
-        case "UnsubscribeLobby":
-          await this.socketStore.unsubscribeLobby(socket);
-          break;
         case "SubscribeActivePublicGames":
-          await this.socketStore.subscribeActivePublicGames(socket);
-          break;
-        case "UnsubscribeActivePublicGames":
-          this.socketStore.unsubscribeActivePublicGames(socket);
+          await this.socketStore.subscribeActivePublicGames(
+            socket,
+            request.subscriptionId,
+          );
           break;
         case "SubscribeAvailablePublicRooms":
-          await this.socketStore.subscribeAvailablePublicRooms(socket);
-          break;
-        case "UnsubscribeAvailablePublicRooms":
-          this.socketStore.unsubscribeAvailablePublicRooms(socket);
+          await this.socketStore.subscribeAvailablePublicRooms(
+            socket,
+            request.subscriptionId,
+          );
           break;
         case "JoinQueue": {
           const queue = this.game.queues[request.queueId];
@@ -482,17 +484,18 @@ export class Server<
             const playerId = await getPlayerIdForGame(request.gameId);
             await this.socketStore.subscribeGame(
               socket,
+              request.subscriptionId,
               request.gameId,
               playerId,
             );
           } catch (err) {
             console.error("Failed to subscribe game socket", err);
-            this.socketStore.unsubscribeGame(socket, request.gameId);
+            await this.socketStore.unsubscribe(socket, request.subscriptionId);
             sendDisplayError("Unable to subscribe to game.");
           }
           break;
-        case "UnsubscribeGame":
-          this.socketStore.unsubscribeGame(socket, request.gameId);
+        case "Unsubscribe":
+          await this.socketStore.unsubscribe(socket, request.subscriptionId);
           break;
         case "Move":
           try {

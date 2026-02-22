@@ -33,11 +33,12 @@ export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
   outcomeRef.current = outcome;
 
   useEffect(() => {
-    let isSubscribed = false;
+    const subscriptionId = crypto.randomUUID();
+    let didUnsubscribe = false;
 
-    // Sends the game subscription request at most once per hook lifecycle.
+    // Sends a game subscription request for this hook instance.
     function sendSubscribe() {
-      if (isSubscribed || outcomeRef.current !== undefined) {
+      if (outcomeRef.current !== undefined || didUnsubscribe) {
         return;
       }
 
@@ -49,19 +50,19 @@ export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
         PublicState
       > = {
         type: "SubscribeGame",
+        subscriptionId,
         gameId,
       };
       socket.send(JSON.stringify(request));
-      isSubscribed = true;
     }
 
-    // Sends the game unsubscription request only when this hook subscribed.
+    // Sends a one-time unsubscribe for this hook subscription.
     function sendUnsubscribe() {
-      if (!isSubscribed) {
+      if (didUnsubscribe) {
         return;
       }
-      // Mark unsubscribed before sending so teardown can't send twice.
-      isSubscribed = false;
+
+      didUnsubscribe = true;
       const request: ClientMessage<
         never,
         never,
@@ -69,8 +70,8 @@ export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
         PlayerState,
         PublicState
       > = {
-        type: "UnsubscribeGame",
-        gameId,
+        type: "Unsubscribe",
+        subscriptionId,
       };
       try {
         socket.send(JSON.stringify(request));
@@ -94,6 +95,10 @@ export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
       >;
       switch (response.type) {
         case "UpdateGameState":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
           setOutcome(response.outcome);
           setPublicState(response.publicState);
           setPlayerState(response.playerState);
@@ -175,13 +180,10 @@ export function useActivePublicGamesChannel<Config>({
   );
 
   useEffect(() => {
-    let subscribeSent = false;
+    const subscriptionId = crypto.randomUUID();
 
+    // Sends the active public games subscription request for this hook.
     function sendSubscribe() {
-      if (subscribeSent) {
-        return;
-      }
-
       const request: ClientMessage<
         Config,
         never,
@@ -190,9 +192,9 @@ export function useActivePublicGamesChannel<Config>({
         never
       > = {
         type: "SubscribeActivePublicGames",
+        subscriptionId,
       };
       socket.send(JSON.stringify(request));
-      subscribeSent = true;
     }
 
     function onOpen() {
@@ -210,6 +212,10 @@ export function useActivePublicGamesChannel<Config>({
       >;
       switch (response.type) {
         case "UpdateActivePublicGames":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
           setActiveGames(response.activePublicGamesProps.allActiveGames);
           break;
       }
@@ -231,7 +237,8 @@ export function useActivePublicGamesChannel<Config>({
         never,
         never
       > = {
-        type: "UnsubscribeActivePublicGames",
+        type: "Unsubscribe",
+        subscriptionId,
       };
       try {
         socket.send(JSON.stringify(request));
@@ -259,13 +266,10 @@ export function useAvailablePublicRoomsChannel<Config>({
   );
 
   useEffect(() => {
-    let subscribeSent = false;
+    const subscriptionId = crypto.randomUUID();
 
+    // Sends the available public rooms subscription request for this hook.
     function sendSubscribe() {
-      if (subscribeSent) {
-        return;
-      }
-
       const request: ClientMessage<
         Config,
         never,
@@ -274,9 +278,9 @@ export function useAvailablePublicRoomsChannel<Config>({
         never
       > = {
         type: "SubscribeAvailablePublicRooms",
+        subscriptionId,
       };
       socket.send(JSON.stringify(request));
-      subscribeSent = true;
     }
 
     function onOpen() {
@@ -294,6 +298,10 @@ export function useAvailablePublicRoomsChannel<Config>({
       >;
       switch (response.type) {
         case "UpdateAvailablePublicRooms":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
           setAvailableRooms(
             response.availablePublicRoomsProps.allAvailableRooms,
           );
@@ -317,7 +325,8 @@ export function useAvailablePublicRoomsChannel<Config>({
         never,
         never
       > = {
-        type: "UnsubscribeAvailablePublicRooms",
+        type: "Unsubscribe",
+        subscriptionId,
       };
       try {
         socket.send(JSON.stringify(request));
@@ -360,13 +369,10 @@ export function useLobbyChannel<Config, Loadout, Rating>({
   );
 
   useEffect(() => {
-    let subscribeSent = false;
+    const subscriptionId = crypto.randomUUID();
 
+    // Sends the lobby subscription request for this hook instance.
     function sendSubscribe() {
-      if (subscribeSent) {
-        return;
-      }
-
       const request: ClientMessage<
         Config,
         Loadout,
@@ -375,9 +381,9 @@ export function useLobbyChannel<Config, Loadout, Rating>({
         never
       > = {
         type: "SubscribeLobby",
+        subscriptionId,
       };
       socket.send(JSON.stringify(request));
-      subscribeSent = true;
     }
 
     function onOpen() {
@@ -395,6 +401,10 @@ export function useLobbyChannel<Config, Loadout, Rating>({
       >;
       switch (response.type) {
         case "UpdateLobbyProps":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
           setUserActiveGames(response.lobbyProps.userActiveGames);
           setPlayer(response.lobbyProps.player);
           setRatings(response.lobbyProps.ratings);
@@ -403,6 +413,10 @@ export function useLobbyChannel<Config, Loadout, Rating>({
           setRoomInvitations(response.lobbyProps.roomInvitations);
           break;
         case "UpdateRoomEntry":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
           setRoomEntries((existing) => {
             const existingIndex = existing.findIndex((entry) =>
               entry.roomId === response.roomEntry.roomId
@@ -417,11 +431,19 @@ export function useLobbyChannel<Config, Loadout, Rating>({
           });
           break;
         case "RemoveRoomEntry":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
           setRoomEntries((existing) =>
             existing.filter((entry) => entry.roomId !== response.roomId)
           );
           break;
         case "GameAssignment":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
           navigate(response.gameId);
           break;
         case "DisplayError":
@@ -446,7 +468,8 @@ export function useLobbyChannel<Config, Loadout, Rating>({
         never,
         never
       > = {
-        type: "UnsubscribeLobby",
+        type: "Unsubscribe",
+        subscriptionId,
       };
       try {
         socket.send(JSON.stringify(request));

@@ -39,6 +39,7 @@ type RoomSubscription<Config, Loadout> = {
  */
 type LobbyConnectionState<Config, Loadout, Rating> = {
   userId: string;
+  subscriptionIds: Set<string>;
   userChangesReader: ReadableStreamDefaultReader<
     LobbyUserData<Config, Loadout, Rating>
   >;
@@ -50,6 +51,7 @@ type LobbyConnectionState<Config, Loadout, Rating> = {
  * One websocket subscriber within a game channel.
  */
 type GameSocketSubscription = {
+  subscriptionId: string;
   socket: WebSocket;
   playerId: number | undefined;
 };
@@ -58,20 +60,24 @@ type GameSocketSubscription = {
  * Shared stream and subscriber state for a single game.
  */
 type GameConnection<Config, GameState, Outcome> = {
-  gameSockets: Map<WebSocket, GameSocketSubscription>;
+  gameSubscriptions: Map<string, GameSocketSubscription>;
   changesReader: ReadableStreamDefaultReader<
     GameStorageData<Config, GameState, Outcome>
   >;
 };
 
+type SocketSubscription =
+  | { type: "Lobby" }
+  | { type: "ActivePublicGames" }
+  | { type: "AvailablePublicRooms" }
+  | { type: "Game"; gameId: string };
+
 /**
  * Combined state for a websocket across lobby and game subscriptions.
  */
 type SocketConnectionState<Config, Loadout, Rating> = {
+  subscriptions: Map<string, SocketSubscription>;
   lobby?: LobbyConnectionState<Config, Loadout, Rating>;
-  gameIds: Set<string>;
-  hasActivePublicGamesSubscription: boolean;
-  hasAvailablePublicRoomsSubscription: boolean;
 };
 
 /**
@@ -138,8 +144,8 @@ export class SocketStore<
     Rating,
     Loadout
   >;
-  private activePublicGamesSockets: Set<WebSocket> = new Set();
-  private availablePublicRoomsSockets: Set<WebSocket> = new Set();
+  private activePublicGamesSubscriptions: Map<string, WebSocket> = new Map();
+  private availablePublicRoomsSubscriptions: Map<string, WebSocket> = new Map();
   private gameConnections: Map<
     string,
     GameConnection<Config, GameState, Outcome>
@@ -182,13 +188,32 @@ export class SocketStore<
   }
 
   /**
-   * Subscribes a websocket to lobby state and user updates.
+   * Subscribes one logical lobby channel instance on a websocket.
    */
   async subscribeLobby(
     socket: WebSocket,
+    subscriptionId: string,
     userId: string,
     userData: LobbyUserData<Config, Loadout, Rating>,
   ): Promise<void> {
+    const existingConnection = this.sockets.get(socket);
+    const existingSubscription = existingConnection?.subscriptions.get(
+      subscriptionId,
+    );
+
+    if (
+      existingSubscription?.type === "Lobby" &&
+      existingConnection != null &&
+      existingConnection.lobby != null
+    ) {
+      existingConnection.lobby.subscriptionIds.add(subscriptionId);
+      this.sendLobbySnapshot(socket, subscriptionId, userData);
+      await this.syncRoomSubscriptions(socket, userData.roomEntries);
+      return;
+    }
+
+    await this.unsubscribe(socket, subscriptionId);
+
     const connectionState = this.getOrCreateSocketConnection(socket);
 
     if (connectionState.lobby == null) {
@@ -197,6 +222,7 @@ export class SocketStore<
 
       connectionState.lobby = {
         userId,
+        subscriptionIds: new Set(),
         userChangesReader,
         queueSubscriptions: new Map(),
         roomSubscriptions: new Map(),
@@ -206,102 +232,100 @@ export class SocketStore<
       connectionState.lobby.userId = userId;
     }
 
-    this.sendLobbySnapshot(socket, userData);
+    const lobbyState = connectionState.lobby;
+    if (lobbyState == null) {
+      throw new Error("Lobby connection state was not initialized");
+    }
+
+    lobbyState.subscriptionIds.add(subscriptionId);
+    connectionState.subscriptions.set(subscriptionId, { type: "Lobby" });
+
+    this.sendLobbySnapshot(socket, subscriptionId, userData);
     await this.syncRoomSubscriptions(socket, userData.roomEntries);
   }
 
   /**
-   * Unsubscribes a websocket from all lobby channels and matchmaking entries.
+   * Subscribes one logical active public games channel instance.
    */
-  async unsubscribeLobby(socket: WebSocket): Promise<void> {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
-      return;
-    }
+  async subscribeActivePublicGames(
+    socket: WebSocket,
+    subscriptionId: string,
+  ): Promise<void> {
+    await this.unsubscribe(socket, subscriptionId);
 
-    const lobbyState = connectionState.lobby;
-
-    for (const queueId of [...lobbyState.queueSubscriptions.keys()]) {
-      await this.cleanupQueueSubscription(socket, queueId, {
-        removeFromDb: true,
-      });
-    }
-
-    for (const roomId of [...lobbyState.roomSubscriptions.keys()]) {
-      await this.cleanupRoomSubscription(socket, roomId, {
-        removeFromDb: true,
-        notifyClient: false,
-      });
-    }
-
-    closeReader(lobbyState.userChangesReader);
-    connectionState.lobby = undefined;
-    this.pruneIdleSocket(socket);
-  }
-
-  /**
-   * Subscribes a websocket to active public game list updates.
-   */
-  async subscribeActivePublicGames(socket: WebSocket): Promise<void> {
     const connectionState = this.getOrCreateSocketConnection(socket);
-    connectionState.hasActivePublicGamesSubscription = true;
-    this.activePublicGamesSockets.add(socket);
-    await this.sendActivePublicGamesSnapshot(socket);
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "ActivePublicGames",
+    });
+    this.activePublicGamesSubscriptions.set(subscriptionId, socket);
+    await this.sendActivePublicGamesSnapshot(socket, subscriptionId);
   }
 
   /**
-   * Unsubscribes a websocket from active public game list updates.
+   * Subscribes one logical available public rooms channel instance.
    */
-  unsubscribeActivePublicGames(socket: WebSocket): void {
+  async subscribeAvailablePublicRooms(
+    socket: WebSocket,
+    subscriptionId: string,
+  ): Promise<void> {
+    await this.unsubscribe(socket, subscriptionId);
+
+    const connectionState = this.getOrCreateSocketConnection(socket);
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "AvailablePublicRooms",
+    });
+    this.availablePublicRoomsSubscriptions.set(subscriptionId, socket);
+    await this.sendAvailablePublicRoomsSnapshot(socket, subscriptionId);
+  }
+
+  /**
+   * Unsubscribes one logical channel instance identified by subscription ID.
+   */
+  async unsubscribe(
+    socket: WebSocket,
+    subscriptionId: string,
+  ): Promise<void> {
     const connectionState = this.sockets.get(socket);
     if (connectionState == null) {
       return;
     }
 
-    connectionState.hasActivePublicGamesSubscription = false;
-    this.activePublicGamesSockets.delete(socket);
-    this.pruneIdleSocket(socket);
-  }
-
-  /**
-   * Subscribes a websocket to available public room list updates.
-   */
-  async subscribeAvailablePublicRooms(socket: WebSocket): Promise<void> {
-    const connectionState = this.getOrCreateSocketConnection(socket);
-    connectionState.hasAvailablePublicRoomsSubscription = true;
-    this.availablePublicRoomsSockets.add(socket);
-    await this.sendAvailablePublicRoomsSnapshot(socket);
-  }
-
-  /**
-   * Unsubscribes a websocket from available public room list updates.
-   */
-  unsubscribeAvailablePublicRooms(socket: WebSocket): void {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
+    const subscription = connectionState.subscriptions.get(subscriptionId);
+    if (subscription == null) {
       return;
     }
 
-    connectionState.hasAvailablePublicRoomsSubscription = false;
-    this.availablePublicRoomsSockets.delete(socket);
+    connectionState.subscriptions.delete(subscriptionId);
+
+    switch (subscription.type) {
+      case "Lobby":
+        await this.unsubscribeLobbySubscription(socket, subscriptionId);
+        break;
+      case "ActivePublicGames":
+        this.activePublicGamesSubscriptions.delete(subscriptionId);
+        break;
+      case "AvailablePublicRooms":
+        this.availablePublicRoomsSubscriptions.delete(subscriptionId);
+        break;
+      case "Game":
+        this.unsubscribeGameSubscription(subscriptionId, subscription.gameId);
+        break;
+    }
+
     this.pruneIdleSocket(socket);
   }
 
   /**
-   * Unsubscribes a websocket from all lobby and game subscriptions.
+   * Unsubscribes a websocket from all channel subscriptions.
    */
   async unsubscribeSocket(socket: WebSocket): Promise<void> {
-    await this.unsubscribeLobby(socket);
-    this.unsubscribeActivePublicGames(socket);
-    this.unsubscribeAvailablePublicRooms(socket);
-
     const connectionState = this.sockets.get(socket);
     if (connectionState == null) {
       return;
     }
 
-    for (const gameId of [...connectionState.gameIds]) {
-      this.unsubscribeGame(socket, gameId);
+    for (const subscriptionId of [...connectionState.subscriptions.keys()]) {
+      await this.unsubscribe(socket, subscriptionId);
     }
 
     this.pruneIdleSocket(socket);
@@ -420,13 +444,16 @@ export class SocketStore<
   }
 
   /**
-   * Subscribes a websocket to one game's update stream.
+   * Subscribes one logical game channel instance on a websocket.
    */
   async subscribeGame(
     socket: WebSocket,
+    subscriptionId: string,
     gameId: string,
     playerId?: number,
   ): Promise<void> {
+    await this.unsubscribe(socket, subscriptionId);
+
     const gameStateService = this.requireGameStateService();
     const connectionState = this.getOrCreateSocketConnection(socket);
 
@@ -439,11 +466,15 @@ export class SocketStore<
       throw new Error(`Game connection ${gameId} not found`);
     }
 
-    gameConnection.gameSockets.set(socket, {
+    gameConnection.gameSubscriptions.set(subscriptionId, {
+      subscriptionId,
       socket,
       playerId,
     });
-    connectionState.gameIds.add(gameId);
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "Game",
+      gameId,
+    });
 
     const gameData = await this.db.getGameStorageData(gameId);
     const gameStateUpdate = gameStateService.buildGameStateUpdate(
@@ -460,6 +491,7 @@ export class SocketStore<
       Outcome
     >(socket, {
       type: "UpdateGameState",
+      subscriptionId,
       playerState: gameStateUpdate.playerState,
       publicState: gameStateUpdate.publicState,
       outcome: gameStateUpdate.outcome,
@@ -467,30 +499,76 @@ export class SocketStore<
   }
 
   /**
-   * Unsubscribes a websocket from one game's update stream.
+   * Unsubscribes one lobby subscription and tears down lobby streams when last.
    */
-  unsubscribeGame(socket: WebSocket, gameId: string): void {
+  private async unsubscribeLobbySubscription(
+    socket: WebSocket,
+    subscriptionId: string,
+  ): Promise<void> {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null || connectionState.lobby == null) {
+      return;
+    }
+
+    const lobbyState = connectionState.lobby;
+    lobbyState.subscriptionIds.delete(subscriptionId);
+
+    if (lobbyState.subscriptionIds.size > 0) {
+      return;
+    }
+
+    await this.cleanupLobbyConnection(socket, lobbyState);
+  }
+
+  /**
+   * Cleans up shared lobby resources after the last lobby subscription is gone.
+   */
+  private async cleanupLobbyConnection(
+    socket: WebSocket,
+    lobbyState: LobbyConnectionState<Config, Loadout, Rating>,
+  ): Promise<void> {
+    for (const queueId of [...lobbyState.queueSubscriptions.keys()]) {
+      await this.cleanupQueueSubscription(socket, queueId, {
+        removeFromDb: true,
+      });
+    }
+
+    for (const roomId of [...lobbyState.roomSubscriptions.keys()]) {
+      await this.cleanupRoomSubscription(socket, roomId, {
+        removeFromDb: true,
+        notifyClient: false,
+      });
+    }
+
+    closeReader(lobbyState.userChangesReader);
+
+    const connectionState = this.sockets.get(socket);
+    if (connectionState != null) {
+      connectionState.lobby = undefined;
+    }
+  }
+
+  /**
+   * Removes one game subscription from its game stream.
+   */
+  private unsubscribeGameSubscription(
+    subscriptionId: string,
+    gameId: string,
+  ): void {
     const gameConnection = this.gameConnections.get(gameId);
     if (gameConnection == null) {
       return;
     }
 
-    const wasRemoved = gameConnection.gameSockets.delete(socket);
+    const wasRemoved = gameConnection.gameSubscriptions.delete(subscriptionId);
     if (!wasRemoved) {
       return;
     }
 
-    const connectionState = this.sockets.get(socket);
-    if (connectionState != null) {
-      connectionState.gameIds.delete(gameId);
-    }
-
-    if (gameConnection.gameSockets.size === 0) {
+    if (gameConnection.gameSubscriptions.size === 0) {
       closeReader(gameConnection.changesReader);
       this.gameConnections.delete(gameId);
     }
-
-    this.pruneIdleSocket(socket);
   }
 
   /**
@@ -510,7 +588,7 @@ export class SocketStore<
         }
 
         const userData = data.value;
-        this.sendLobbySnapshot(socket, userData);
+        this.sendLobbySnapshotToSubscriptions(socket, userData);
 
         await this.syncRoomSubscriptions(socket, userData.roomEntries);
       }
@@ -533,13 +611,7 @@ export class SocketStore<
           break;
         }
 
-        sendServerMessage<Config, Loadout, Rating, never, never, never>(
-          socket,
-          {
-            type: "GameAssignment",
-            gameId: data.value.gameId,
-          },
-        );
+        this.sendGameAssignmentToLobbySubscriptions(socket, data.value.gameId);
         break;
       }
     } catch {
@@ -568,13 +640,7 @@ export class SocketStore<
         }
 
         if (data.value.type === "deleted") {
-          sendServerMessage<Config, Loadout, Rating, never, never, never>(
-            socket,
-            {
-              type: "RemoveRoomEntry",
-              roomId,
-            },
-          );
+          this.sendRoomEntryRemovalToLobbySubscriptions(socket, roomId);
           await this.cleanupRoomSubscription(socket, roomId, {
             removeFromDb: false,
             notifyClient: false,
@@ -582,19 +648,15 @@ export class SocketStore<
           break;
         }
 
-        sendServerMessage<Config, Loadout, Rating, never, never, never>(
-          socket,
-          {
-            type: "UpdateRoomEntry",
-            roomEntry: {
-              roomId,
-              numPlayers: data.value.room.numPlayers,
-              players: data.value.room.members.map((member) => member.player),
-              config: data.value.room.config,
-              loadout,
-            },
-          },
-        );
+        const roomEntry: RoomEntry<Config, Loadout> = {
+          roomId,
+          numPlayers: data.value.room.numPlayers,
+          players: data.value.room.members.map((member) => member.player),
+          config: data.value.room.config,
+          loadout,
+        };
+
+        this.sendRoomEntryUpdateToLobbySubscriptions(socket, roomEntry);
       }
     } catch {
       // Reader cancellation is expected during unsubscribe.
@@ -602,10 +664,11 @@ export class SocketStore<
   }
 
   /**
-   * Sends a full lobby snapshot to one websocket.
+   * Sends one full lobby snapshot to one subscription ID.
    */
   private sendLobbySnapshot(
     socket: WebSocket,
+    subscriptionId: string,
     userData: LobbyUserData<Config, Loadout, Rating>,
   ): void {
     const lobbyProps: LobbyViewData<Config, Loadout, Rating> = {
@@ -619,25 +682,100 @@ export class SocketStore<
 
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
       type: "UpdateLobbyProps",
+      subscriptionId,
       lobbyProps,
     });
   }
 
   /**
-   * Sends the latest active public games snapshot to one websocket.
+   * Sends the latest lobby snapshot to each active lobby subscription.
    */
-  private async sendActivePublicGamesSnapshot(
+  private sendLobbySnapshotToSubscriptions(
     socket: WebSocket,
-  ): Promise<void> {
-    const allActiveGames = await this.db.getAllActiveGames();
-    this.sendActivePublicGamesUpdate(socket, allActiveGames);
+    userData: LobbyUserData<Config, Loadout, Rating>,
+  ): void {
+    for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
+      this.sendLobbySnapshot(socket, subscriptionId, userData);
+    }
   }
 
   /**
-   * Sends one active public games update payload to one websocket.
+   * Sends one room entry update to each active lobby subscription.
+   */
+  private sendRoomEntryUpdateToLobbySubscriptions(
+    socket: WebSocket,
+    roomEntry: RoomEntry<Config, Loadout>,
+  ): void {
+    for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
+      sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+        type: "UpdateRoomEntry",
+        subscriptionId,
+        roomEntry,
+      });
+    }
+  }
+
+  /**
+   * Sends one room entry removal to each active lobby subscription.
+   */
+  private sendRoomEntryRemovalToLobbySubscriptions(
+    socket: WebSocket,
+    roomId: string,
+  ): void {
+    for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
+      sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+        type: "RemoveRoomEntry",
+        subscriptionId,
+        roomId,
+      });
+    }
+  }
+
+  /**
+   * Sends one game assignment message to each active lobby subscription.
+   */
+  private sendGameAssignmentToLobbySubscriptions(
+    socket: WebSocket,
+    gameId: string,
+  ): void {
+    for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
+      sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+        type: "GameAssignment",
+        subscriptionId,
+        gameId,
+      });
+    }
+  }
+
+  /**
+   * Returns all active lobby subscription IDs for a socket.
+   */
+  private getLobbySubscriptionIds(socket: WebSocket): string[] {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null || connectionState.lobby == null) {
+      return [];
+    }
+
+    return [...connectionState.lobby.subscriptionIds];
+  }
+
+  /**
+   * Sends the latest active public games snapshot to one subscription.
+   */
+  private async sendActivePublicGamesSnapshot(
+    socket: WebSocket,
+    subscriptionId: string,
+  ): Promise<void> {
+    const allActiveGames = await this.db.getAllActiveGames();
+    this.sendActivePublicGamesUpdate(socket, subscriptionId, allActiveGames);
+  }
+
+  /**
+   * Sends one active public games update payload to one subscription.
    */
   private sendActivePublicGamesUpdate(
     socket: WebSocket,
+    subscriptionId: string,
     allActiveGames: ActiveGame<Config>[],
   ): void {
     const activePublicGamesProps: ActivePublicGamesViewData<Config> = {
@@ -645,12 +783,13 @@ export class SocketStore<
     };
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
       type: "UpdateActivePublicGames",
+      subscriptionId,
       activePublicGamesProps,
     });
   }
 
   /**
-   * Broadcasts active game list updates to all active public game subscribers.
+   * Broadcasts active game list updates to all active public game subscriptions.
    */
   private streamActivePublicGamesToSockets(
     activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
@@ -658,8 +797,15 @@ export class SocketStore<
     activeGamesStream.pipeTo(
       new WritableStream({
         write: (allActiveGames: ActiveGame<Config>[]) => {
-          for (const socket of this.activePublicGamesSockets.values()) {
-            this.sendActivePublicGamesUpdate(socket, allActiveGames);
+          for (
+            const [subscriptionId, socket] of this
+              .activePublicGamesSubscriptions.entries()
+          ) {
+            this.sendActivePublicGamesUpdate(
+              socket,
+              subscriptionId,
+              allActiveGames,
+            );
           }
         },
       }),
@@ -669,20 +815,26 @@ export class SocketStore<
   }
 
   /**
-   * Sends the latest available public rooms snapshot to one websocket.
+   * Sends the latest available public rooms snapshot to one subscription.
    */
   private async sendAvailablePublicRoomsSnapshot(
     socket: WebSocket,
+    subscriptionId: string,
   ): Promise<void> {
     const allAvailableRooms = await this.db.getAllAvailableRooms();
-    this.sendAvailablePublicRoomsUpdate(socket, allAvailableRooms);
+    this.sendAvailablePublicRoomsUpdate(
+      socket,
+      subscriptionId,
+      allAvailableRooms,
+    );
   }
 
   /**
-   * Sends one available public rooms update payload to one websocket.
+   * Sends one available public rooms update payload to one subscription.
    */
   private sendAvailablePublicRoomsUpdate(
     socket: WebSocket,
+    subscriptionId: string,
     allAvailableRooms: AvailableRoom<Config>[],
   ): void {
     const availablePublicRoomsProps: AvailablePublicRoomsViewData<Config> = {
@@ -690,12 +842,13 @@ export class SocketStore<
     };
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
       type: "UpdateAvailablePublicRooms",
+      subscriptionId,
       availablePublicRoomsProps,
     });
   }
 
   /**
-   * Broadcasts available room list updates to all public room subscribers.
+   * Broadcasts available room list updates to all public room subscriptions.
    */
   private streamAvailablePublicRoomsToSockets(
     availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
@@ -703,8 +856,15 @@ export class SocketStore<
     availableRoomsStream.pipeTo(
       new WritableStream({
         write: (allAvailableRooms: AvailableRoom<Config>[]) => {
-          for (const socket of this.availablePublicRoomsSockets.values()) {
-            this.sendAvailablePublicRoomsUpdate(socket, allAvailableRooms);
+          for (
+            const [subscriptionId, socket] of this
+              .availablePublicRoomsSubscriptions.entries()
+          ) {
+            this.sendAvailablePublicRoomsUpdate(
+              socket,
+              subscriptionId,
+              allAvailableRooms,
+            );
           }
         },
       }),
@@ -771,13 +931,7 @@ export class SocketStore<
     if (entryId == null) {
       const room = await this.db.getRoom(options.roomId);
       if (room == null) {
-        sendServerMessage<Config, Loadout, Rating, never, never, never>(
-          socket,
-          {
-            type: "RemoveRoomEntry",
-            roomId: options.roomId,
-          },
-        );
+        this.sendRoomEntryRemovalToLobbySubscriptions(socket, options.roomId);
         return;
       }
 
@@ -785,13 +939,7 @@ export class SocketStore<
         roomMember.userId === lobbyState.userId
       );
       if (member == null) {
-        sendServerMessage<Config, Loadout, Rating, never, never, never>(
-          socket,
-          {
-            type: "RemoveRoomEntry",
-            roomId: options.roomId,
-          },
-        );
+        this.sendRoomEntryRemovalToLobbySubscriptions(socket, options.roomId);
         return;
       }
 
@@ -820,19 +968,14 @@ export class SocketStore<
 
     const roomSnapshot = await this.db.getRoom(options.roomId);
     if (roomSnapshot != null) {
-      sendServerMessage<Config, Loadout, Rating, never, never, never>(
-        socket,
-        {
-          type: "UpdateRoomEntry",
-          roomEntry: {
-            roomId: options.roomId,
-            numPlayers: roomSnapshot.numPlayers,
-            players: roomSnapshot.members.map((member) => member.player),
-            config: roomSnapshot.config,
-            loadout: options.loadout,
-          },
-        },
-      );
+      const roomEntry: RoomEntry<Config, Loadout> = {
+        roomId: options.roomId,
+        numPlayers: roomSnapshot.numPlayers,
+        players: roomSnapshot.members.map((member) => member.player),
+        config: roomSnapshot.config,
+        loadout: options.loadout,
+      };
+      this.sendRoomEntryUpdateToLobbySubscriptions(socket, roomEntry);
     }
   }
 
@@ -907,13 +1050,7 @@ export class SocketStore<
     lobbyState.roomSubscriptions.delete(roomId);
 
     if (options.notifyClient) {
-      sendServerMessage<Config, Loadout, Rating, never, never, never>(
-        socket,
-        {
-          type: "RemoveRoomEntry",
-          roomId,
-        },
-      );
+      this.sendRoomEntryRemovalToLobbySubscriptions(socket, roomId);
     }
   }
 
@@ -926,7 +1063,7 @@ export class SocketStore<
     const changesReader = this.db.watchForGameChanges(gameId).getReader();
 
     this.gameConnections.set(gameId, {
-      gameSockets: new Map(),
+      gameSubscriptions: new Map(),
       changesReader,
     });
 
@@ -963,10 +1100,12 @@ export class SocketStore<
           timestamp,
         );
 
-        for (const gameSocket of gameConnection.gameSockets.values()) {
+        for (
+          const gameSubscription of gameConnection.gameSubscriptions.values()
+        ) {
           const gameStateUpdate = gameStateService.buildGameStateUpdate(
             gameData,
-            gameSocket.playerId,
+            gameSubscription.playerId,
             {
               timestamp,
               publicState: nextPublicState,
@@ -981,9 +1120,10 @@ export class SocketStore<
             PublicState,
             Outcome
           >(
-            gameSocket.socket,
+            gameSubscription.socket,
             {
               type: "UpdateGameState",
+              subscriptionId: gameSubscription.subscriptionId,
               playerState: gameStateUpdate.playerState,
               publicState: gameStateUpdate.publicState,
               outcome: gameStateUpdate.outcome,
@@ -1041,9 +1181,7 @@ export class SocketStore<
     }
 
     const connectionState: SocketConnectionState<Config, Loadout, Rating> = {
-      gameIds: new Set(),
-      hasActivePublicGamesSubscription: false,
-      hasAvailablePublicRoomsSubscription: false,
+      subscriptions: new Map(),
     };
     this.sockets.set(socket, connectionState);
     return connectionState;
@@ -1057,16 +1195,10 @@ export class SocketStore<
     if (connectionState == null) {
       return;
     }
+    if (connectionState.subscriptions.size > 0) {
+      return;
+    }
     if (connectionState.lobby != null) {
-      return;
-    }
-    if (connectionState.gameIds.size > 0) {
-      return;
-    }
-    if (connectionState.hasActivePublicGamesSubscription) {
-      return;
-    }
-    if (connectionState.hasAvailablePublicRoomsSubscription) {
       return;
     }
 
