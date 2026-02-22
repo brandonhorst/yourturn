@@ -134,6 +134,16 @@ function buildGameViewData<PlayerState, PublicState, Outcome>(
   },
 ): GameViewData<PlayerState, PublicState, Outcome> {
   if (playerId == null) {
+    if (gameStateUpdate.outcome === undefined) {
+      return {
+        players,
+        playerId: undefined,
+        playerState: undefined,
+        publicState: gameStateUpdate.publicState,
+        outcome: undefined,
+      };
+    }
+
     return {
       players,
       playerId: undefined,
@@ -147,6 +157,16 @@ function buildGameViewData<PlayerState, PublicState, Outcome>(
     throw new Error(
       `Missing player state for subscribed player ${playerId}`,
     );
+  }
+
+  if (gameStateUpdate.outcome === undefined) {
+    return {
+      players,
+      playerId,
+      playerState: gameStateUpdate.playerState,
+      publicState: gameStateUpdate.publicState,
+      outcome: undefined,
+    };
   }
 
   return {
