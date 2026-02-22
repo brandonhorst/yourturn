@@ -3,8 +3,8 @@ import type {
   AvailablePublicRoomsViewData,
   Game,
   GameViewData,
-  LobbyViewData,
   Player,
+  UserMatchmakingViewData,
 } from "../types.ts";
 import type { ClientMessage } from "../common/sockettypes.ts";
 import { GameStateService } from "./gamestateservice.ts";
@@ -72,25 +72,27 @@ export class Server<
   }
 
   /**
-   * Builds the initial lobby payload for an existing user.
+   * Builds the initial UserMatchmaking payload for an existing user.
    * Returns a fresh auth token that can be used to reconnect later.
    */
-  async getInitialLobbyProps(
+  async getInitialUserMatchmakingProps(
     userId: string,
-  ): Promise<{ props: LobbyViewData<Config, Loadout>; token: string }> {
+  ): Promise<
+    { props: UserMatchmakingViewData<Config, Loadout>; token: string }
+  > {
     if (userId === "") {
-      throw new Error("Missing lobby user id");
+      throw new Error("Missing UserMatchmaking user ID");
     }
 
     const userMatchmakingData = await this.db.getUserMatchmakingStorageData(
       userId,
     );
     if (userMatchmakingData == null) {
-      throw new Error("Unknown lobby user");
+      throw new Error("Unknown UserMatchmaking user");
     }
 
-    const lobbyToken = crypto.randomUUID();
-    await this.db.storeToken(lobbyToken, {
+    const reconnectToken = crypto.randomUUID();
+    await this.db.storeToken(reconnectToken, {
       userId,
       expiration: new Date(Date.now() + tokenTtlMs),
     });
@@ -103,7 +105,7 @@ export class Server<
         ),
         queueEntries: userMatchmakingData.queueEntries,
       },
-      token: lobbyToken,
+      token: reconnectToken,
     };
   }
 
@@ -173,7 +175,8 @@ export class Server<
   }
 
   /**
-   * Configures one websocket to handle lobby, room, and game messages.
+   * Configures one websocket to handle UserMatchmaking, room, and game
+   * messages.
    */
   configureSocket(
     socket: WebSocket,
@@ -191,9 +194,9 @@ export class Server<
     };
 
     /**
-     * Fetches the latest lobby user record for room and queue actions.
+     * Fetches the latest user record for room and queue actions.
      */
-    const getLobbyUser = async (): Promise<Player | null> => {
+    const getUser = async (): Promise<Player | null> => {
       const storedUser = await this.db.getUserStorageData(userId);
       return storedUser?.player ?? null;
     };
@@ -209,14 +212,14 @@ export class Server<
     };
 
     /**
-     * Cleans up all lobby and game subscriptions when the socket closes.
+     * Cleans up all channel subscriptions when the socket closes.
      */
     const handleSocketClose = async () => {
       await this.socketStore.unsubscribeSocket(socket);
     };
 
     /**
-     * Routes any client message to the matching lobby or game handler.
+     * Routes any client message to the matching channel handler.
      */
     const handleSocketMessage = async (event: MessageEvent) => {
       const request: ClientMessage<
@@ -228,16 +231,16 @@ export class Server<
       > = JSON.parse(event.data);
 
       switch (request.type) {
-        case "SubscribeLobby": {
+        case "SubscribeUserMatchmaking": {
           const latestUserData = await this.db.getUserMatchmakingStorageData(
             userId,
           );
           if (latestUserData == null) {
-            sendDisplayError("Unknown lobby user.");
+            sendDisplayError("Unknown UserMatchmaking user.");
             break;
           }
 
-          await this.socketStore.subscribeLobby(
+          await this.socketStore.subscribeUserMatchmaking(
             socket,
             request.subscriptionId,
             userId,
@@ -288,9 +291,9 @@ export class Server<
             break;
           }
 
-          const user = await getLobbyUser();
+          const user = await getUser();
           if (user == null) {
-            sendDisplayError("Unknown lobby user.");
+            sendDisplayError("Unknown UserMatchmaking user.");
             break;
           }
 
@@ -324,9 +327,9 @@ export class Server<
             break;
           }
 
-          const user = await getLobbyUser();
+          const user = await getUser();
           if (user == null) {
-            sendDisplayError("Unknown lobby user.");
+            sendDisplayError("Unknown UserMatchmaking user.");
             break;
           }
 
@@ -373,9 +376,9 @@ export class Server<
             break;
           }
 
-          const user = await getLobbyUser();
+          const user = await getUser();
           if (user == null) {
-            sendDisplayError("Unknown lobby user.");
+            sendDisplayError("Unknown UserMatchmaking user.");
             break;
           }
 

@@ -40,8 +40,8 @@ subscribe to multiple channels:
 - `server.ts` - Main initializer; creates `DB`, `SocketStore`, and `Server`
 - `server/server.ts` - Public server API, token/user setup, and client message
   routing
-- `server/sockets.ts` - Subscription lifecycle and stream fan-out for lobby,
-  room, queue, global lists, and per-game updates
+- `server/sockets.ts` - Subscription lifecycle and stream fan-out for
+  UserMatchmaking, room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, assignments,
   user matchmakings, active games, and tokens
 - `server/gamestateservice.ts` - Game state projection and move processing,
@@ -51,7 +51,8 @@ subscribe to multiple channels:
 
 Client-side hooks are organized by functionality:
 
-- `client/channels.ts` - Lobby, room, and game channel subscription hooks
+- `client/channels.ts` - UserMatchmaking, room, and game channel subscription
+  hooks
 - `client/socket.ts` - Shared socket connection utilities
 
 ### Game Interface
@@ -102,7 +103,8 @@ Uses Deno KV for:
 
 A single socket supports these channel subscriptions:
 
-1. **Lobby channel** - Matchmaking actions and user lobby updates
+1. **UserMatchmaking channel** - Matchmaking actions and user matchmaking
+   updates
 2. **Room channel** - Per-room lifecycle updates and room-specific actions
 3. **Game channel** - Moves and game state updates for players/observers
 4. **Active public games channel** - Global list of active games
@@ -110,9 +112,9 @@ A single socket supports these channel subscriptions:
 
 Message protocol types are defined in `common/sockettypes.ts`.
 
-Lobby channel payloads (`LobbyViewData`) contain matchmaking data only:
-`userActiveGames`, `roomIds`, and `queueEntries`. Player profile and ratings are
-not part of lobby channel view data.
+UserMatchmaking channel payloads (`UserMatchmakingViewData`) contain matchmaking
+data only: `userActiveGames`, `roomIds`, and `queueEntries`. Player profile and
+ratings are not part of UserMatchmaking channel view data.
 
 ## Agent Instructions
 

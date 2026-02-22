@@ -2,7 +2,7 @@ export {
   useActivePublicGamesChannel,
   useAvailablePublicRoomsChannel,
   useGameChannel,
-  useLobbyChannel,
   useRoomChannel,
+  useUserMatchmakingChannel,
 } from "./client/channels.ts";
 export { useSocket } from "./client/socket.ts";

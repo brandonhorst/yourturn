@@ -292,7 +292,7 @@ export type AvailablePublicRoomsViewData<Config> = {
   allAvailableRooms: AvailableRoom<Config>[];
 };
 
-export type LobbyViewData<Config, Loadout> = {
+export type UserMatchmakingViewData<Config, Loadout> = {
   userActiveGames: ActiveGame<Config>[];
   roomIds: string[];
   queueEntries: QueueEntry<Loadout>[];
@@ -358,8 +358,8 @@ export type GameProps<Move, PlayerState, PublicState, Outcome> =
   | IncompletePlayerProps<Move, PlayerState, PublicState>
   | ObserveProps<PublicState, Outcome>;
 
-export type LobbyProps<Config, Loadout> =
-  & LobbyViewData<Config, Loadout>
+export type UserMatchmakingProps<Config, Loadout> =
+  & UserMatchmakingViewData<Config, Loadout>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     createAndJoinRoom: (

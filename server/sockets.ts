@@ -11,9 +11,9 @@ import type {
   AvailablePublicRoomsViewData,
   AvailableRoom,
   GameViewData,
-  LobbyViewData,
   Player,
   RoomEntry,
+  UserMatchmakingViewData,
 } from "../types.ts";
 import type { ServerMessage } from "../common/sockettypes.ts";
 import type { GameStateService } from "./gamestateservice.ts";
@@ -38,9 +38,9 @@ type RoomConnectionState<Config, Loadout> = {
 };
 
 /**
- * Lobby-specific state tracked for one websocket.
+ * UserMatchmaking-specific state tracked for one websocket.
  */
-type LobbyConnectionState<Config, Loadout> = {
+type UserMatchmakingConnectionState<Config, Loadout> = {
   subscriptionIds: Set<string>;
   userChangesReader: ReadableStreamDefaultReader<
     UserMatchmakingStorageData<Config, Loadout>
@@ -68,19 +68,20 @@ type GameConnection<Config, GameState, Outcome> = {
 };
 
 type SocketSubscription =
-  | { type: "Lobby" }
+  | { type: "UserMatchmaking" }
   | { type: "Room"; roomId: string }
   | { type: "ActivePublicGames" }
   | { type: "AvailablePublicRooms" }
   | { type: "Game"; gameId: string };
 
 /**
- * Combined state for a websocket across lobby, room, and game subscriptions.
+ * Combined state for a websocket across UserMatchmaking, room, and game
+ * subscriptions.
  */
 type SocketConnectionState<Config, Loadout> = {
   subscriptions: Map<string, SocketSubscription>;
   roomConnections: Map<string, RoomConnectionState<Config, Loadout>>;
-  lobby?: LobbyConnectionState<Config, Loadout>;
+  userMatchmaking?: UserMatchmakingConnectionState<Config, Loadout>;
 };
 
 /**
@@ -248,9 +249,9 @@ export class SocketStore<
   }
 
   /**
-   * Subscribes one logical lobby channel instance on a websocket.
+   * Subscribes one logical UserMatchmaking channel instance on a websocket.
    */
-  async subscribeLobby(
+  async subscribeUserMatchmaking(
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
@@ -262,12 +263,12 @@ export class SocketStore<
     );
 
     if (
-      existingSubscription?.type === "Lobby" &&
+      existingSubscription?.type === "UserMatchmaking" &&
       existingConnection != null &&
-      existingConnection.lobby != null
+      existingConnection.userMatchmaking != null
     ) {
-      existingConnection.lobby.subscriptionIds.add(subscriptionId);
-      this.sendLobbySnapshot(socket, subscriptionId, userData);
+      existingConnection.userMatchmaking.subscriptionIds.add(subscriptionId);
+      this.sendUserMatchmakingSnapshot(socket, subscriptionId, userData);
       return;
     }
 
@@ -275,11 +276,11 @@ export class SocketStore<
 
     const connectionState = this.getOrCreateSocketConnection(socket);
 
-    if (connectionState.lobby == null) {
+    if (connectionState.userMatchmaking == null) {
       const userChangesReader = this.db.watchForUserMatchmakingChanges(userId)
         .getReader();
 
-      connectionState.lobby = {
+      connectionState.userMatchmaking = {
         subscriptionIds: new Set(),
         userChangesReader,
         queueSubscriptions: new Map(),
@@ -287,15 +288,17 @@ export class SocketStore<
       void this.streamUserChangesToSocket(socket, userChangesReader);
     }
 
-    const lobbyState = connectionState.lobby;
-    if (lobbyState == null) {
-      throw new Error("Lobby connection state was not initialized");
+    const userMatchmakingState = connectionState.userMatchmaking;
+    if (userMatchmakingState == null) {
+      throw new Error("UserMatchmaking connection state was not initialized");
     }
 
-    lobbyState.subscriptionIds.add(subscriptionId);
-    connectionState.subscriptions.set(subscriptionId, { type: "Lobby" });
+    userMatchmakingState.subscriptionIds.add(subscriptionId);
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "UserMatchmaking",
+    });
 
-    this.sendLobbySnapshot(socket, subscriptionId, userData);
+    this.sendUserMatchmakingSnapshot(socket, subscriptionId, userData);
   }
 
   /**
@@ -425,8 +428,11 @@ export class SocketStore<
     connectionState.subscriptions.delete(subscriptionId);
 
     switch (subscription.type) {
-      case "Lobby":
-        await this.unsubscribeLobbySubscription(socket, subscriptionId);
+      case "UserMatchmaking":
+        await this.unsubscribeUserMatchmakingSubscription(
+          socket,
+          subscriptionId,
+        );
         break;
       case "Room":
         await this.unsubscribeRoomSubscription(
@@ -475,9 +481,9 @@ export class SocketStore<
     user: Player,
     loadout: Loadout,
   ): Promise<void> {
-    const lobbyState = this.getLobbyConnectionState(socket);
+    const userMatchmakingState = this.getUserMatchmakingConnectionState(socket);
 
-    if (lobbyState.queueSubscriptions.has(queueId)) {
+    if (userMatchmakingState.queueSubscriptions.has(queueId)) {
       await this.cleanupQueueSubscription(socket, queueId, {
         removeFromDb: true,
       });
@@ -493,7 +499,7 @@ export class SocketStore<
       throw err;
     }
 
-    lobbyState.queueSubscriptions.set(queueId, {
+    userMatchmakingState.queueSubscriptions.set(queueId, {
       queueId,
       entryId,
       assignmentsReader,
@@ -654,25 +660,26 @@ export class SocketStore<
   }
 
   /**
-   * Unsubscribes one lobby subscription and tears down lobby streams when last.
+   * Unsubscribes one UserMatchmaking subscription and tears down
+   * UserMatchmaking streams when last.
    */
-  private async unsubscribeLobbySubscription(
+  private async unsubscribeUserMatchmakingSubscription(
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
     const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
+    if (connectionState == null || connectionState.userMatchmaking == null) {
       return;
     }
 
-    const lobbyState = connectionState.lobby;
-    lobbyState.subscriptionIds.delete(subscriptionId);
+    const userMatchmakingState = connectionState.userMatchmaking;
+    userMatchmakingState.subscriptionIds.delete(subscriptionId);
 
-    if (lobbyState.subscriptionIds.size > 0) {
+    if (userMatchmakingState.subscriptionIds.size > 0) {
       return;
     }
 
-    await this.cleanupLobbyConnection(socket, lobbyState);
+    await this.cleanupUserMatchmakingConnection(socket, userMatchmakingState);
   }
 
   /**
@@ -700,23 +707,24 @@ export class SocketStore<
   }
 
   /**
-   * Cleans up shared lobby resources after the last lobby subscription is gone.
+   * Cleans up shared UserMatchmaking resources after the last
+   * UserMatchmaking subscription is gone.
    */
-  private async cleanupLobbyConnection(
+  private async cleanupUserMatchmakingConnection(
     socket: WebSocket,
-    lobbyState: LobbyConnectionState<Config, Loadout>,
+    userMatchmakingState: UserMatchmakingConnectionState<Config, Loadout>,
   ): Promise<void> {
-    for (const queueId of [...lobbyState.queueSubscriptions.keys()]) {
+    for (const queueId of [...userMatchmakingState.queueSubscriptions.keys()]) {
       await this.cleanupQueueSubscription(socket, queueId, {
         removeFromDb: true,
       });
     }
 
-    closeReader(lobbyState.userChangesReader);
+    closeReader(userMatchmakingState.userChangesReader);
 
     const connectionState = this.sockets.get(socket);
     if (connectionState != null) {
-      connectionState.lobby = undefined;
+      connectionState.userMatchmaking = undefined;
     }
   }
 
@@ -744,7 +752,7 @@ export class SocketStore<
   }
 
   /**
-   * Streams lobby user updates for one websocket.
+   * Streams UserMatchmaking updates for one websocket.
    */
   private async streamUserChangesToSocket(
     socket: WebSocket,
@@ -760,7 +768,7 @@ export class SocketStore<
         }
 
         const userData = data.value;
-        this.sendLobbySnapshotToSubscriptions(socket, userData);
+        this.sendUserMatchmakingSnapshotToSubscriptions(socket, userData);
       }
     } catch {
       // Reader cancellation is expected during unsubscribe.
@@ -781,7 +789,10 @@ export class SocketStore<
           break;
         }
 
-        this.sendGameAssignmentToLobbySubscriptions(socket, data.value.gameId);
+        this.sendGameAssignmentToUserMatchmakingSubscriptions(
+          socket,
+          data.value.gameId,
+        );
         break;
       }
     } catch {
@@ -884,35 +895,38 @@ export class SocketStore<
   }
 
   /**
-   * Sends one full lobby snapshot to one subscription ID.
+   * Sends one full UserMatchmaking snapshot to one subscription ID.
    */
-  private sendLobbySnapshot(
+  private sendUserMatchmakingSnapshot(
     socket: WebSocket,
     subscriptionId: string,
     userData: UserMatchmakingStorageData<Config, Loadout>,
   ): void {
-    const lobbyProps: LobbyViewData<Config, Loadout> = {
+    const userMatchmakingProps: UserMatchmakingViewData<Config, Loadout> = {
       userActiveGames: userData.activeGames,
       roomIds: userData.joinedRooms.map((joinedRoom) => joinedRoom.roomId),
       queueEntries: userData.queueEntries,
     };
 
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
-      type: "UpdateLobbyProps",
+      type: "UpdateUserMatchmakingProps",
       subscriptionId,
-      lobbyProps,
+      userMatchmakingProps,
     });
   }
 
   /**
-   * Sends the latest lobby snapshot to each active lobby subscription.
+   * Sends the latest UserMatchmaking snapshot to each active UserMatchmaking
+   * subscription.
    */
-  private sendLobbySnapshotToSubscriptions(
+  private sendUserMatchmakingSnapshotToSubscriptions(
     socket: WebSocket,
     userData: UserMatchmakingStorageData<Config, Loadout>,
   ): void {
-    for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
-      this.sendLobbySnapshot(socket, subscriptionId, userData);
+    for (
+      const subscriptionId of this.getUserMatchmakingSubscriptionIds(socket)
+    ) {
+      this.sendUserMatchmakingSnapshot(socket, subscriptionId, userData);
     }
   }
 
@@ -961,13 +975,16 @@ export class SocketStore<
   }
 
   /**
-   * Sends one game assignment message to each active lobby subscription.
+   * Sends one game assignment message to each active UserMatchmaking
+   * subscription.
    */
-  private sendGameAssignmentToLobbySubscriptions(
+  private sendGameAssignmentToUserMatchmakingSubscriptions(
     socket: WebSocket,
     gameId: string,
   ): void {
-    for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
+    for (
+      const subscriptionId of this.getUserMatchmakingSubscriptionIds(socket)
+    ) {
       sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
         type: "GameAssignment",
         subscriptionId,
@@ -994,15 +1011,15 @@ export class SocketStore<
   }
 
   /**
-   * Returns all active lobby subscription IDs for a socket.
+   * Returns all active UserMatchmaking subscription IDs for a socket.
    */
-  private getLobbySubscriptionIds(socket: WebSocket): string[] {
+  private getUserMatchmakingSubscriptionIds(socket: WebSocket): string[] {
     const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
+    if (connectionState == null || connectionState.userMatchmaking == null) {
       return [];
     }
 
-    return [...connectionState.lobby.subscriptionIds];
+    return [...connectionState.userMatchmaking.subscriptionIds];
   }
 
   /**
@@ -1158,12 +1175,14 @@ export class SocketStore<
     options: { removeFromDb: boolean },
   ): Promise<void> {
     const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
+    if (connectionState == null || connectionState.userMatchmaking == null) {
       return;
     }
 
-    const lobbyState = connectionState.lobby;
-    const queueSubscription = lobbyState.queueSubscriptions.get(queueId);
+    const userMatchmakingState = connectionState.userMatchmaking;
+    const queueSubscription = userMatchmakingState.queueSubscriptions.get(
+      queueId,
+    );
     if (queueSubscription == null) {
       return;
     }
@@ -1181,7 +1200,7 @@ export class SocketStore<
       }
     }
 
-    lobbyState.queueSubscriptions.delete(queueId);
+    userMatchmakingState.queueSubscriptions.delete(queueId);
   }
 
   /**
@@ -1338,17 +1357,18 @@ export class SocketStore<
   }
 
   /**
-   * Returns the lobby connection state for a socket or throws when absent.
+   * Returns the UserMatchmaking connection state for a socket or throws when
+   * absent.
    */
-  private getLobbyConnectionState(
+  private getUserMatchmakingConnectionState(
     socket: WebSocket,
-  ): LobbyConnectionState<Config, Loadout> {
+  ): UserMatchmakingConnectionState<Config, Loadout> {
     const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
-      throw new Error("Socket is not subscribed to lobby");
+    if (connectionState == null || connectionState.userMatchmaking == null) {
+      throw new Error("Socket is not subscribed to userMatchmaking");
     }
 
-    return connectionState.lobby;
+    return connectionState.userMatchmaking;
   }
 
   /**
@@ -1384,7 +1404,7 @@ export class SocketStore<
     if (connectionState.roomConnections.size > 0) {
       return;
     }
-    if (connectionState.lobby != null) {
+    if (connectionState.userMatchmaking != null) {
       return;
     }
 

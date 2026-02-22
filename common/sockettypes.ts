@@ -2,8 +2,8 @@ import type {
   ActivePublicGamesViewData,
   AvailablePublicRoomsViewData,
   GameViewData,
-  LobbyViewData,
   RoomEntry,
+  UserMatchmakingViewData,
 } from "../types.ts";
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
@@ -11,8 +11,8 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "SubscribeActivePublicGames"; subscriptionId: string }
   // Available Public Rooms Channel
   | { type: "SubscribeAvailablePublicRooms"; subscriptionId: string }
-  // Lobby Channel
-  | { type: "SubscribeLobby"; subscriptionId: string }
+  // UserMatchmaking channel
+  | { type: "SubscribeUserMatchmaking"; subscriptionId: string }
   | { type: "JoinQueue"; queueId: string; loadout: Loadout }
   | {
     type: "CreateAndJoinRoom";
@@ -41,9 +41,9 @@ export type ServerMessage<
   Outcome,
 > =
   | {
-    type: "UpdateLobbyProps";
+    type: "UpdateUserMatchmakingProps";
     subscriptionId: string;
-    lobbyProps: LobbyViewData<Config, Loadout>;
+    userMatchmakingProps: UserMatchmakingViewData<Config, Loadout>;
   }
   | {
     type: "UpdateActivePublicGames";

@@ -5,11 +5,11 @@ import type {
   AvailablePublicRoomsViewData,
   GameProps,
   GameViewData,
-  LobbyProps,
-  LobbyViewData,
   RoomEntry,
   RoomProps,
   Socket,
+  UserMatchmakingProps,
+  UserMatchmakingViewData,
 } from "../types.ts";
 
 // Subscribes to a specific game on an already-open socket.
@@ -342,32 +342,32 @@ export function useAvailablePublicRoomsChannel<Config>({
   return { allAvailableRooms };
 }
 
-// Subscribes to a lobby on an already-open socket.
-export function useLobbyChannel<Config, Loadout>({
+// Subscribes to UserMatchmaking on an already-open socket.
+export function useUserMatchmakingChannel<Config, Loadout>({
   socket,
-  initialLobbyProps,
+  initialUserMatchmakingProps,
   navigate,
   displayError,
 }: {
   socket: Socket;
-  initialLobbyProps: LobbyViewData<Config, Loadout>;
+  initialUserMatchmakingProps: UserMatchmakingViewData<Config, Loadout>;
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
-}): LobbyProps<Config, Loadout> {
+}): UserMatchmakingProps<Config, Loadout> {
   const [userActiveGames, setUserActiveGames] = useState(
-    initialLobbyProps.userActiveGames,
+    initialUserMatchmakingProps.userActiveGames,
   );
   const [roomIds, setRoomIds] = useState(
-    initialLobbyProps.roomIds,
+    initialUserMatchmakingProps.roomIds,
   );
   const [queueEntries, setQueueEntries] = useState(
-    initialLobbyProps.queueEntries,
+    initialUserMatchmakingProps.queueEntries,
   );
 
   useEffect(() => {
     const subscriptionId = crypto.randomUUID();
 
-    // Sends the lobby subscription request for this hook instance.
+    // Sends the UserMatchmaking subscription request for this hook instance.
     function sendSubscribe() {
       const request: ClientMessage<
         Config,
@@ -376,7 +376,7 @@ export function useLobbyChannel<Config, Loadout>({
         never,
         never
       > = {
-        type: "SubscribeLobby",
+        type: "SubscribeUserMatchmaking",
         subscriptionId,
       };
       socket.send(JSON.stringify(request));
@@ -396,14 +396,14 @@ export function useLobbyChannel<Config, Loadout>({
         never
       >;
       switch (response.type) {
-        case "UpdateLobbyProps":
+        case "UpdateUserMatchmakingProps":
           if (response.subscriptionId !== subscriptionId) {
             break;
           }
 
-          setUserActiveGames(response.lobbyProps.userActiveGames);
-          setRoomIds(response.lobbyProps.roomIds);
-          setQueueEntries(response.lobbyProps.queueEntries);
+          setUserActiveGames(response.userMatchmakingProps.userActiveGames);
+          setRoomIds(response.userMatchmakingProps.roomIds);
+          setQueueEntries(response.userMatchmakingProps.queueEntries);
           break;
         case "GameAssignment":
           if (response.subscriptionId !== subscriptionId) {
