@@ -10,6 +10,7 @@ import type {
   ActivePublicGamesViewData,
   AvailablePublicRoomsViewData,
   AvailableRoom,
+  GameViewData,
   LobbyViewData,
   Player,
   RoomEntry,
@@ -118,6 +119,43 @@ function closeReader<T>(reader: ReadableStreamDefaultReader<T>): void {
   } catch {
     // Reader may already have released its lock.
   }
+}
+
+/**
+ * Creates a strongly-typed game view payload for one subscriber update.
+ */
+function buildGameViewData<PlayerState, PublicState, Outcome>(
+  players: Player[],
+  playerId: number | undefined,
+  gameStateUpdate: {
+    playerState: PlayerState | undefined;
+    publicState: PublicState;
+    outcome: Outcome | undefined;
+  },
+): GameViewData<PlayerState, PublicState, Outcome> {
+  if (playerId == null) {
+    return {
+      players,
+      playerId: undefined,
+      playerState: undefined,
+      publicState: gameStateUpdate.publicState,
+      outcome: gameStateUpdate.outcome,
+    };
+  }
+
+  if (gameStateUpdate.playerState == null) {
+    throw new Error(
+      `Missing player state for subscribed player ${playerId}`,
+    );
+  }
+
+  return {
+    players,
+    playerId,
+    playerState: gameStateUpdate.playerState,
+    publicState: gameStateUpdate.publicState,
+    outcome: gameStateUpdate.outcome,
+  };
 }
 
 export class SocketStore<
@@ -492,9 +530,11 @@ export class SocketStore<
     >(socket, {
       type: "UpdateGameState",
       subscriptionId,
-      playerState: gameStateUpdate.playerState,
-      publicState: gameStateUpdate.publicState,
-      outcome: gameStateUpdate.outcome,
+      gameViewData: buildGameViewData(
+        gameData.players,
+        playerId,
+        gameStateUpdate,
+      ),
     });
   }
 
@@ -1124,9 +1164,11 @@ export class SocketStore<
             {
               type: "UpdateGameState",
               subscriptionId: gameSubscription.subscriptionId,
-              playerState: gameStateUpdate.playerState,
-              publicState: gameStateUpdate.publicState,
-              outcome: gameStateUpdate.outcome,
+              gameViewData: buildGameViewData(
+                gameData.players,
+                gameSubscription.playerId,
+                gameStateUpdate,
+              ),
             },
           );
         }

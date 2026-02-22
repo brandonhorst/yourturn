@@ -1,6 +1,7 @@
 import type {
   ActivePublicGamesViewData,
   AvailablePublicRoomsViewData,
+  GameViewData,
   LobbyViewData,
   RoomEntry,
 } from "../types.ts";
@@ -65,7 +66,5 @@ export type ServerMessage<
   | {
     type: "UpdateGameState";
     subscriptionId: string;
-    publicState: PublicState;
-    playerState: PlayerState | undefined;
-    outcome: Outcome | undefined;
+    gameViewData: GameViewData<PlayerState, PublicState, Outcome>;
   };

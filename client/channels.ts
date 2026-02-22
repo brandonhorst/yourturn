@@ -99,10 +99,10 @@ export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
             break;
           }
 
-          setOutcome(response.outcome);
-          setPublicState(response.publicState);
-          setPlayerState(response.playerState);
-          if (response.outcome !== undefined) {
+          setOutcome(response.gameViewData.outcome);
+          setPublicState(response.gameViewData.publicState);
+          setPlayerState(response.gameViewData.playerState);
+          if (response.gameViewData.outcome !== undefined) {
             sendUnsubscribe();
           }
           break;
