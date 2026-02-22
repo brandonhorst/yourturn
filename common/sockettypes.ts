@@ -22,8 +22,6 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
     loadout: Loadout;
   }
   | { type: "JoinRoom"; roomId: string; loadout: Loadout }
-  | { type: "InviteUser"; roomId: string; userId: string }
-  | { type: "CreateInvitation"; roomId: string; invitationId: string }
   | { type: "CommitRoom"; roomId: string }
   | { type: "LeaveQueue"; queueId: string }
   | { type: "LeaveRoom"; roomId: string }

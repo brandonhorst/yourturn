@@ -80,7 +80,6 @@ export class Server<
    */
   async getInitialLobbyProps(
     userId: string,
-    invitationId?: string,
   ): Promise<{ props: LobbyViewData<Config, Loadout, Rating>; token: string }> {
     if (userId === "") {
       throw new Error("Missing lobby user id");
@@ -90,15 +89,7 @@ export class Server<
     let userActiveGames: ActiveGame<Config>[] = [];
     let roomEntries: RoomEntry<Config, Loadout>[] = [];
     let queueEntries: QueueEntry<Loadout>[] = [];
-    let roomInvitations: LobbyViewData<
-      Config,
-      Loadout,
-      Rating
-    >["roomInvitations"] = [];
     let ratings: Record<string, Rating> = {};
-    const invitation = invitationId == null
-      ? null
-      : await this.db.getRoomInvitation(invitationId);
 
     const storedUser = await this.db.getLobbyUserData(userId);
     if (storedUser == null) {
@@ -109,7 +100,6 @@ export class Server<
     userActiveGames = storedUser.activeGames;
     roomEntries = storedUser.roomEntries;
     queueEntries = storedUser.queueEntries;
-    roomInvitations = storedUser.roomInvitations;
     const normalized = this.normalizeRatings(storedUser.ratings);
     ratings = normalized.ratings;
     if (normalized.didChange) {
@@ -122,20 +112,6 @@ export class Server<
       expiration: new Date(Date.now() + tokenTtlMs),
     });
 
-    if (invitation != null) {
-      const hasInvitation = roomInvitations.some((invite) =>
-        invite.roomId === invitation.roomId
-      );
-      if (!hasInvitation) {
-        // Ensure the invitation is available in the user's lobby props and storage.
-        const mergedInvitations = [...roomInvitations, invitation];
-        roomInvitations = mergedInvitations;
-        await this.db.updateUserStorageData(userId, {
-          roomInvitations: mergedInvitations,
-        });
-      }
-    }
-
     return {
       props: {
         userActiveGames,
@@ -143,7 +119,6 @@ export class Server<
         ratings,
         roomEntries,
         queueEntries,
-        roomInvitations,
       },
       token: lobbyToken,
     };
@@ -377,7 +352,6 @@ export class Server<
         case "JoinRoom": {
           const room = await this.db.getRoom(request.roomId);
           if (room == null) {
-            await this.db.removeRoomInvitation(userId, request.roomId);
             sendDisplayError("Room not found.");
             break;
           }
@@ -395,12 +369,7 @@ export class Server<
             sendDisplayError("Room is full.");
             break;
           }
-
-          const hasInvitation = await this.db.hasRoomInvitation(
-            userId,
-            request.roomId,
-          );
-          if (room.private && !hasInvitation) {
+          if (room.private) {
             sendDisplayError("Room is private.");
             break;
           }
@@ -419,7 +388,6 @@ export class Server<
               userId,
               user,
               request.loadout,
-              { consumeInvitation: hasInvitation },
             );
           } catch (err) {
             console.error("Failed to join room", err);
@@ -437,30 +405,6 @@ export class Server<
           } catch (err) {
             console.error("Failed to commit room", err);
             sendDisplayError("Unable to commit room.");
-          }
-          break;
-        case "InviteUser":
-          try {
-            await this.db.inviteUserToRoom(
-              request.roomId,
-              userId,
-              request.userId,
-            );
-          } catch (err) {
-            console.error("Failed to invite user", err);
-            sendDisplayError("Unable to invite user.");
-          }
-          break;
-        case "CreateInvitation":
-          try {
-            await this.db.createRoomInvitation(
-              request.invitationId,
-              request.roomId,
-              userId,
-            );
-          } catch (err) {
-            console.error("Failed to create invitation", err);
-            sendDisplayError("Unable to create invitation.");
           }
           break;
         case "LeaveQueue":
@@ -545,7 +489,6 @@ export class Server<
       ratings: this.buildInitialRatings(),
       joinedRooms: [],
       queueEntries: [],
-      roomInvitations: [],
     });
     return userId;
   }

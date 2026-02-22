@@ -1,4 +1,3 @@
-import { ulid } from "@std/ulid";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type {
@@ -364,9 +363,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
   const [queueEntries, setQueueEntries] = useState(
     initialLobbyProps.queueEntries,
   );
-  const [roomInvitations, setRoomInvitations] = useState(
-    initialLobbyProps.roomInvitations,
-  );
 
   useEffect(() => {
     const subscriptionId = crypto.randomUUID();
@@ -410,7 +406,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
           setRatings(response.lobbyProps.ratings);
           setRoomEntries(response.lobbyProps.roomEntries);
           setQueueEntries(response.lobbyProps.queueEntries);
-          setRoomInvitations(response.lobbyProps.roomInvitations);
           break;
         case "UpdateRoomEntry":
           if (response.subscriptionId !== subscriptionId) {
@@ -511,13 +506,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
     [send],
   );
 
-  // Creates a URL-based invitation and returns the generated invitation ID.
-  const createInvitation = useCallback((roomId: string) => {
-    const invitationId = ulid();
-    send({ type: "CreateInvitation", roomId, invitationId });
-    return invitationId;
-  }, [send]);
-
   const joinRoom = useCallback(
     (roomId: string, options: { loadout: Loadout }) => {
       send({ type: "JoinRoom", roomId, loadout: options.loadout });
@@ -527,10 +515,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
 
   const commitRoom = useCallback((roomId: string) => {
     send({ type: "CommitRoom", roomId });
-  }, [send]);
-
-  const inviteUser = useCallback((roomId: string, userId: string) => {
-    send({ type: "InviteUser", roomId, userId });
   }, [send]);
 
   const leaveQueue = useCallback((queueId: string) => {
@@ -547,12 +531,9 @@ export function useLobbyChannel<Config, Loadout, Rating>({
     ratings,
     roomEntries,
     queueEntries,
-    roomInvitations,
     joinQueue,
     createAndJoinRoom,
-    createInvitation,
     joinRoom,
-    inviteUser,
     commitRoom,
     leaveQueue,
     leaveRoom,

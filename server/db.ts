@@ -7,7 +7,6 @@ import type {
   QueueConfig,
   QueueEntry,
   RoomEntry,
-  RoomInvitation,
   TokenData,
 } from "../types.ts";
 import { assert } from "@std/assert";
@@ -62,7 +61,6 @@ export type UserStorageData<Config, Loadout, Rating> = {
   ratings: Record<string, Rating>;
   joinedRooms: JoinedRoom<Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
-  roomInvitations: RoomInvitation<Config>[];
 };
 
 export type LobbyUserData<Config, Loadout, Rating> = {
@@ -71,7 +69,6 @@ export type LobbyUserData<Config, Loadout, Rating> = {
   ratings: Record<string, Rating>;
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
-  roomInvitations: RoomInvitation<Config>[];
 };
 
 function getQueuePrefix(queueId: string) {
@@ -86,10 +83,6 @@ function getRoomPrefix() {
 }
 function getRoomKey(roomId: string) {
   return ["rooms", roomId];
-}
-// Builds the KV key for a URL-based room invitation.
-function getRoomInvitationKey(invitationId: string) {
-  return ["roominvitations", invitationId];
 }
 function getAssignmentKey(entryId: string) {
   return ["assignments", entryId];
@@ -226,7 +219,6 @@ export class DB<
       ratings: data.ratings,
       roomEntries,
       queueEntries: data.queueEntries,
-      roomInvitations: data.roomInvitations,
     };
   }
 
@@ -368,7 +360,6 @@ export class DB<
     userId: string,
     user: Player,
     loadout: Loadout,
-    options?: { consumeInvitation?: boolean },
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
@@ -407,21 +398,9 @@ export class DB<
         ],
       };
 
-      const currentInvitations = userEntry.value.roomInvitations ?? [];
-      const invitationsToConsume = options?.consumeInvitation
-        ? currentInvitations.filter((invitation) =>
-          invitation.roomId === roomId
-        )
-        : [];
-      const updatedInvitations = options?.consumeInvitation
-        ? currentInvitations.filter((invitation) =>
-          invitation.roomId !== roomId
-        )
-        : currentInvitations;
       const updatedUser: UserStorageData<Config, Loadout, Rating> = {
         ...userEntry.value,
         joinedRooms: [...userEntry.value.joinedRooms, { roomId, loadout }],
-        roomInvitations: updatedInvitations,
       };
 
       transaction
@@ -430,233 +409,6 @@ export class DB<
         .set(roomListTriggerKey, {})
         .check(userEntry)
         .set(getUserKey(userId), updatedUser);
-      for (const invitation of invitationsToConsume) {
-        transaction.delete(getRoomInvitationKey(invitation.invitationId));
-      }
-    });
-  }
-
-  /**
-   * Creates or replaces a room invitation for a user.
-   * Validates room existence, inviter membership, and invitee eligibility.
-   */
-  public async inviteUserToRoom(
-    roomId: string,
-    inviterUserId: string,
-    inviteeUserId: string,
-  ): Promise<void> {
-    if (inviterUserId === inviteeUserId) {
-      throw new Error("Cannot invite yourself to a room");
-    }
-
-    const roomKey = getRoomKey(roomId);
-    const inviteeKey = getUserKey(inviteeUserId);
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const [roomEntry, inviterEntry, inviteeEntry] = await Promise.all([
-        this.kv.get<RoomStorageData<Config, Loadout>>(roomKey),
-        this.kv.get<UserStorageData<Config, Loadout, Rating>>(
-          getUserKey(inviterUserId),
-        ),
-        this.kv.get<UserStorageData<Config, Loadout, Rating>>(inviteeKey),
-      ]);
-
-      if (roomEntry.value == null) {
-        throw new Error(`Room ${roomId} not found`);
-      }
-      if (inviterEntry.value == null) {
-        throw new Error(`User ${inviterUserId} not found`);
-      }
-      if (inviteeEntry.value == null) {
-        throw new Error(`User ${inviteeUserId} not found`);
-      }
-
-      const members = roomEntry.value.members;
-      const inviterIsMember = members.some((member) =>
-        member.userId === inviterUserId
-      );
-      if (!inviterIsMember) {
-        throw new Error(`User ${inviterUserId} is not in room ${roomId}`);
-      }
-
-      const inviteeIsMember = members.some((member) =>
-        member.userId === inviteeUserId
-      );
-      if (inviteeIsMember) {
-        throw new Error(`User ${inviteeUserId} already in room ${roomId}`);
-      }
-
-      const invitationId = ulid();
-      const invitation: RoomInvitation<Config> = {
-        invitationId,
-        roomId,
-        numPlayers: roomEntry.value.numPlayers,
-        config: roomEntry.value.config,
-        invitedBy: inviterEntry.value.player,
-        invitedAt: new Date(),
-      };
-
-      const existingInvitations = inviteeEntry.value.roomInvitations ?? [];
-      const replacedInvitations = existingInvitations.filter((inv) =>
-        inv.roomId === roomId
-      );
-      const updatedInvitations = [
-        ...existingInvitations.filter((inv) => inv.roomId !== roomId),
-        invitation,
-      ];
-      const updatedInvitee: UserStorageData<Config, Loadout, Rating> = {
-        ...inviteeEntry.value,
-        roomInvitations: updatedInvitations,
-      };
-
-      transaction
-        .check(roomEntry)
-        .check(inviteeEntry)
-        .set(inviteeKey, updatedInvitee)
-        .check({ key: getRoomInvitationKey(invitationId), versionstamp: null })
-        .set(getRoomInvitationKey(invitationId), invitation);
-      for (const existingInvitation of replacedInvitations) {
-        transaction.delete(
-          getRoomInvitationKey(existingInvitation.invitationId),
-        );
-      }
-    });
-  }
-
-  /**
-   * Creates a URL-based invitation for a room that can be redeemed by ID.
-   * Validates room existence and inviter membership before storing.
-   */
-  public async createRoomInvitation(
-    invitationId: string,
-    roomId: string,
-    inviterUserId: string,
-  ): Promise<void> {
-    const roomKey = getRoomKey(roomId);
-    const invitationKey = getRoomInvitationKey(invitationId);
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const [roomEntry, inviterEntry, invitationEntry] = await Promise.all([
-        this.kv.get<RoomStorageData<Config, Loadout>>(roomKey),
-        this.kv.get<UserStorageData<Config, Loadout, Rating>>(
-          getUserKey(inviterUserId),
-        ),
-        this.kv.get<RoomInvitation<Config>>(invitationKey),
-      ]);
-
-      if (roomEntry.value == null) {
-        throw new Error(`Room ${roomId} not found`);
-      }
-      if (inviterEntry.value == null) {
-        throw new Error(`User ${inviterUserId} not found`);
-      }
-      if (invitationEntry.value != null) {
-        throw new Error(`Invitation ${invitationId} already exists`);
-      }
-
-      const members = roomEntry.value.members;
-      const inviterIsMember = members.some((member) =>
-        member.userId === inviterUserId
-      );
-      if (!inviterIsMember) {
-        throw new Error(`User ${inviterUserId} is not in room ${roomId}`);
-      }
-
-      const invitation: RoomInvitation<Config> = {
-        invitationId,
-        roomId,
-        numPlayers: roomEntry.value.numPlayers,
-        config: roomEntry.value.config,
-        invitedBy: inviterEntry.value.player,
-        invitedAt: new Date(),
-      };
-
-      transaction
-        .check(roomEntry)
-        .check(inviterEntry)
-        .check({ key: invitationKey, versionstamp: null })
-        .set(invitationKey, invitation);
-    });
-  }
-
-  /**
-   * Fetches a URL-based invitation by ID, returning null if it is missing.
-   */
-  public async getRoomInvitation(
-    invitationId: string,
-  ): Promise<RoomInvitation<Config> | null> {
-    const invitationEntry = await this.kv.get<RoomInvitation<Config>>(
-      getRoomInvitationKey(invitationId),
-    );
-    if (invitationEntry.value == null) {
-      return null;
-    }
-    const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
-      getRoomKey(invitationEntry.value.roomId),
-    );
-    if (roomEntry.value == null) {
-      return null;
-    }
-    return invitationEntry.value;
-  }
-
-  /**
-   * Checks if a user has an invitation to a specific room.
-   */
-  public async hasRoomInvitation(
-    userId: string,
-    roomId: string,
-  ): Promise<boolean> {
-    const entry = await this.kv.get<UserStorageData<Config, Loadout, Rating>>(
-      getUserKey(userId),
-    );
-    if (entry.value == null) {
-      return false;
-    }
-    return (entry.value.roomInvitations ?? []).some((invitation) =>
-      invitation.roomId === roomId
-    );
-  }
-
-  /**
-   * Removes a room invitation from a user's stored data if present.
-   */
-  public async removeRoomInvitation(
-    userId: string,
-    roomId: string,
-  ): Promise<void> {
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const userEntry = await this.kv.get<
-        UserStorageData<Config, Loadout, Rating>
-      >(
-        getUserKey(userId),
-      );
-      if (userEntry.value == null) {
-        throw new Error(`User ${userId} not found`);
-      }
-
-      const existingInvitations = userEntry.value.roomInvitations ?? [];
-      const invitationsToRemove = existingInvitations.filter((invitation) =>
-        invitation.roomId === roomId
-      );
-      const nextInvitations = existingInvitations.filter((invitation) =>
-        invitation.roomId !== roomId
-      );
-      if (nextInvitations.length === existingInvitations.length) {
-        return;
-      }
-
-      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
-        ...userEntry.value,
-        roomInvitations: nextInvitations,
-      };
-
-      transaction
-        .check(userEntry)
-        .set(getUserKey(userId), updatedUser);
-      for (const invitation of invitationsToRemove) {
-        transaction.delete(getRoomInvitationKey(invitation.invitationId));
-      }
     });
   }
 

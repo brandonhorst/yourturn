@@ -42,8 +42,8 @@ subscribe to multiple channels:
   routing
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for lobby,
   room, queue, global lists, and per-game updates
-- `server/db.ts` - Deno KV persistence for users, queues, rooms, invitations,
-  assignments, active games, and tokens
+- `server/db.ts` - Deno KV persistence for users, queues, rooms, assignments,
+  active games, and tokens
 - `server/gamestateservice.ts` - Game state projection and move processing,
   including outcome handling and ranked rating updates
 
@@ -91,7 +91,7 @@ Uses Deno KV for:
 
 - Game state persistence
 - Queue matchmaking and room-based matchmaking
-- Room invitations and queue/room-to-game assignments
+- Queue/room-to-game assignments
 - User records, auth tokens, and per-queue ratings
 - Real-time state synchronization via watch streams
 
@@ -99,8 +99,8 @@ Uses Deno KV for:
 
 A single socket supports these channel subscriptions:
 
-1. **Lobby channel** - Matchmaking actions, room lifecycle, invitations, and
-   user lobby updates
+1. **Lobby channel** - Matchmaking actions, room lifecycle, and user lobby
+   updates
 2. **Game channel** - Moves and game state updates for players/observers
 3. **Active public games channel** - Global list of active games
 4. **Available public rooms channel** - Global list of joinable public rooms
@@ -110,6 +110,9 @@ Message protocol types are defined in `common/sockettypes.ts`.
 ## Agent Instructions
 
 - When making changes, ALWAYS run `deno task check` and fix errors.
+- Keep this `AGENTS.md` file up to date. If behavior, architecture, module
+  exports, protocols, or developer workflow changes, update this file in the
+  same change set.
 - Ensure all functions have good comments that explain their purpose.
 - Do not use the `unknown` type unless instructed to do so.
 - Right now, this system is unlaunched and in active development. Do not worry

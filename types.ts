@@ -271,15 +271,6 @@ export type AvailableRoom<Config> = {
   config: Config;
 };
 
-export type RoomInvitation<Config> = {
-  invitationId: string;
-  roomId: string;
-  numPlayers: number;
-  config: Config;
-  invitedBy: Player;
-  invitedAt: Date;
-};
-
 export type RoomEntry<Config, Loadout> = {
   roomId: string;
   numPlayers: number;
@@ -307,7 +298,6 @@ export type LobbyViewData<Config, Loadout, Rating> = {
   ratings: Record<string, Rating>;
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
-  roomInvitations: RoomInvitation<Config>[];
 };
 
 type CompletePlayerViewData<PlayerState, PublicState, Outcome> = {
@@ -378,9 +368,7 @@ export type LobbyProps<Config, Loadout, Rating> =
       options: { config: Config; numPlayers: number; private: boolean },
       player: { loadout: Loadout },
     ) => void;
-    createInvitation: (roomId: string) => string;
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
-    inviteUser: (roomId: string, userId: string) => void;
     commitRoom: (roomId: string) => void;
     leaveQueue: (queueId: string) => void;
     leaveRoom: (roomId: string) => void;

@@ -450,7 +450,6 @@ export class SocketStore<
     userId: string,
     user: Player,
     loadout: Loadout,
-    options?: { consumeInvitation?: boolean },
   ): Promise<boolean> {
     const lobbyState = this.getLobbyConnectionState(socket);
 
@@ -467,7 +466,6 @@ export class SocketStore<
         userId,
         user,
         loadout,
-        options,
       );
     } catch {
       return false;
@@ -737,7 +735,6 @@ export class SocketStore<
       ratings: userData.ratings,
       roomEntries: userData.roomEntries,
       queueEntries: userData.queueEntries,
-      roomInvitations: userData.roomInvitations,
     };
 
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
