@@ -40,10 +40,10 @@ type RoomConnectionState<Config, Loadout> = {
 /**
  * Lobby-specific state tracked for one websocket.
  */
-type LobbyConnectionState<Config, Loadout, Rating> = {
+type LobbyConnectionState<Config, Loadout> = {
   subscriptionIds: Set<string>;
   userChangesReader: ReadableStreamDefaultReader<
-    LobbyUserData<Config, Loadout, Rating>
+    LobbyUserData<Config, Loadout>
   >;
   queueSubscriptions: Map<string, QueueSubscription>;
 };
@@ -77,10 +77,10 @@ type SocketSubscription =
 /**
  * Combined state for a websocket across lobby, room, and game subscriptions.
  */
-type SocketConnectionState<Config, Loadout, Rating> = {
+type SocketConnectionState<Config, Loadout> = {
   subscriptions: Map<string, SocketSubscription>;
   roomConnections: Map<string, RoomConnectionState<Config, Loadout>>;
-  lobby?: LobbyConnectionState<Config, Loadout, Rating>;
+  lobby?: LobbyConnectionState<Config, Loadout>;
 };
 
 /**
@@ -192,7 +192,7 @@ export class SocketStore<
 > {
   private sockets: Map<
     WebSocket,
-    SocketConnectionState<Config, Loadout, Rating>
+    SocketConnectionState<Config, Loadout>
   > = new Map();
   private gameStateService?: GameStateService<
     Config,
@@ -254,7 +254,7 @@ export class SocketStore<
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
-    userData: LobbyUserData<Config, Loadout, Rating>,
+    userData: LobbyUserData<Config, Loadout>,
   ): Promise<void> {
     const existingConnection = this.sockets.get(socket);
     const existingSubscription = existingConnection?.subscriptions.get(
@@ -704,7 +704,7 @@ export class SocketStore<
    */
   private async cleanupLobbyConnection(
     socket: WebSocket,
-    lobbyState: LobbyConnectionState<Config, Loadout, Rating>,
+    lobbyState: LobbyConnectionState<Config, Loadout>,
   ): Promise<void> {
     for (const queueId of [...lobbyState.queueSubscriptions.keys()]) {
       await this.cleanupQueueSubscription(socket, queueId, {
@@ -749,7 +749,7 @@ export class SocketStore<
   private async streamUserChangesToSocket(
     socket: WebSocket,
     userChangesReader: ReadableStreamDefaultReader<
-      LobbyUserData<Config, Loadout, Rating>
+      LobbyUserData<Config, Loadout>
     >,
   ): Promise<void> {
     try {
@@ -889,12 +889,10 @@ export class SocketStore<
   private sendLobbySnapshot(
     socket: WebSocket,
     subscriptionId: string,
-    userData: LobbyUserData<Config, Loadout, Rating>,
+    userData: LobbyUserData<Config, Loadout>,
   ): void {
-    const lobbyProps: LobbyViewData<Config, Loadout, Rating> = {
+    const lobbyProps: LobbyViewData<Config, Loadout> = {
       userActiveGames: userData.activeGames,
-      player: userData.player,
-      ratings: userData.ratings,
       roomEntries: userData.roomEntries,
       queueEntries: userData.queueEntries,
     };
@@ -911,7 +909,7 @@ export class SocketStore<
    */
   private sendLobbySnapshotToSubscriptions(
     socket: WebSocket,
-    userData: LobbyUserData<Config, Loadout, Rating>,
+    userData: LobbyUserData<Config, Loadout>,
   ): void {
     for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
       this.sendLobbySnapshot(socket, subscriptionId, userData);
@@ -1344,7 +1342,7 @@ export class SocketStore<
    */
   private getLobbyConnectionState(
     socket: WebSocket,
-  ): LobbyConnectionState<Config, Loadout, Rating> {
+  ): LobbyConnectionState<Config, Loadout> {
     const connectionState = this.sockets.get(socket);
     if (connectionState == null || connectionState.lobby == null) {
       throw new Error("Socket is not subscribed to lobby");
@@ -1358,13 +1356,13 @@ export class SocketStore<
    */
   private getOrCreateSocketConnection(
     socket: WebSocket,
-  ): SocketConnectionState<Config, Loadout, Rating> {
+  ): SocketConnectionState<Config, Loadout> {
     const existing = this.sockets.get(socket);
     if (existing != null) {
       return existing;
     }
 
-    const connectionState: SocketConnectionState<Config, Loadout, Rating> = {
+    const connectionState: SocketConnectionState<Config, Loadout> = {
       subscriptions: new Map(),
       roomConnections: new Map(),
     };

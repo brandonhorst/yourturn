@@ -292,10 +292,8 @@ export type AvailablePublicRoomsViewData<Config> = {
   allAvailableRooms: AvailableRoom<Config>[];
 };
 
-export type LobbyViewData<Config, Loadout, Rating> = {
+export type LobbyViewData<Config, Loadout> = {
   userActiveGames: ActiveGame<Config>[];
-  player: Player;
-  ratings: Record<string, Rating>;
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
 };
@@ -360,8 +358,8 @@ export type GameProps<Move, PlayerState, PublicState, Outcome> =
   | IncompletePlayerProps<Move, PlayerState, PublicState>
   | ObserveProps<PublicState, Outcome>;
 
-export type LobbyProps<Config, Loadout, Rating> =
-  & LobbyViewData<Config, Loadout, Rating>
+export type LobbyProps<Config, Loadout> =
+  & LobbyViewData<Config, Loadout>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     createAndJoinRoom: (

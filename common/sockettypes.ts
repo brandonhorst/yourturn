@@ -43,7 +43,7 @@ export type ServerMessage<
   | {
     type: "UpdateLobbyProps";
     subscriptionId: string;
-    lobbyProps: LobbyViewData<Config, Loadout, Rating>;
+    lobbyProps: LobbyViewData<Config, Loadout>;
   }
   | {
     type: "UpdateActivePublicGames";

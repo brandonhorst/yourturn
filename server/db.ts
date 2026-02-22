@@ -55,18 +55,19 @@ export type JoinedRoom<Loadout> = {
   loadout: Loadout;
 };
 
-export type UserStorageData<Config, Loadout, Rating> = {
+export type UserStorageData<Rating> = {
   player: Player;
-  activeGames: ActiveGame<Config>[];
   ratings: Record<string, Rating>;
+};
+
+export type UserMatchmakingStorageData<Config, Loadout> = {
+  activeGames: ActiveGame<Config>[];
   joinedRooms: JoinedRoom<Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
 };
 
-export type LobbyUserData<Config, Loadout, Rating> = {
-  player: Player;
+export type LobbyUserData<Config, Loadout> = {
   activeGames: ActiveGame<Config>[];
-  ratings: Record<string, Rating>;
   roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
 };
@@ -98,6 +99,9 @@ function getGameKey(gameId: string) {
 }
 function getUserKey(userId: string) {
   return ["users", userId];
+}
+function getUserMatchmakingKey(userId: string) {
+  return ["usermatchmakings", userId];
 }
 function getUserByUsernameKey(username: string) {
   return ["usersByUsername", username];
@@ -207,16 +211,14 @@ export class DB<
   }
 
   /**
-   * Hydrates storage user data into the lobby-facing user shape.
+   * Hydrates user matchmaking storage data into the lobby-facing user shape.
    */
   private async toLobbyUserData(
-    data: UserStorageData<Config, Loadout, Rating>,
-  ): Promise<LobbyUserData<Config, Loadout, Rating>> {
+    data: UserMatchmakingStorageData<Config, Loadout>,
+  ): Promise<LobbyUserData<Config, Loadout>> {
     const roomEntries = await this.buildRoomEntries(data.joinedRooms);
     return {
-      player: data.player,
       activeGames: data.activeGames,
-      ratings: data.ratings,
       roomEntries,
       queueEntries: data.queueEntries,
     };
@@ -232,12 +234,12 @@ export class DB<
     const queueConfig = this.getQueueConfig(queueId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entryKey = getQueueEntryKey(queueId, entryId);
-      const userEntry = await this.kv.get<
-        UserStorageData<Config, Loadout, Rating>
+      const userMatchmakingEntry = await this.kv.get<
+        UserMatchmakingStorageData<Config, Loadout>
       >(
-        getUserKey(userId),
+        getUserMatchmakingKey(userId),
       );
-      if (userEntry.value == null) {
+      if (userMatchmakingEntry.value == null) {
         throw new Error(`User ${userId} not found`);
       }
 
@@ -245,16 +247,19 @@ export class DB<
         queueId,
         loadout,
       };
-      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
-        ...userEntry.value,
-        queueEntries: [...userEntry.value.queueEntries, queueEntry],
+      const updatedUserMatchmaking: UserMatchmakingStorageData<
+        Config,
+        Loadout
+      > = {
+        ...userMatchmakingEntry.value,
+        queueEntries: [...userMatchmakingEntry.value.queueEntries, queueEntry],
       };
 
       transaction
         .check({ key: entryKey, versionstamp: null })
         .set(entryKey, { timestamp: new Date(), userId, user, loadout })
-        .check(userEntry)
-        .set(getUserKey(userId), updatedUser);
+        .check(userMatchmakingEntry)
+        .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
     });
 
     await this.maybeGraduateFromQueue(queueId, queueConfig);
@@ -276,27 +281,30 @@ export class DB<
     const userId = entry.value.userId;
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const userEntry = await this.kv.get<
-        UserStorageData<Config, Loadout, Rating>
+      const userMatchmakingEntry = await this.kv.get<
+        UserMatchmakingStorageData<Config, Loadout>
       >(
-        getUserKey(userId),
+        getUserMatchmakingKey(userId),
       );
-      if (userEntry.value == null) {
+      if (userMatchmakingEntry.value == null) {
         throw new Error(`User ${userId} not found`);
       }
 
-      const updatedQueues = userEntry.value.queueEntries.filter(
+      const updatedQueues = userMatchmakingEntry.value.queueEntries.filter(
         (q) => q.queueId !== queueId,
       );
-      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
-        ...userEntry.value,
+      const updatedUserMatchmaking: UserMatchmakingStorageData<
+        Config,
+        Loadout
+      > = {
+        ...userMatchmakingEntry.value,
         queueEntries: updatedQueues,
       };
 
       transaction
         .delete(entryKey)
-        .check(userEntry)
-        .set(getUserKey(userId), updatedUser);
+        .check(userMatchmakingEntry)
+        .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
     });
   }
 
@@ -381,12 +389,12 @@ export class DB<
         throw new Error(`Room ${roomId} is full`);
       }
 
-      const userEntry = await this.kv.get<
-        UserStorageData<Config, Loadout, Rating>
+      const userMatchmakingEntry = await this.kv.get<
+        UserMatchmakingStorageData<Config, Loadout>
       >(
-        getUserKey(userId),
+        getUserMatchmakingKey(userId),
       );
-      if (userEntry.value == null) {
+      if (userMatchmakingEntry.value == null) {
         throw new Error(`User ${userId} not found`);
       }
 
@@ -398,17 +406,23 @@ export class DB<
         ],
       };
 
-      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
-        ...userEntry.value,
-        joinedRooms: [...userEntry.value.joinedRooms, { roomId, loadout }],
+      const updatedUserMatchmaking: UserMatchmakingStorageData<
+        Config,
+        Loadout
+      > = {
+        ...userMatchmakingEntry.value,
+        joinedRooms: [
+          ...userMatchmakingEntry.value.joinedRooms,
+          { roomId, loadout },
+        ],
       };
 
       transaction
         .check(roomEntry)
         .set(roomKey, updatedRoom)
         .set(roomListTriggerKey, {})
-        .check(userEntry)
-        .set(getUserKey(userId), updatedUser);
+        .check(userMatchmakingEntry)
+        .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
     });
   }
 
@@ -439,31 +453,34 @@ export class DB<
       }
 
       const userId = members[memberIndex].userId;
-      const userEntry = await this.kv.get<
-        UserStorageData<Config, Loadout, Rating>
+      const userMatchmakingEntry = await this.kv.get<
+        UserMatchmakingStorageData<Config, Loadout>
       >(
-        getUserKey(userId),
+        getUserMatchmakingKey(userId),
       );
-      if (userEntry.value == null) {
+      if (userMatchmakingEntry.value == null) {
         throw new Error(`User ${userId} not found`);
       }
 
       const nextMembers = members.toSpliced(memberIndex, 1);
 
       // Remove this room from the user's joinedRooms.
-      const updatedRooms = userEntry.value.joinedRooms.filter(
+      const updatedRooms = userMatchmakingEntry.value.joinedRooms.filter(
         (r) => r.roomId !== roomId,
       );
-      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
-        ...userEntry.value,
+      const updatedUserMatchmaking: UserMatchmakingStorageData<
+        Config,
+        Loadout
+      > = {
+        ...userMatchmakingEntry.value,
         joinedRooms: updatedRooms,
       };
 
       transaction
         .check(roomEntry)
         .set(roomListTriggerKey, {})
-        .check(userEntry)
-        .set(getUserKey(userId), updatedUser);
+        .check(userMatchmakingEntry)
+        .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
 
       if (nextMembers.length === 0) {
         transaction.delete(roomKey);
@@ -493,14 +510,25 @@ export class DB<
     const timestamp = new Date();
     // Fetch active games and user records needed to build the new game state.
     const userKeys = options.userIds.map((userId) => getUserKey(userId));
-    const [activeGamesEntry, userEntries] = await Promise.all([
-      this.kv.get<ActiveGame<Config>[]>(options.activeGamesKey),
-      this.kv.getMany<UserStorageData<Config, Loadout, Rating>[]>(userKeys),
-    ]);
+    const userMatchmakingKeys = options.userIds.map((userId) =>
+      getUserMatchmakingKey(userId)
+    );
+    const [activeGamesEntry, userEntries, userMatchmakingEntries] =
+      await Promise
+        .all([
+          this.kv.get<ActiveGame<Config>[]>(options.activeGamesKey),
+          this.kv.getMany<UserStorageData<Rating>[]>(userKeys),
+          this.kv.getMany<UserMatchmakingStorageData<Config, Loadout>[]>(
+            userMatchmakingKeys,
+          ),
+        ]);
 
-    // Validate that all users exist.
+    // Validate that all users and matchmaking records exist.
     for (const userEntry of userEntries) {
       assert(userEntry.value != null);
+    }
+    for (const userMatchmakingEntry of userMatchmakingEntries) {
+      assert(userMatchmakingEntry.value != null);
     }
     const players = userEntries.map((userEntry) => userEntry.value!.player);
 
@@ -538,20 +566,23 @@ export class DB<
       .check({ key: gameKey, versionstamp: null })
       .set(gameKey, gameStorageData);
 
-    for (const userEntry of userEntries) {
+    for (const userMatchmakingEntry of userMatchmakingEntries) {
       const userActiveGamesNext = [
-        ...userEntry.value!.activeGames ?? [],
+        ...userMatchmakingEntry.value!.activeGames ?? [],
         activeGame,
       ];
 
-      const updatedUser: UserStorageData<Config, Loadout, Rating> = {
-        ...userEntry.value!,
+      const updatedUserMatchmaking: UserMatchmakingStorageData<
+        Config,
+        Loadout
+      > = {
+        ...userMatchmakingEntry.value!,
         activeGames: userActiveGamesNext,
       };
 
       transaction
-        .check(userEntry)
-        .set(userEntry.key, updatedUser);
+        .check(userMatchmakingEntry)
+        .set(userMatchmakingEntry.key, updatedUserMatchmaking);
     }
   }
 
@@ -599,11 +630,13 @@ export class DB<
         .set(roomListTriggerKey, {})
         .delete(roomKey);
 
-      // Fetch all user entries to update their joinedRooms.
-      const userKeys = userIds.map((userId) => getUserKey(userId));
-      const userEntries = await this.kv.getMany<
-        UserStorageData<Config, Loadout, Rating>[]
-      >(userKeys);
+      // Fetch all user matchmaking entries to update their joinedRooms.
+      const userMatchmakingKeys = userIds.map((userId) =>
+        getUserMatchmakingKey(userId)
+      );
+      const userMatchmakingEntries = await this.kv.getMany<
+        UserMatchmakingStorageData<Config, Loadout>[]
+      >(userMatchmakingKeys);
 
       for (let i = 0; i < roomEntry.value.numPlayers; i++) {
         const member = members[i];
@@ -611,25 +644,28 @@ export class DB<
         const assignmentKey = getAssignmentKey(entryId);
         const assignmentValue: AssignmentStorageData = { gameId };
 
-        const userEntry = userEntries[i];
-        if (userEntry.value == null) {
+        const userMatchmakingEntry = userMatchmakingEntries[i];
+        if (userMatchmakingEntry.value == null) {
           throw new Error(`User ${userIds[i]} not found`);
         }
 
         // Remove this room from the user's joinedRooms.
-        const updatedRooms = userEntry.value.joinedRooms.filter(
+        const updatedRooms = userMatchmakingEntry.value.joinedRooms.filter(
           (r) => r.roomId !== roomId,
         );
-        const updatedUser: UserStorageData<Config, Loadout, Rating> = {
-          ...userEntry.value,
+        const updatedUserMatchmaking: UserMatchmakingStorageData<
+          Config,
+          Loadout
+        > = {
+          ...userMatchmakingEntry.value,
           joinedRooms: updatedRooms,
         };
 
         transaction
           .check({ key: assignmentKey, versionstamp: null })
           .set(assignmentKey, assignmentValue)
-          .check(userEntry)
-          .set(userKeys[i], updatedUser);
+          .check(userMatchmakingEntry)
+          .set(userMatchmakingKeys[i], updatedUserMatchmaking);
       }
     });
   }
@@ -677,11 +713,13 @@ export class DB<
         },
       );
 
-      // Fetch all user entries to update their joinedQueues
-      const userKeys = userIds.map((userId) => getUserKey(userId));
-      const userEntries = await this.kv.getMany<
-        UserStorageData<Config, Loadout, Rating>[]
-      >(userKeys);
+      // Fetch all user matchmaking entries to update their joinedQueues.
+      const userMatchmakingKeys = userIds.map((userId) =>
+        getUserMatchmakingKey(userId)
+      );
+      const userMatchmakingEntries = await this.kv.getMany<
+        UserMatchmakingStorageData<Config, Loadout>[]
+      >(userMatchmakingKeys);
 
       // For each player
       for (let i = 0; i < queueEntries.length; i++) {
@@ -692,17 +730,20 @@ export class DB<
           gameId,
         };
 
-        const userEntry = userEntries[i];
-        if (userEntry.value == null) {
+        const userMatchmakingEntry = userMatchmakingEntries[i];
+        if (userMatchmakingEntry.value == null) {
           throw new Error(`User ${userIds[i]} not found`);
         }
 
         // Remove this queue from the user's queueEntries
-        const updatedQueues = userEntry.value.queueEntries.filter(
+        const updatedQueues = userMatchmakingEntry.value.queueEntries.filter(
           (q) => q.queueId !== queueId,
         );
-        const updatedUser: UserStorageData<Config, Loadout, Rating> = {
-          ...userEntry.value,
+        const updatedUserMatchmaking: UserMatchmakingStorageData<
+          Config,
+          Loadout
+        > = {
+          ...userMatchmakingEntry.value,
           queueEntries: updatedQueues,
         };
 
@@ -712,8 +753,8 @@ export class DB<
           .delete(entry.key)
           .check({ key: assignmentKey, versionstamp: null })
           .set(assignmentKey, assignmentValue)
-          .check(userEntry)
-          .set(userKeys[i], updatedUser);
+          .check(userMatchmakingEntry)
+          .set(userMatchmakingKeys[i], updatedUserMatchmaking);
       }
     });
   }
@@ -879,7 +920,7 @@ export class DB<
   // Creates a new user record and username index entry if neither already exists.
   public async createNewUserStorageData(
     userId: string,
-    data: UserStorageData<Config, Loadout, Rating>,
+    data: UserStorageData<Rating>,
   ): Promise<void> {
     const userKey = getUserKey(userId);
     const usernameKey = getUserByUsernameKey(data.player.username);
@@ -899,10 +940,10 @@ export class DB<
   // Upserts user storage data and keeps the username index in sync.
   public async updateUserStorageData(
     userId: string,
-    data: Partial<UserStorageData<Config, Loadout, Rating>>,
+    data: Partial<UserStorageData<Rating>>,
   ): Promise<void> {
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entry = await this.kv.get<UserStorageData<Config, Loadout, Rating>>(
+      const entry = await this.kv.get<UserStorageData<Rating>>(
         getUserKey(userId),
       );
       if (entry.value == null) {
@@ -910,7 +951,7 @@ export class DB<
       }
       const existingData = entry.value;
 
-      const updatedData: UserStorageData<Config, Loadout, Rating> = {
+      const updatedData: UserStorageData<Rating> = {
         ...existingData,
         ...data,
       };
@@ -933,9 +974,68 @@ export class DB<
   // Fetches the stored user data for a userId, if present.
   public async getUserStorageData(
     userId: string,
-  ): Promise<UserStorageData<Config, Loadout, Rating> | null> {
-    const entry = await this.kv.get<UserStorageData<Config, Loadout, Rating>>(
+  ): Promise<UserStorageData<Rating> | null> {
+    const entry = await this.kv.get<UserStorageData<Rating>>(
       getUserKey(userId),
+    );
+    return entry.value;
+  }
+
+  /**
+   * Creates a new user matchmaking record if one does not already exist.
+   */
+  public async createNewUserMatchmakingStorageData(
+    userId: string,
+    data: UserMatchmakingStorageData<Config, Loadout>,
+  ): Promise<void> {
+    const userMatchmakingKey = getUserMatchmakingKey(userId);
+    const res = await this.kv.atomic()
+      .check({ key: userMatchmakingKey, versionstamp: null })
+      .set(userMatchmakingKey, data)
+      .commit();
+    if (!res.ok) {
+      throw new Error(`User matchmaking ${userId} already exists`);
+    }
+  }
+
+  /**
+   * Upserts user matchmaking storage data.
+   */
+  public async updateUserMatchmakingStorageData(
+    userId: string,
+    data: Partial<UserMatchmakingStorageData<Config, Loadout>>,
+  ): Promise<void> {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<
+        UserMatchmakingStorageData<Config, Loadout>
+      >(
+        getUserMatchmakingKey(userId),
+      );
+      if (entry.value == null) {
+        throw new Error(`Updating unstored user matchmaking ${userId}`);
+      }
+
+      const updatedData: UserMatchmakingStorageData<Config, Loadout> = {
+        ...entry.value,
+        ...data,
+      };
+
+      transaction
+        .check(entry)
+        .set(getUserMatchmakingKey(userId), updatedData);
+    });
+  }
+
+  /**
+   * Fetches the stored user matchmaking data for a userId, if present.
+   */
+  public async getUserMatchmakingStorageData(
+    userId: string,
+  ): Promise<UserMatchmakingStorageData<Config, Loadout> | null> {
+    const entry = await this.kv.get<
+      UserMatchmakingStorageData<Config, Loadout>
+    >(
+      getUserMatchmakingKey(userId),
     );
     return entry.value;
   }
@@ -943,8 +1043,8 @@ export class DB<
   // Fetches lobby-facing user data with roomEntries hydrated from room records.
   public async getLobbyUserData(
     userId: string,
-  ): Promise<LobbyUserData<Config, Loadout, Rating> | null> {
-    const data = await this.getUserStorageData(userId);
+  ): Promise<LobbyUserData<Config, Loadout> | null> {
+    const data = await this.getUserMatchmakingStorageData(userId);
     if (data == null) {
       return null;
     }
@@ -954,11 +1054,13 @@ export class DB<
   // Watches for lobby-facing user data changes and hydrates roomEntries on each update.
   public watchForLobbyUserChanges(
     userId: string,
-  ): ReadableStream<LobbyUserData<Config, Loadout, Rating>> {
-    const userKey = getUserKey(userId);
-    const stream = this.kv.watch<UserStorageData<Config, Loadout, Rating>[]>([
-      userKey,
-    ]);
+  ): ReadableStream<LobbyUserData<Config, Loadout>> {
+    const userMatchmakingKey = getUserMatchmakingKey(userId);
+    const stream = this.kv.watch<UserMatchmakingStorageData<Config, Loadout>[]>(
+      [
+        userMatchmakingKey,
+      ],
+    );
     return stream.pipeThrough(
       new TransformStream({
         transform: async (events, controller) => {

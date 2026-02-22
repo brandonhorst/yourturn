@@ -1,13 +1,10 @@
 import type {
-  ActiveGame,
   ActivePublicGamesViewData,
   AvailablePublicRoomsViewData,
   Game,
   GameViewData,
   LobbyViewData,
   Player,
-  QueueEntry,
-  RoomEntry,
 } from "../types.ts";
 import type { ClientMessage } from "../common/sockettypes.ts";
 import { GameStateService } from "./gamestateservice.ts";
@@ -80,30 +77,14 @@ export class Server<
    */
   async getInitialLobbyProps(
     userId: string,
-  ): Promise<{ props: LobbyViewData<Config, Loadout, Rating>; token: string }> {
+  ): Promise<{ props: LobbyViewData<Config, Loadout>; token: string }> {
     if (userId === "") {
       throw new Error("Missing lobby user id");
     }
 
-    let user: Player | null = null;
-    let userActiveGames: ActiveGame<Config>[] = [];
-    let roomEntries: RoomEntry<Config, Loadout>[] = [];
-    let queueEntries: QueueEntry<Loadout>[] = [];
-    let ratings: Record<string, Rating> = {};
-
     const storedUser = await this.db.getLobbyUserData(userId);
     if (storedUser == null) {
       throw new Error("Unknown lobby user");
-    }
-
-    user = storedUser.player;
-    userActiveGames = storedUser.activeGames;
-    roomEntries = storedUser.roomEntries;
-    queueEntries = storedUser.queueEntries;
-    const normalized = this.normalizeRatings(storedUser.ratings);
-    ratings = normalized.ratings;
-    if (normalized.didChange) {
-      await this.db.updateUserStorageData(userId, { ratings });
     }
 
     const lobbyToken = crypto.randomUUID();
@@ -114,11 +95,9 @@ export class Server<
 
     return {
       props: {
-        userActiveGames,
-        player: user,
-        ratings,
-        roomEntries,
-        queueEntries,
+        userActiveGames: storedUser.activeGames,
+        roomEntries: storedUser.roomEntries,
+        queueEntries: storedUser.queueEntries,
       },
       token: lobbyToken,
     };
@@ -211,7 +190,7 @@ export class Server<
      * Fetches the latest lobby user record for room and queue actions.
      */
     const getLobbyUser = async (): Promise<Player | null> => {
-      const storedUser = await this.db.getLobbyUserData(userId);
+      const storedUser = await this.db.getUserStorageData(userId);
       return storedUser?.player ?? null;
     };
 
@@ -488,8 +467,11 @@ export class Server<
     if (token != null && token !== "") {
       const tokenData = await this.db.getToken(token);
       if (tokenData != null && tokenData.expiration > new Date()) {
-        const storedUser = await this.db.getLobbyUserData(tokenData.userId);
-        if (storedUser != null) {
+        const [storedUser, storedMatchmaking] = await Promise.all([
+          this.db.getUserStorageData(tokenData.userId),
+          this.db.getUserMatchmakingStorageData(tokenData.userId),
+        ]);
+        if (storedUser != null && storedMatchmaking != null) {
           return tokenData.userId;
         }
       }
@@ -499,8 +481,10 @@ export class Server<
     const userId = ulid();
     await this.db.createNewUserStorageData(userId, {
       player: user,
-      activeGames: [],
       ratings: this.buildInitialRatings(),
+    });
+    await this.db.createNewUserMatchmakingStorageData(userId, {
+      activeGames: [],
       joinedRooms: [],
       queueEntries: [],
     });

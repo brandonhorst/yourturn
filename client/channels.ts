@@ -343,22 +343,20 @@ export function useAvailablePublicRoomsChannel<Config>({
 }
 
 // Subscribes to a lobby on an already-open socket.
-export function useLobbyChannel<Config, Loadout, Rating>({
+export function useLobbyChannel<Config, Loadout>({
   socket,
   initialLobbyProps,
   navigate,
   displayError,
 }: {
   socket: Socket;
-  initialLobbyProps: LobbyViewData<Config, Loadout, Rating>;
+  initialLobbyProps: LobbyViewData<Config, Loadout>;
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
-}): LobbyProps<Config, Loadout, Rating> {
+}): LobbyProps<Config, Loadout> {
   const [userActiveGames, setUserActiveGames] = useState(
     initialLobbyProps.userActiveGames,
   );
-  const [player, setPlayer] = useState(initialLobbyProps.player);
-  const [ratings, setRatings] = useState(initialLobbyProps.ratings);
   const [roomEntries, setRoomEntries] = useState(
     initialLobbyProps.roomEntries,
   );
@@ -392,7 +390,7 @@ export function useLobbyChannel<Config, Loadout, Rating>({
       const response = JSON.parse(message) as ServerMessage<
         Config,
         Loadout,
-        Rating,
+        never,
         never,
         never,
         never
@@ -404,8 +402,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
           }
 
           setUserActiveGames(response.lobbyProps.userActiveGames);
-          setPlayer(response.lobbyProps.player);
-          setRatings(response.lobbyProps.ratings);
           setRoomEntries(response.lobbyProps.roomEntries);
           setQueueEntries(response.lobbyProps.queueEntries);
           break;
@@ -494,8 +490,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
 
   return {
     userActiveGames,
-    player,
-    ratings,
     roomEntries,
     queueEntries,
     joinQueue,

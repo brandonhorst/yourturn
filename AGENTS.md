@@ -43,7 +43,7 @@ subscribe to multiple channels:
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for lobby,
   room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, assignments,
-  active games, and tokens
+  user matchmakings, active games, and tokens
 - `server/gamestateservice.ts` - Game state projection and move processing,
   including outcome handling and ranked rating updates
 
@@ -92,7 +92,10 @@ Uses Deno KV for:
 - Game state persistence
 - Queue matchmaking and room-based matchmaking
 - Queue/room-to-game assignments
-- User records, auth tokens, and per-queue ratings
+- User records (`["users", userId]`) for `player` and per-queue `ratings`
+- User matchmaking records (`["usermatchmakings", userId]`) for `activeGames`,
+  `joinedRooms`, and `queueEntries`
+- Auth tokens
 - Real-time state synchronization via watch streams
 
 ### WebSocket Communication
@@ -106,6 +109,10 @@ A single socket supports these channel subscriptions:
 5. **Available public rooms channel** - Global list of joinable public rooms
 
 Message protocol types are defined in `common/sockettypes.ts`.
+
+Lobby channel payloads (`LobbyViewData`) contain matchmaking data only:
+`userActiveGames`, `roomEntries`, and `queueEntries`. Player profile and ratings
+are not part of lobby channel view data.
 
 ## Agent Instructions
 
