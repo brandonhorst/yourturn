@@ -2,8 +2,8 @@ import type {
   AssignmentStorageData,
   DB,
   GameStorageData,
-  LobbyUserData,
   RoomWatchEvent,
+  UserMatchmakingStorageData,
 } from "./db.ts";
 import type {
   ActiveGame,
@@ -43,7 +43,7 @@ type RoomConnectionState<Config, Loadout> = {
 type LobbyConnectionState<Config, Loadout> = {
   subscriptionIds: Set<string>;
   userChangesReader: ReadableStreamDefaultReader<
-    LobbyUserData<Config, Loadout>
+    UserMatchmakingStorageData<Config, Loadout>
   >;
   queueSubscriptions: Map<string, QueueSubscription>;
 };
@@ -254,7 +254,7 @@ export class SocketStore<
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
-    userData: LobbyUserData<Config, Loadout>,
+    userData: UserMatchmakingStorageData<Config, Loadout>,
   ): Promise<void> {
     const existingConnection = this.sockets.get(socket);
     const existingSubscription = existingConnection?.subscriptions.get(
@@ -276,7 +276,7 @@ export class SocketStore<
     const connectionState = this.getOrCreateSocketConnection(socket);
 
     if (connectionState.lobby == null) {
-      const userChangesReader = this.db.watchForLobbyUserChanges(userId)
+      const userChangesReader = this.db.watchForUserMatchmakingChanges(userId)
         .getReader();
 
       connectionState.lobby = {
@@ -749,7 +749,7 @@ export class SocketStore<
   private async streamUserChangesToSocket(
     socket: WebSocket,
     userChangesReader: ReadableStreamDefaultReader<
-      LobbyUserData<Config, Loadout>
+      UserMatchmakingStorageData<Config, Loadout>
     >,
   ): Promise<void> {
     try {
@@ -889,11 +889,11 @@ export class SocketStore<
   private sendLobbySnapshot(
     socket: WebSocket,
     subscriptionId: string,
-    userData: LobbyUserData<Config, Loadout>,
+    userData: UserMatchmakingStorageData<Config, Loadout>,
   ): void {
     const lobbyProps: LobbyViewData<Config, Loadout> = {
       userActiveGames: userData.activeGames,
-      roomEntries: userData.roomEntries,
+      roomIds: userData.joinedRooms.map((joinedRoom) => joinedRoom.roomId),
       queueEntries: userData.queueEntries,
     };
 
@@ -909,7 +909,7 @@ export class SocketStore<
    */
   private sendLobbySnapshotToSubscriptions(
     socket: WebSocket,
-    userData: LobbyUserData<Config, Loadout>,
+    userData: UserMatchmakingStorageData<Config, Loadout>,
   ): void {
     for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
       this.sendLobbySnapshot(socket, subscriptionId, userData);

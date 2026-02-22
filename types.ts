@@ -294,7 +294,7 @@ export type AvailablePublicRoomsViewData<Config> = {
 
 export type LobbyViewData<Config, Loadout> = {
   userActiveGames: ActiveGame<Config>[];
-  roomEntries: RoomEntry<Config, Loadout>[];
+  roomIds: string[];
   queueEntries: QueueEntry<Loadout>[];
 };
 

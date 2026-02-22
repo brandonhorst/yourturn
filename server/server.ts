@@ -82,8 +82,10 @@ export class Server<
       throw new Error("Missing lobby user id");
     }
 
-    const storedUser = await this.db.getLobbyUserData(userId);
-    if (storedUser == null) {
+    const userMatchmakingData = await this.db.getUserMatchmakingStorageData(
+      userId,
+    );
+    if (userMatchmakingData == null) {
       throw new Error("Unknown lobby user");
     }
 
@@ -95,9 +97,11 @@ export class Server<
 
     return {
       props: {
-        userActiveGames: storedUser.activeGames,
-        roomEntries: storedUser.roomEntries,
-        queueEntries: storedUser.queueEntries,
+        userActiveGames: userMatchmakingData.activeGames,
+        roomIds: userMatchmakingData.joinedRooms.map((joinedRoom) =>
+          joinedRoom.roomId
+        ),
+        queueEntries: userMatchmakingData.queueEntries,
       },
       token: lobbyToken,
     };
@@ -225,7 +229,9 @@ export class Server<
 
       switch (request.type) {
         case "SubscribeLobby": {
-          const latestUserData = await this.db.getLobbyUserData(userId);
+          const latestUserData = await this.db.getUserMatchmakingStorageData(
+            userId,
+          );
           if (latestUserData == null) {
             sendDisplayError("Unknown lobby user.");
             break;

@@ -357,8 +357,8 @@ export function useLobbyChannel<Config, Loadout>({
   const [userActiveGames, setUserActiveGames] = useState(
     initialLobbyProps.userActiveGames,
   );
-  const [roomEntries, setRoomEntries] = useState(
-    initialLobbyProps.roomEntries,
+  const [roomIds, setRoomIds] = useState(
+    initialLobbyProps.roomIds,
   );
   const [queueEntries, setQueueEntries] = useState(
     initialLobbyProps.queueEntries,
@@ -402,7 +402,7 @@ export function useLobbyChannel<Config, Loadout>({
           }
 
           setUserActiveGames(response.lobbyProps.userActiveGames);
-          setRoomEntries(response.lobbyProps.roomEntries);
+          setRoomIds(response.lobbyProps.roomIds);
           setQueueEntries(response.lobbyProps.queueEntries);
           break;
         case "GameAssignment":
@@ -490,7 +490,7 @@ export function useLobbyChannel<Config, Loadout>({
 
   return {
     userActiveGames,
-    roomEntries,
+    roomIds,
     queueEntries,
     joinQueue,
     createAndJoinRoom,

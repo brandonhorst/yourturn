@@ -111,8 +111,8 @@ A single socket supports these channel subscriptions:
 Message protocol types are defined in `common/sockettypes.ts`.
 
 Lobby channel payloads (`LobbyViewData`) contain matchmaking data only:
-`userActiveGames`, `roomEntries`, and `queueEntries`. Player profile and ratings
-are not part of lobby channel view data.
+`userActiveGames`, `roomIds`, and `queueEntries`. Player profile and ratings are
+not part of lobby channel view data.
 
 ## Agent Instructions
 

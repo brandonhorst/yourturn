@@ -6,7 +6,6 @@ import type {
   Player,
   QueueConfig,
   QueueEntry,
-  RoomEntry,
   TokenData,
 } from "../types.ts";
 import { assert } from "@std/assert";
@@ -63,12 +62,6 @@ export type UserStorageData<Rating> = {
 export type UserMatchmakingStorageData<Config, Loadout> = {
   activeGames: ActiveGame<Config>[];
   joinedRooms: JoinedRoom<Loadout>[];
-  queueEntries: QueueEntry<Loadout>[];
-};
-
-export type LobbyUserData<Config, Loadout> = {
-  activeGames: ActiveGame<Config>[];
-  roomEntries: RoomEntry<Config, Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
 };
 
@@ -176,52 +169,6 @@ export class DB<
       throw new Error(`Queue ${queueId} not found`);
     }
     return queueConfig;
-  }
-
-  /**
-   * Builds lobby-friendly room entries from the user's joined room IDs/loadouts.
-   */
-  private async buildRoomEntries(
-    joinedRooms: JoinedRoom<Loadout>[],
-  ): Promise<RoomEntry<Config, Loadout>[]> {
-    const roomKeys = joinedRooms.map((joinedRoom) =>
-      getRoomKey(joinedRoom.roomId)
-    );
-    const roomRows = roomKeys.length === 0
-      ? []
-      : await this.kv.getMany<RoomStorageData<Config, Loadout>[]>(roomKeys);
-    const roomEntries: RoomEntry<Config, Loadout>[] = [];
-
-    for (let i = 0; i < joinedRooms.length; i++) {
-      const joinedRoom = joinedRooms[i];
-      const roomRow = roomRows[i];
-      if (roomRow.value == null) {
-        continue;
-      }
-      roomEntries.push({
-        roomId: joinedRoom.roomId,
-        numPlayers: roomRow.value.numPlayers,
-        players: roomRow.value.members.map((member) => member.player),
-        config: roomRow.value.config,
-        loadout: joinedRoom.loadout,
-      });
-    }
-
-    return roomEntries;
-  }
-
-  /**
-   * Hydrates user matchmaking storage data into the lobby-facing user shape.
-   */
-  private async toLobbyUserData(
-    data: UserMatchmakingStorageData<Config, Loadout>,
-  ): Promise<LobbyUserData<Config, Loadout>> {
-    const roomEntries = await this.buildRoomEntries(data.joinedRooms);
-    return {
-      activeGames: data.activeGames,
-      roomEntries,
-      queueEntries: data.queueEntries,
-    };
   }
 
   public async addToQueue(
@@ -1040,33 +987,24 @@ export class DB<
     return entry.value;
   }
 
-  // Fetches lobby-facing user data with roomEntries hydrated from room records.
-  public async getLobbyUserData(
+  /**
+   * Watches user matchmaking storage data updates for one user.
+   */
+  public watchForUserMatchmakingChanges(
     userId: string,
-  ): Promise<LobbyUserData<Config, Loadout> | null> {
-    const data = await this.getUserMatchmakingStorageData(userId);
-    if (data == null) {
-      return null;
-    }
-    return await this.toLobbyUserData(data);
-  }
-
-  // Watches for lobby-facing user data changes and hydrates roomEntries on each update.
-  public watchForLobbyUserChanges(
-    userId: string,
-  ): ReadableStream<LobbyUserData<Config, Loadout>> {
+  ): ReadableStream<UserMatchmakingStorageData<Config, Loadout>> {
     const userMatchmakingKey = getUserMatchmakingKey(userId);
-    const stream = this.kv.watch<UserMatchmakingStorageData<Config, Loadout>[]>(
+    const stream = this.kv.watch<[UserMatchmakingStorageData<Config, Loadout>]>(
       [
         userMatchmakingKey,
       ],
     );
     return stream.pipeThrough(
       new TransformStream({
-        transform: async (events, controller) => {
+        transform: (events, controller) => {
           const data = events[0].value;
           if (data != null) {
-            controller.enqueue(await this.toLobbyUserData(data));
+            controller.enqueue(data);
           }
         },
       }),
