@@ -190,7 +190,7 @@ export class Server<
   }
 
   /**
-   * Configures one websocket to handle both lobby and game messages.
+   * Configures one websocket to handle lobby, room, and game messages.
    */
   configureSocket(
     socket: WebSocket,
@@ -271,6 +271,20 @@ export class Server<
             socket,
             request.subscriptionId,
           );
+          break;
+        case "SubscribeRoom":
+          try {
+            await this.socketStore.subscribeRoom(
+              socket,
+              request.subscriptionId,
+              request.roomId,
+              userId,
+            );
+          } catch (err) {
+            console.error("Failed to subscribe room socket", err);
+            await this.socketStore.unsubscribe(socket, request.subscriptionId);
+            sendDisplayError("Unable to subscribe to room.");
+          }
           break;
         case "JoinQueue": {
           const queue = this.game.queues[request.queueId];
@@ -401,7 +415,7 @@ export class Server<
         }
         case "CommitRoom":
           try {
-            await this.db.commitRoom(request.roomId);
+            await this.socketStore.commitRoom(request.roomId, userId);
           } catch (err) {
             console.error("Failed to commit room", err);
             sendDisplayError("Unable to commit room.");
@@ -417,7 +431,7 @@ export class Server<
           break;
         case "LeaveRoom":
           try {
-            await this.socketStore.leaveRoom(socket, request.roomId);
+            await this.socketStore.leaveRoom(socket, request.roomId, userId);
           } catch (err) {
             console.error("Failed to leave room", err);
             sendDisplayError("Unable to leave room.");

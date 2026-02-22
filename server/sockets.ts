@@ -25,8 +25,10 @@ type QueueSubscription = {
   assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>;
 };
 
-type RoomSubscription<Config, Loadout> = {
+type RoomConnectionState<Config, Loadout> = {
+  userId: string;
   roomId: string;
+  subscriptionIds: Set<string>;
   entryId: string;
   loadout: Loadout;
   assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>;
@@ -39,13 +41,11 @@ type RoomSubscription<Config, Loadout> = {
  * Lobby-specific state tracked for one websocket.
  */
 type LobbyConnectionState<Config, Loadout, Rating> = {
-  userId: string;
   subscriptionIds: Set<string>;
   userChangesReader: ReadableStreamDefaultReader<
     LobbyUserData<Config, Loadout, Rating>
   >;
   queueSubscriptions: Map<string, QueueSubscription>;
-  roomSubscriptions: Map<string, RoomSubscription<Config, Loadout>>;
 };
 
 /**
@@ -69,15 +69,17 @@ type GameConnection<Config, GameState, Outcome> = {
 
 type SocketSubscription =
   | { type: "Lobby" }
+  | { type: "Room"; roomId: string }
   | { type: "ActivePublicGames" }
   | { type: "AvailablePublicRooms" }
   | { type: "Game"; gameId: string };
 
 /**
- * Combined state for a websocket across lobby and game subscriptions.
+ * Combined state for a websocket across lobby, room, and game subscriptions.
  */
 type SocketConnectionState<Config, Loadout, Rating> = {
   subscriptions: Map<string, SocketSubscription>;
+  roomConnections: Map<string, RoomConnectionState<Config, Loadout>>;
   lobby?: LobbyConnectionState<Config, Loadout, Rating>;
 };
 
@@ -266,7 +268,6 @@ export class SocketStore<
     ) {
       existingConnection.lobby.subscriptionIds.add(subscriptionId);
       this.sendLobbySnapshot(socket, subscriptionId, userData);
-      await this.syncRoomSubscriptions(socket, userData.roomEntries);
       return;
     }
 
@@ -279,15 +280,11 @@ export class SocketStore<
         .getReader();
 
       connectionState.lobby = {
-        userId,
         subscriptionIds: new Set(),
         userChangesReader,
         queueSubscriptions: new Map(),
-        roomSubscriptions: new Map(),
       };
       void this.streamUserChangesToSocket(socket, userChangesReader);
-    } else {
-      connectionState.lobby.userId = userId;
     }
 
     const lobbyState = connectionState.lobby;
@@ -299,7 +296,6 @@ export class SocketStore<
     connectionState.subscriptions.set(subscriptionId, { type: "Lobby" });
 
     this.sendLobbySnapshot(socket, subscriptionId, userData);
-    await this.syncRoomSubscriptions(socket, userData.roomEntries);
   }
 
   /**
@@ -337,6 +333,79 @@ export class SocketStore<
   }
 
   /**
+   * Subscribes one logical room channel instance on a websocket.
+   */
+  async subscribeRoom(
+    socket: WebSocket,
+    subscriptionId: string,
+    roomId: string,
+    userId: string,
+  ): Promise<void> {
+    await this.unsubscribe(socket, subscriptionId);
+
+    const room = await this.db.getRoom(roomId);
+    if (room == null) {
+      throw new Error(`Room ${roomId} not found`);
+    }
+
+    const roomMember = room.members.find((member) => member.userId === userId);
+    if (roomMember == null) {
+      throw new Error(`User ${userId} is not in room ${roomId}`);
+    }
+
+    const connectionState = this.getOrCreateSocketConnection(socket);
+    let roomConnection = connectionState.roomConnections.get(roomId);
+
+    if (roomConnection == null) {
+      const assignmentsReader = this.db.watchForAssignments(roomMember.entryId)
+        .getReader();
+      const roomChangesReader = this.db.watchForRoomChanges(roomId)
+        .getReader();
+
+      roomConnection = {
+        userId,
+        roomId,
+        subscriptionIds: new Set(),
+        entryId: roomMember.entryId,
+        loadout: roomMember.loadout,
+        assignmentsReader,
+        roomChangesReader,
+      };
+      connectionState.roomConnections.set(roomId, roomConnection);
+
+      void this.streamRoomAssignmentsToSocket(
+        socket,
+        roomId,
+        assignmentsReader,
+      );
+      void this.streamRoomChangesToSocket(socket, roomId, roomChangesReader);
+    } else {
+      roomConnection.userId = userId;
+      roomConnection.entryId = roomMember.entryId;
+      roomConnection.loadout = roomMember.loadout;
+    }
+
+    roomConnection.subscriptionIds.add(subscriptionId);
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "Room",
+      roomId,
+    });
+
+    const roomEntry: RoomEntry<Config, Loadout> = {
+      roomId,
+      numPlayers: room.numPlayers,
+      players: room.members.map((member) => member.player),
+      config: room.config,
+      loadout: roomMember.loadout,
+    };
+    this.sendRoomEntryUpdateToSubscription(
+      socket,
+      subscriptionId,
+      roomEntry,
+    );
+  }
+
+  /**
    * Unsubscribes one logical channel instance identified by subscription ID.
    */
   async unsubscribe(
@@ -358,6 +427,13 @@ export class SocketStore<
     switch (subscription.type) {
       case "Lobby":
         await this.unsubscribeLobbySubscription(socket, subscriptionId);
+        break;
+      case "Room":
+        await this.unsubscribeRoomSubscription(
+          socket,
+          subscriptionId,
+          subscription.roomId,
+        );
         break;
       case "ActivePublicGames":
         this.activePublicGamesSubscriptions.delete(subscriptionId);
@@ -423,7 +499,7 @@ export class SocketStore<
       assignmentsReader,
     });
 
-    void this.streamAssignmentsToSocket(socket, assignmentsReader);
+    void this.streamQueueAssignmentsToSocket(socket, assignmentsReader);
   }
 
   /**
@@ -442,21 +518,15 @@ export class SocketStore<
   }
 
   /**
-   * Adds a user to a room and starts assignment and room-change streams.
+   * Adds a user to a room.
    */
   async joinRoom(
-    socket: WebSocket,
+    _socket: WebSocket,
     roomId: string,
     userId: string,
     user: Player,
     loadout: Loadout,
   ): Promise<boolean> {
-    const lobbyState = this.getLobbyConnectionState(socket);
-
-    if (lobbyState.roomSubscriptions.has(roomId)) {
-      return true;
-    }
-
     const entryId = ulid();
 
     try {
@@ -471,12 +541,6 @@ export class SocketStore<
       return false;
     }
 
-    await this.startRoomSubscription(socket, {
-      roomId,
-      loadout,
-      entryId,
-    });
-
     return true;
   }
 
@@ -490,12 +554,45 @@ export class SocketStore<
   }
 
   /**
-   * Leaves one room and stops its assignment and room-change streams.
+   * Commits one room to a game when the user is an active member.
    */
-  async leaveRoom(socket: WebSocket, roomId: string): Promise<void> {
-    await this.cleanupRoomSubscription(socket, roomId, {
-      removeFromDb: true,
+  async commitRoom(roomId: string, userId: string): Promise<void> {
+    const room = await this.db.getRoom(roomId);
+    if (room == null) {
+      throw new Error(`Room ${roomId} not found`);
+    }
+
+    const member = room.members.find((roomMember) =>
+      roomMember.userId === userId
+    );
+    if (member == null) {
+      throw new Error(`User ${userId} is not in room ${roomId}`);
+    }
+
+    await this.db.commitRoom(roomId);
+  }
+
+  /**
+   * Leaves one room regardless of whether this socket is subscribed to it.
+   */
+  async leaveRoom(
+    socket: WebSocket,
+    roomId: string,
+    userId: string,
+  ): Promise<void> {
+    const room = await this.db.getRoom(roomId);
+    if (room != null) {
+      const member = room.members.find((roomMember) =>
+        roomMember.userId === userId
+      );
+      if (member != null) {
+        await this.db.removeFromRoom(roomId, member.entryId);
+      }
+    }
+
+    await this.cleanupRoomConnection(socket, roomId, {
       notifyClient: true,
+      removeSubscriptionEntries: true,
     });
   }
 
@@ -579,6 +676,30 @@ export class SocketStore<
   }
 
   /**
+   * Unsubscribes one room subscription and tears down room streams when last.
+   */
+  private async unsubscribeRoomSubscription(
+    socket: WebSocket,
+    subscriptionId: string,
+    roomId: string,
+  ): Promise<void> {
+    const roomConnection = this.getRoomConnection(socket, roomId);
+    if (roomConnection == null) {
+      return;
+    }
+
+    roomConnection.subscriptionIds.delete(subscriptionId);
+    if (roomConnection.subscriptionIds.size > 0) {
+      return;
+    }
+
+    await this.cleanupRoomConnection(socket, roomId, {
+      notifyClient: false,
+      removeSubscriptionEntries: false,
+    });
+  }
+
+  /**
    * Cleans up shared lobby resources after the last lobby subscription is gone.
    */
   private async cleanupLobbyConnection(
@@ -588,13 +709,6 @@ export class SocketStore<
     for (const queueId of [...lobbyState.queueSubscriptions.keys()]) {
       await this.cleanupQueueSubscription(socket, queueId, {
         removeFromDb: true,
-      });
-    }
-
-    for (const roomId of [...lobbyState.roomSubscriptions.keys()]) {
-      await this.cleanupRoomSubscription(socket, roomId, {
-        removeFromDb: true,
-        notifyClient: false,
       });
     }
 
@@ -647,8 +761,6 @@ export class SocketStore<
 
         const userData = data.value;
         this.sendLobbySnapshotToSubscriptions(socket, userData);
-
-        await this.syncRoomSubscriptions(socket, userData.roomEntries);
       }
     } catch {
       // Reader cancellation is expected during unsubscribe.
@@ -656,9 +768,9 @@ export class SocketStore<
   }
 
   /**
-   * Streams assignment updates for one queue or room entry.
+   * Streams assignment updates for one queue entry.
    */
-  private async streamAssignmentsToSocket(
+  private async streamQueueAssignmentsToSocket(
     socket: WebSocket,
     assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>,
   ): Promise<void> {
@@ -680,12 +792,40 @@ export class SocketStore<
   }
 
   /**
+   * Streams assignment updates for one room entry.
+   */
+  private async streamRoomAssignmentsToSocket(
+    socket: WebSocket,
+    roomId: string,
+    assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>,
+  ): Promise<void> {
+    try {
+      while (true) {
+        const data = await assignmentsReader.read();
+        if (data.done) {
+          break;
+        }
+
+        this.sendGameAssignmentToRoomSubscriptions(
+          socket,
+          roomId,
+          data.value.gameId,
+        );
+        break;
+      }
+    } catch {
+      // Reader cancellation is expected during unsubscribe.
+    } finally {
+      closeReader(assignmentsReader);
+    }
+  }
+
+  /**
    * Streams room updates for one room subscription.
    */
   private async streamRoomChangesToSocket(
     socket: WebSocket,
     roomId: string,
-    loadout: Loadout,
     roomChangesReader: ReadableStreamDefaultReader<
       RoomWatchEvent<Config, Loadout>
     >,
@@ -698,26 +838,48 @@ export class SocketStore<
         }
 
         if (data.value.type === "deleted") {
-          this.sendRoomEntryRemovalToLobbySubscriptions(socket, roomId);
-          await this.cleanupRoomSubscription(socket, roomId, {
-            removeFromDb: false,
+          this.sendRoomEntryRemovalToRoomSubscriptions(socket, roomId);
+          await this.cleanupRoomConnection(socket, roomId, {
             notifyClient: false,
+            removeSubscriptionEntries: true,
           });
           break;
         }
+
+        const roomConnection = this.getRoomConnection(socket, roomId);
+        if (roomConnection == null) {
+          break;
+        }
+
+        const roomMember = data.value.room.members.find((member) =>
+          member.userId === roomConnection.userId
+        );
+        if (roomMember == null) {
+          this.sendRoomEntryRemovalToRoomSubscriptions(socket, roomId);
+          await this.cleanupRoomConnection(socket, roomId, {
+            notifyClient: false,
+            removeSubscriptionEntries: true,
+          });
+          break;
+        }
+
+        roomConnection.entryId = roomMember.entryId;
+        roomConnection.loadout = roomMember.loadout;
 
         const roomEntry: RoomEntry<Config, Loadout> = {
           roomId,
           numPlayers: data.value.room.numPlayers,
           players: data.value.room.members.map((member) => member.player),
           config: data.value.room.config,
-          loadout,
+          loadout: roomMember.loadout,
         };
 
-        this.sendRoomEntryUpdateToLobbySubscriptions(socket, roomEntry);
+        this.sendRoomEntryUpdateToRoomSubscriptions(socket, roomId, roomEntry);
       }
     } catch {
       // Reader cancellation is expected during unsubscribe.
+    } finally {
+      closeReader(roomChangesReader);
     }
   }
 
@@ -757,29 +919,41 @@ export class SocketStore<
   }
 
   /**
-   * Sends one room entry update to each active lobby subscription.
+   * Sends one room entry update to one subscription ID.
    */
-  private sendRoomEntryUpdateToLobbySubscriptions(
+  private sendRoomEntryUpdateToSubscription(
     socket: WebSocket,
+    subscriptionId: string,
     roomEntry: RoomEntry<Config, Loadout>,
   ): void {
-    for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
-      sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
-        type: "UpdateRoomEntry",
-        subscriptionId,
-        roomEntry,
-      });
+    sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+      type: "UpdateRoomEntry",
+      subscriptionId,
+      roomEntry,
+    });
+  }
+
+  /**
+   * Sends one room entry update to each active room subscription.
+   */
+  private sendRoomEntryUpdateToRoomSubscriptions(
+    socket: WebSocket,
+    roomId: string,
+    roomEntry: RoomEntry<Config, Loadout>,
+  ): void {
+    for (const subscriptionId of this.getRoomSubscriptionIds(socket, roomId)) {
+      this.sendRoomEntryUpdateToSubscription(socket, subscriptionId, roomEntry);
     }
   }
 
   /**
-   * Sends one room entry removal to each active lobby subscription.
+   * Sends one room entry removal to each active room subscription.
    */
-  private sendRoomEntryRemovalToLobbySubscriptions(
+  private sendRoomEntryRemovalToRoomSubscriptions(
     socket: WebSocket,
     roomId: string,
   ): void {
-    for (const subscriptionId of this.getLobbySubscriptionIds(socket)) {
+    for (const subscriptionId of this.getRoomSubscriptionIds(socket, roomId)) {
       sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
         type: "RemoveRoomEntry",
         subscriptionId,
@@ -805,6 +979,23 @@ export class SocketStore<
   }
 
   /**
+   * Sends one game assignment message to each active room subscription.
+   */
+  private sendGameAssignmentToRoomSubscriptions(
+    socket: WebSocket,
+    roomId: string,
+    gameId: string,
+  ): void {
+    for (const subscriptionId of this.getRoomSubscriptionIds(socket, roomId)) {
+      sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+        type: "GameAssignment",
+        subscriptionId,
+        gameId,
+      });
+    }
+  }
+
+  /**
    * Returns all active lobby subscription IDs for a socket.
    */
   private getLobbySubscriptionIds(socket: WebSocket): string[] {
@@ -814,6 +1005,21 @@ export class SocketStore<
     }
 
     return [...connectionState.lobby.subscriptionIds];
+  }
+
+  /**
+   * Returns all active room subscription IDs for one socket and room.
+   */
+  private getRoomSubscriptionIds(
+    socket: WebSocket,
+    roomId: string,
+  ): string[] {
+    const roomConnection = this.getRoomConnection(socket, roomId);
+    if (roomConnection == null) {
+      return [];
+    }
+
+    return [...roomConnection.subscriptionIds];
   }
 
   /**
@@ -931,109 +1137,18 @@ export class SocketStore<
   }
 
   /**
-   * Reconciles room streams against the latest joined rooms for a websocket.
+   * Returns one room connection tracked for a socket.
    */
-  private async syncRoomSubscriptions(
+  private getRoomConnection(
     socket: WebSocket,
-    roomEntries: RoomEntry<Config, Loadout>[],
-  ): Promise<void> {
+    roomId: string,
+  ): RoomConnectionState<Config, Loadout> | undefined {
     const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
-      return;
+    if (connectionState == null) {
+      return undefined;
     }
 
-    const lobbyState = connectionState.lobby;
-    const roomEntryById = new Map(
-      roomEntries.map((roomEntry) => [roomEntry.roomId, roomEntry]),
-    );
-
-    for (const [roomId, roomEntry] of roomEntryById.entries()) {
-      if (lobbyState.roomSubscriptions.has(roomId)) {
-        continue;
-      }
-
-      await this.startRoomSubscription(socket, {
-        roomId,
-        loadout: roomEntry.loadout,
-      });
-    }
-
-    for (const roomId of [...lobbyState.roomSubscriptions.keys()]) {
-      if (roomEntryById.has(roomId)) {
-        continue;
-      }
-
-      await this.cleanupRoomSubscription(socket, roomId, {
-        removeFromDb: false,
-        notifyClient: true,
-      });
-    }
-  }
-
-  /**
-   * Starts assignment and room-change streams for a single room.
-   */
-  private async startRoomSubscription(
-    socket: WebSocket,
-    options: { roomId: string; loadout: Loadout; entryId?: string },
-  ): Promise<void> {
-    const lobbyState = this.getLobbyConnectionState(socket);
-
-    if (lobbyState.roomSubscriptions.has(options.roomId)) {
-      return;
-    }
-
-    let entryId = options.entryId;
-
-    if (entryId == null) {
-      const room = await this.db.getRoom(options.roomId);
-      if (room == null) {
-        this.sendRoomEntryRemovalToLobbySubscriptions(socket, options.roomId);
-        return;
-      }
-
-      const member = room.members.find((roomMember) =>
-        roomMember.userId === lobbyState.userId
-      );
-      if (member == null) {
-        this.sendRoomEntryRemovalToLobbySubscriptions(socket, options.roomId);
-        return;
-      }
-
-      entryId = member.entryId;
-    }
-
-    const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
-    const roomChangesReader = this.db.watchForRoomChanges(options.roomId)
-      .getReader();
-
-    lobbyState.roomSubscriptions.set(options.roomId, {
-      roomId: options.roomId,
-      entryId,
-      loadout: options.loadout,
-      assignmentsReader,
-      roomChangesReader,
-    });
-
-    void this.streamAssignmentsToSocket(socket, assignmentsReader);
-    void this.streamRoomChangesToSocket(
-      socket,
-      options.roomId,
-      options.loadout,
-      roomChangesReader,
-    );
-
-    const roomSnapshot = await this.db.getRoom(options.roomId);
-    if (roomSnapshot != null) {
-      const roomEntry: RoomEntry<Config, Loadout> = {
-        roomId: options.roomId,
-        numPlayers: roomSnapshot.numPlayers,
-        players: roomSnapshot.members.map((member) => member.player),
-        config: roomSnapshot.config,
-        loadout: options.loadout,
-      };
-      this.sendRoomEntryUpdateToLobbySubscriptions(socket, roomEntry);
-    }
+    return connectionState.roomConnections.get(roomId);
   }
 
   /**
@@ -1072,43 +1187,53 @@ export class SocketStore<
   }
 
   /**
-   * Cleans up one room subscription and optionally removes room membership.
+   * Cleans up one room connection and optionally removes channel subscriptions.
    */
-  private async cleanupRoomSubscription(
+  private cleanupRoomConnection(
     socket: WebSocket,
     roomId: string,
-    options: { removeFromDb: boolean; notifyClient: boolean },
-  ): Promise<void> {
+    options: { notifyClient: boolean; removeSubscriptionEntries: boolean },
+  ): void {
     const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.lobby == null) {
+    if (connectionState == null) {
       return;
     }
 
-    const lobbyState = connectionState.lobby;
-    const roomSubscription = lobbyState.roomSubscriptions.get(roomId);
-    if (roomSubscription == null) {
+    const roomConnection = connectionState.roomConnections.get(roomId);
+    if (roomConnection == null) {
       return;
     }
 
-    closeReader(roomSubscription.assignmentsReader);
-    closeReader(roomSubscription.roomChangesReader);
+    const roomSubscriptionIds = [...roomConnection.subscriptionIds];
 
-    if (options.removeFromDb) {
-      try {
-        await this.db.removeFromRoom(
-          roomSubscription.roomId,
-          roomSubscription.entryId,
-        );
-      } catch (err) {
-        console.error("Failed to remove room subscription", err);
+    closeReader(roomConnection.assignmentsReader);
+    closeReader(roomConnection.roomChangesReader);
+
+    connectionState.roomConnections.delete(roomId);
+
+    if (options.removeSubscriptionEntries) {
+      for (const subscriptionId of roomSubscriptionIds) {
+        const subscription = connectionState.subscriptions.get(subscriptionId);
+        if (subscription?.type === "Room" && subscription.roomId === roomId) {
+          connectionState.subscriptions.delete(subscriptionId);
+        }
       }
     }
 
-    lobbyState.roomSubscriptions.delete(roomId);
-
     if (options.notifyClient) {
-      this.sendRoomEntryRemovalToLobbySubscriptions(socket, roomId);
+      for (const subscriptionId of roomSubscriptionIds) {
+        sendServerMessage<Config, Loadout, Rating, never, never, never>(
+          socket,
+          {
+            type: "RemoveRoomEntry",
+            subscriptionId,
+            roomId,
+          },
+        );
+      }
     }
+
+    this.pruneIdleSocket(socket);
   }
 
   /**
@@ -1241,6 +1366,7 @@ export class SocketStore<
 
     const connectionState: SocketConnectionState<Config, Loadout, Rating> = {
       subscriptions: new Map(),
+      roomConnections: new Map(),
     };
     this.sockets.set(socket, connectionState);
     return connectionState;
@@ -1255,6 +1381,9 @@ export class SocketStore<
       return;
     }
     if (connectionState.subscriptions.size > 0) {
+      return;
+    }
+    if (connectionState.roomConnections.size > 0) {
       return;
     }
     if (connectionState.lobby != null) {

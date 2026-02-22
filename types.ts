@@ -369,7 +369,12 @@ export type LobbyProps<Config, Loadout, Rating> =
       player: { loadout: Loadout },
     ) => void;
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
-    commitRoom: (roomId: string) => void;
     leaveQueue: (queueId: string) => void;
-    leaveRoom: (roomId: string) => void;
+  };
+
+export type RoomProps<Config, Loadout> =
+  & RoomEntry<Config, Loadout>
+  & {
+    commitRoom: () => void;
+    leaveRoom: () => void;
   };

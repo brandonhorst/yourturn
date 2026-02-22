@@ -7,6 +7,8 @@ import type {
   GameViewData,
   LobbyProps,
   LobbyViewData,
+  RoomEntry,
+  RoomProps,
   Socket,
 } from "../types.ts";
 
@@ -407,33 +409,6 @@ export function useLobbyChannel<Config, Loadout, Rating>({
           setRoomEntries(response.lobbyProps.roomEntries);
           setQueueEntries(response.lobbyProps.queueEntries);
           break;
-        case "UpdateRoomEntry":
-          if (response.subscriptionId !== subscriptionId) {
-            break;
-          }
-
-          setRoomEntries((existing) => {
-            const existingIndex = existing.findIndex((entry) =>
-              entry.roomId === response.roomEntry.roomId
-            );
-            if (existingIndex === -1) {
-              return [...existing, response.roomEntry];
-            }
-
-            const updated = [...existing];
-            updated[existingIndex] = response.roomEntry;
-            return updated;
-          });
-          break;
-        case "RemoveRoomEntry":
-          if (response.subscriptionId !== subscriptionId) {
-            break;
-          }
-
-          setRoomEntries((existing) =>
-            existing.filter((entry) => entry.roomId !== response.roomId)
-          );
-          break;
         case "GameAssignment":
           if (response.subscriptionId !== subscriptionId) {
             break;
@@ -513,16 +488,8 @@ export function useLobbyChannel<Config, Loadout, Rating>({
     [send],
   );
 
-  const commitRoom = useCallback((roomId: string) => {
-    send({ type: "CommitRoom", roomId });
-  }, [send]);
-
   const leaveQueue = useCallback((queueId: string) => {
     send({ type: "LeaveQueue", queueId });
-  }, [send]);
-
-  const leaveRoom = useCallback((roomId: string) => {
-    send({ type: "LeaveRoom", roomId });
   }, [send]);
 
   return {
@@ -534,8 +501,144 @@ export function useLobbyChannel<Config, Loadout, Rating>({
     joinQueue,
     createAndJoinRoom,
     joinRoom,
-    commitRoom,
     leaveQueue,
+  };
+}
+
+// Subscribes to a single joined room on an already-open socket.
+export function useRoomChannel<Config, Loadout>({
+  socket,
+  roomId,
+  initialRoomEntry,
+  navigate,
+  displayError,
+}: {
+  socket: Socket;
+  roomId: string;
+  initialRoomEntry: RoomEntry<Config, Loadout>;
+  navigate: (gameId: string) => void;
+  displayError: (message: string) => void;
+}): RoomProps<Config, Loadout> {
+  const [roomEntry, setRoomEntry] = useState<RoomEntry<Config, Loadout>>(
+    initialRoomEntry,
+  );
+
+  useEffect(() => {
+    setRoomEntry(initialRoomEntry);
+  }, [initialRoomEntry]);
+
+  useEffect(() => {
+    const subscriptionId = crypto.randomUUID();
+
+    // Sends the room subscription request for this hook instance.
+    function sendSubscribe() {
+      const request: ClientMessage<
+        Config,
+        Loadout,
+        never,
+        never,
+        never
+      > = {
+        type: "SubscribeRoom",
+        subscriptionId,
+        roomId,
+      };
+      socket.send(JSON.stringify(request));
+    }
+
+    function onOpen() {
+      sendSubscribe();
+    }
+
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
+        Config,
+        Loadout,
+        never,
+        never,
+        never,
+        never
+      >;
+
+      switch (response.type) {
+        case "UpdateRoomEntry":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
+          setRoomEntry(response.roomEntry);
+          break;
+        case "RemoveRoomEntry":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
+          // Keep the last room snapshot in state; room UI teardown is caller-controlled.
+          break;
+        case "GameAssignment":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
+          navigate(response.gameId);
+          break;
+        case "DisplayError":
+          displayError(response.message);
+          break;
+      }
+    }
+
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
+    try {
+      sendSubscribe();
+    } catch {
+      // The socket may still be connecting; we'll subscribe once it opens.
+    }
+
+    return () => {
+      const request: ClientMessage<
+        Config,
+        Loadout,
+        never,
+        never,
+        never
+      > = {
+        type: "Unsubscribe",
+        subscriptionId,
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown.
+      }
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
+    };
+  }, [displayError, navigate, roomId, socket]);
+
+  const send = useCallback(
+    (request: ClientMessage<Config, Loadout, never, never, never>) => {
+      socket.send(JSON.stringify(request));
+    },
+    [socket],
+  );
+
+  const commitRoom = useCallback(() => {
+    send({ type: "CommitRoom", roomId });
+  }, [roomId, send]);
+
+  const leaveRoom = useCallback(() => {
+    send({ type: "LeaveRoom", roomId });
+  }, [roomId, send]);
+
+  return {
+    roomId: roomEntry.roomId,
+    numPlayers: roomEntry.numPlayers,
+    players: roomEntry.players,
+    config: roomEntry.config,
+    loadout: roomEntry.loadout,
+    commitRoom,
     leaveRoom,
   };
 }

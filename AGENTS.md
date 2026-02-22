@@ -51,7 +51,7 @@ subscribe to multiple channels:
 
 Client-side hooks are organized by functionality:
 
-- `client/channels.ts` - Lobby/game channel subscription hooks
+- `client/channels.ts` - Lobby, room, and game channel subscription hooks
 - `client/socket.ts` - Shared socket connection utilities
 
 ### Game Interface
@@ -99,11 +99,11 @@ Uses Deno KV for:
 
 A single socket supports these channel subscriptions:
 
-1. **Lobby channel** - Matchmaking actions, room lifecycle, and user lobby
-   updates
-2. **Game channel** - Moves and game state updates for players/observers
-3. **Active public games channel** - Global list of active games
-4. **Available public rooms channel** - Global list of joinable public rooms
+1. **Lobby channel** - Matchmaking actions and user lobby updates
+2. **Room channel** - Per-room lifecycle updates and room-specific actions
+3. **Game channel** - Moves and game state updates for players/observers
+4. **Active public games channel** - Global list of active games
+5. **Available public rooms channel** - Global list of joinable public rooms
 
 Message protocol types are defined in `common/sockettypes.ts`.
 
