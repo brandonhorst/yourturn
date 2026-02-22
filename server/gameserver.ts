@@ -286,7 +286,7 @@ export class Server<
 
           if (
             !(this.game.isValidLoadout?.(request.loadout, queue.config) ??
-              false)
+              true)
           ) {
             sendDisplayError("Invalid loadout.");
             break;
@@ -320,7 +320,7 @@ export class Server<
 
           if (
             !(this.game.isValidLoadout?.(request.loadout, request.config) ??
-              false)
+              true)
           ) {
             sendDisplayError("Invalid loadout.");
             break;
@@ -363,7 +363,7 @@ export class Server<
           }
           if (
             !(this.game.isValidLoadout?.(request.loadout, room.config) ??
-              false)
+              true)
           ) {
             sendDisplayError("Invalid loadout.");
             break;
