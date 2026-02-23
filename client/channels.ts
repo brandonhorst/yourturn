@@ -363,10 +363,10 @@ export function useUserMatchmakingChannel<Config, Loadout>({
   const [queueEntries, setQueueEntries] = useState(
     initialUserMatchmakingProps.queueEntries,
   );
+  const subscriptionIdRef = useRef<string>(crypto.randomUUID());
+  const subscriptionId = subscriptionIdRef.current;
 
   useEffect(() => {
-    const subscriptionId = crypto.randomUUID();
-
     // Sends the UserMatchmaking subscription request for this hook instance.
     function sendSubscribe() {
       const request: ClientMessage<
@@ -456,9 +456,14 @@ export function useUserMatchmakingChannel<Config, Loadout>({
 
   const joinQueue = useCallback(
     (queueId: string, options: { loadout: Loadout }) => {
-      send({ type: "JoinQueue", queueId, loadout: options.loadout });
+      send({
+        type: "JoinQueue",
+        queueId,
+        loadout: options.loadout,
+        assignmentSubscriptionId: subscriptionId,
+      });
     },
-    [send],
+    [send, subscriptionId],
   );
 
   const createAndJoinRoom = useCallback(
@@ -472,16 +477,22 @@ export function useUserMatchmakingChannel<Config, Loadout>({
         numPlayers: options.numPlayers,
         private: options.private,
         loadout: player.loadout,
+        assignmentSubscriptionId: subscriptionId,
       });
     },
-    [send],
+    [send, subscriptionId],
   );
 
   const joinRoom = useCallback(
     (roomId: string, options: { loadout: Loadout }) => {
-      send({ type: "JoinRoom", roomId, loadout: options.loadout });
+      send({
+        type: "JoinRoom",
+        roomId,
+        loadout: options.loadout,
+        assignmentSubscriptionId: subscriptionId,
+      });
     },
-    [send],
+    [send, subscriptionId],
   );
 
   const leaveQueue = useCallback((queueId: string) => {

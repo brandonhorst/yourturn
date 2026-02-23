@@ -42,8 +42,8 @@ subscribe to multiple channels:
   routing
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for
   UserMatchmaking, room, queue, global lists, and per-game updates
-- `server/db.ts` - Deno KV persistence for users, queues, rooms, assignments,
-  user matchmakings, active games, and tokens
+- `server/db.ts` - Deno KV persistence for users, queues, rooms, user
+  matchmakings, active games, and tokens
 - `server/gamestateservice.ts` - Game state projection and move processing,
   including outcome handling and ranked rating updates
 
@@ -92,7 +92,8 @@ Uses Deno KV for:
 
 - Game state persistence
 - Queue matchmaking and room-based matchmaking
-- Queue/room-to-game assignments
+- Queue entries and room members that optionally persist assignment subscription
+  IDs used for direct `GameAssignment` socket delivery
 - User records (`["users", userId]`) for `player` and per-queue `ratings`
 - User matchmaking records (`["usermatchmakings", userId]`) for `activeGames`,
   `joinedRooms`, and `queueEntries`
@@ -111,6 +112,11 @@ A single socket supports these channel subscriptions:
 5. **Available public rooms channel** - Global list of joinable public rooms
 
 Message protocol types are defined in `common/sockettypes.ts`.
+
+`JoinQueue`, `CreateAndJoinRoom`, and `JoinRoom` requests can include
+`assignmentSubscriptionId` so queue graduation and committed rooms can emit
+targeted `GameAssignment` messages without a dedicated assignment KV key/watch
+stream.
 
 UserMatchmaking channel payloads (`UserMatchmakingViewData`) contain matchmaking
 data only: `userActiveGames`, `roomIds`, and `queueEntries`. Player profile and

@@ -13,15 +13,26 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "SubscribeAvailablePublicRooms"; subscriptionId: string }
   // UserMatchmaking channel
   | { type: "SubscribeUserMatchmaking"; subscriptionId: string }
-  | { type: "JoinQueue"; queueId: string; loadout: Loadout }
+  | {
+    type: "JoinQueue";
+    queueId: string;
+    loadout: Loadout;
+    assignmentSubscriptionId?: string;
+  }
   | {
     type: "CreateAndJoinRoom";
     config: Config;
     numPlayers: number;
     private: boolean;
     loadout: Loadout;
+    assignmentSubscriptionId?: string;
   }
-  | { type: "JoinRoom"; roomId: string; loadout: Loadout }
+  | {
+    type: "JoinRoom";
+    roomId: string;
+    loadout: Loadout;
+    assignmentSubscriptionId?: string;
+  }
   | { type: "LeaveQueue"; queueId: string }
   // Room Channel
   | { type: "SubscribeRoom"; subscriptionId: string; roomId: string }

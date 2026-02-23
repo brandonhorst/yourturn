@@ -362,12 +362,12 @@ export type UserMatchmakingProps<Config, Loadout> =
   & UserMatchmakingViewData<Config, Loadout>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
+    leaveQueue: (queueId: string) => void;
     createAndJoinRoom: (
       options: { config: Config; numPlayers: number; private: boolean },
       player: { loadout: Loadout },
     ) => void;
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
-    leaveQueue: (queueId: string) => void;
   };
 
 export type RoomProps<Config, Loadout> =

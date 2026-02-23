@@ -15,6 +15,7 @@ type QueueEntryValue<Loadout> = {
   userId: string;
   user: Player;
   loadout: Loadout;
+  assignmentSubscriptionId?: string;
 };
 
 export type RoomStorageData<Config, Loadout> = {
@@ -34,6 +35,7 @@ type RoomMember<Loadout> = {
   userId: string;
   player: Player;
   loadout: Loadout;
+  assignmentSubscriptionId?: string;
 };
 
 export type GameStorageData<Config, GameState, Outcome> = {
@@ -45,8 +47,9 @@ export type GameStorageData<Config, GameState, Outcome> = {
   outcome: Outcome | undefined;
 };
 
-export type AssignmentStorageData = {
+export type GameAssignmentNotification = {
   gameId: string;
+  subscriptionId?: string;
 };
 
 export type JoinedRoom<Loadout> = {
@@ -77,9 +80,6 @@ function getRoomPrefix() {
 }
 function getRoomKey(roomId: string) {
   return ["rooms", roomId];
-}
-function getAssignmentKey(entryId: string) {
-  return ["assignments", entryId];
 }
 function getRoomListTriggerKey() {
   return ["roomlisttrigger"];
@@ -177,7 +177,8 @@ export class DB<
     userId: string,
     user: Player,
     loadout: Loadout,
-  ): Promise<void> {
+    assignmentSubscriptionId?: string,
+  ): Promise<GameAssignmentNotification[]> {
     const queueConfig = this.getQueueConfig(queueId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entryKey = getQueueEntryKey(queueId, entryId);
@@ -204,12 +205,18 @@ export class DB<
 
       transaction
         .check({ key: entryKey, versionstamp: null })
-        .set(entryKey, { timestamp: new Date(), userId, user, loadout })
+        .set(entryKey, {
+          timestamp: new Date(),
+          userId,
+          user,
+          loadout,
+          assignmentSubscriptionId,
+        })
         .check(userMatchmakingEntry)
         .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
     });
 
-    await this.maybeGraduateFromQueue(queueId, queueConfig);
+    return await this.maybeGraduateFromQueue(queueId, queueConfig);
   }
 
   public async removeFromQueue(
@@ -315,6 +322,7 @@ export class DB<
     userId: string,
     user: Player,
     loadout: Loadout,
+    assignmentSubscriptionId?: string,
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
@@ -349,7 +357,14 @@ export class DB<
         ...roomEntry.value,
         members: [
           ...currentMembers,
-          { entryId, timestamp: new Date(), userId, player: user, loadout },
+          {
+            entryId,
+            timestamp: new Date(),
+            userId,
+            player: user,
+            loadout,
+            assignmentSubscriptionId,
+          },
         ],
       };
 
@@ -535,10 +550,11 @@ export class DB<
 
   public async commitRoom(
     roomId: string,
-  ): Promise<void> {
+  ): Promise<GameAssignmentNotification[]> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
     const activeGamesKey = getActiveGamesKey();
+    let gameAssignments: GameAssignmentNotification[] = [];
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const roomEntry = await this.kv.get<RoomStorageData<Config, Loadout>>(
@@ -552,15 +568,16 @@ export class DB<
         throw new Error(`Room ${roomId} does not have enough players`);
       }
 
-      const userIds: string[] = [];
-      const loadouts: Loadout[] = [];
-      for (let i = 0; i < roomEntry.value.numPlayers; i++) {
-        userIds[i] = members[i].userId;
-        loadouts[i] = members[i].loadout;
-      }
+      const assignedMembers = members.slice(0, roomEntry.value.numPlayers);
+      const userIds = assignedMembers.map((member) => member.userId);
+      const loadouts = assignedMembers.map((member) => member.loadout);
 
       const config = roomEntry.value.config;
       const gameId = ulid();
+      gameAssignments = assignedMembers.map((member) => ({
+        gameId,
+        subscriptionId: member.assignmentSubscriptionId,
+      }));
       await this.createNewGameOnOperation(
         transaction,
         {
@@ -585,12 +602,7 @@ export class DB<
         UserMatchmakingStorageData<Config, Loadout>[]
       >(userMatchmakingKeys);
 
-      for (let i = 0; i < roomEntry.value.numPlayers; i++) {
-        const member = members[i];
-        const entryId = member.entryId;
-        const assignmentKey = getAssignmentKey(entryId);
-        const assignmentValue: AssignmentStorageData = { gameId };
-
+      for (let i = 0; i < assignedMembers.length; i++) {
         const userMatchmakingEntry = userMatchmakingEntries[i];
         if (userMatchmakingEntry.value == null) {
           throw new Error(`User ${userIds[i]} not found`);
@@ -609,20 +621,21 @@ export class DB<
         };
 
         transaction
-          .check({ key: assignmentKey, versionstamp: null })
-          .set(assignmentKey, assignmentValue)
           .check(userMatchmakingEntry)
           .set(userMatchmakingKeys[i], updatedUserMatchmaking);
       }
     });
+
+    return gameAssignments;
   }
 
   private async maybeGraduateFromQueue(
     queueId: string,
     queueConfig: QueueConfig<Config>,
-  ): Promise<void> {
+  ): Promise<GameAssignmentNotification[]> {
     const queuePrefix = getQueuePrefix(queueId);
     const activeGamesKey = getActiveGamesKey();
+    let gameAssignments: GameAssignmentNotification[] = [];
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       // Get desired queue entries, if they exist
@@ -634,6 +647,7 @@ export class DB<
       );
       // If the queue doesn't have enough entrants, stop
       if (queueEntries.length < queueConfig.numPlayers) {
+        gameAssignments = [];
         return; // Nothing to do
       }
 
@@ -648,6 +662,10 @@ export class DB<
         loadouts[i] = queueEntries[i].value.loadout;
       }
       const gameId = ulid();
+      gameAssignments = queueEntries.map((entry) => ({
+        gameId,
+        subscriptionId: entry.value.assignmentSubscriptionId,
+      }));
       await this.createNewGameOnOperation(
         transaction,
         {
@@ -671,11 +689,6 @@ export class DB<
       // For each player
       for (let i = 0; i < queueEntries.length; i++) {
         const entry = queueEntries[i];
-        const entryId = entry.key[2] as string;
-        const assignmentKey = getAssignmentKey(entryId);
-        const assignmentValue: AssignmentStorageData = {
-          gameId,
-        };
 
         const userMatchmakingEntry = userMatchmakingEntries[i];
         if (userMatchmakingEntry.value == null) {
@@ -698,29 +711,12 @@ export class DB<
         transaction
           .check(entry)
           .delete(entry.key)
-          .check({ key: assignmentKey, versionstamp: null })
-          .set(assignmentKey, assignmentValue)
           .check(userMatchmakingEntry)
           .set(userMatchmakingKeys[i], updatedUserMatchmaking);
       }
     });
-  }
 
-  public watchForAssignments(
-    entryId: string,
-  ): ReadableStream<AssignmentStorageData> {
-    const key = getAssignmentKey(entryId);
-    const stream = this.kv.watch([key]);
-    return stream.pipeThrough(
-      new TransformStream({
-        transform(events, controller) {
-          const data = events[0].value as AssignmentStorageData;
-          if (data != null) {
-            controller.enqueue(data);
-          }
-        },
-      }),
-    );
+    return gameAssignments;
   }
 
   /**

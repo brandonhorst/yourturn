@@ -304,6 +304,7 @@ export class Server<
               userId,
               user,
               request.loadout,
+              request.assignmentSubscriptionId,
             );
           } catch (err) {
             console.error("Failed to join queue", err);
@@ -344,6 +345,7 @@ export class Server<
               userId,
               user,
               request.loadout,
+              request.assignmentSubscriptionId,
             );
           } catch (err) {
             console.error("Failed to create and join room", err);
@@ -390,6 +392,7 @@ export class Server<
               userId,
               user,
               request.loadout,
+              request.assignmentSubscriptionId,
             );
           } catch (err) {
             console.error("Failed to join room", err);

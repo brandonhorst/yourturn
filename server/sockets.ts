@@ -1,6 +1,6 @@
 import type {
-  AssignmentStorageData,
   DB,
+  GameAssignmentNotification,
   GameStorageData,
   RoomWatchEvent,
   UserMatchmakingStorageData,
@@ -22,7 +22,6 @@ import { ulid } from "@std/ulid";
 type QueueSubscription = {
   queueId: string;
   entryId: string;
-  assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>;
 };
 
 type RoomConnectionState<Config, Loadout> = {
@@ -31,7 +30,6 @@ type RoomConnectionState<Config, Loadout> = {
   subscriptionIds: Set<string>;
   entryId: string;
   loadout: Loadout;
-  assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>;
   roomChangesReader: ReadableStreamDefaultReader<
     RoomWatchEvent<Config, Loadout>
   >;
@@ -360,8 +358,6 @@ export class SocketStore<
     let roomConnection = connectionState.roomConnections.get(roomId);
 
     if (roomConnection == null) {
-      const assignmentsReader = this.db.watchForAssignments(roomMember.entryId)
-        .getReader();
       const roomChangesReader = this.db.watchForRoomChanges(roomId)
         .getReader();
 
@@ -371,16 +367,10 @@ export class SocketStore<
         subscriptionIds: new Set(),
         entryId: roomMember.entryId,
         loadout: roomMember.loadout,
-        assignmentsReader,
         roomChangesReader,
       };
       connectionState.roomConnections.set(roomId, roomConnection);
 
-      void this.streamRoomAssignmentsToSocket(
-        socket,
-        roomId,
-        assignmentsReader,
-      );
       void this.streamRoomChangesToSocket(socket, roomId, roomChangesReader);
     } else {
       roomConnection.userId = userId;
@@ -472,7 +462,7 @@ export class SocketStore<
   }
 
   /**
-   * Adds a user to a queue and watches for assignment updates.
+   * Adds a user to a queue and dispatches any immediate game assignments.
    */
   async joinQueue(
     socket: WebSocket,
@@ -480,6 +470,7 @@ export class SocketStore<
     userId: string,
     user: Player,
     loadout: Loadout,
+    assignmentSubscriptionId?: string,
   ): Promise<void> {
     const userMatchmakingState = this.getUserMatchmakingConnectionState(socket);
 
@@ -490,22 +481,25 @@ export class SocketStore<
     }
 
     const entryId = ulid();
-    const assignmentsReader = this.db.watchForAssignments(entryId).getReader();
-
-    try {
-      await this.db.addToQueue(queueId, entryId, userId, user, loadout);
-    } catch (err) {
-      closeReader(assignmentsReader);
-      throw err;
-    }
-
-    userMatchmakingState.queueSubscriptions.set(queueId, {
+    const gameAssignments = await this.db.addToQueue(
       queueId,
       entryId,
-      assignmentsReader,
-    });
+      userId,
+      user,
+      loadout,
+      assignmentSubscriptionId,
+    );
 
-    void this.streamQueueAssignmentsToSocket(socket, assignmentsReader);
+    if (gameAssignments.length === 0) {
+      userMatchmakingState.queueSubscriptions.set(queueId, {
+        queueId,
+        entryId,
+      });
+    } else {
+      userMatchmakingState.queueSubscriptions.delete(queueId);
+    }
+
+    this.sendGameAssignmentsToStoredSubscriptions(gameAssignments);
   }
 
   /**
@@ -517,10 +511,18 @@ export class SocketStore<
     userId: string,
     user: Player,
     loadout: Loadout,
+    assignmentSubscriptionId?: string,
   ): Promise<void> {
     const roomId = ulid();
     await this.db.createRoom(roomId, roomConfig);
-    await this.joinRoom(socket, roomId, userId, user, loadout);
+    await this.joinRoom(
+      socket,
+      roomId,
+      userId,
+      user,
+      loadout,
+      assignmentSubscriptionId,
+    );
   }
 
   /**
@@ -532,6 +534,7 @@ export class SocketStore<
     userId: string,
     user: Player,
     loadout: Loadout,
+    assignmentSubscriptionId?: string,
   ): Promise<boolean> {
     const entryId = ulid();
 
@@ -542,6 +545,7 @@ export class SocketStore<
         userId,
         user,
         loadout,
+        assignmentSubscriptionId,
       );
     } catch {
       return false;
@@ -551,7 +555,7 @@ export class SocketStore<
   }
 
   /**
-   * Leaves one queue and stops that queue's assignment stream.
+   * Leaves one queue and removes its stored queue entry state.
    */
   async leaveQueue(socket: WebSocket, queueId: string): Promise<void> {
     await this.cleanupQueueSubscription(socket, queueId, {
@@ -575,7 +579,8 @@ export class SocketStore<
       throw new Error(`User ${userId} is not in room ${roomId}`);
     }
 
-    await this.db.commitRoom(roomId);
+    const gameAssignments = await this.db.commitRoom(roomId);
+    this.sendGameAssignmentsToStoredSubscriptions(gameAssignments);
   }
 
   /**
@@ -776,62 +781,6 @@ export class SocketStore<
   }
 
   /**
-   * Streams assignment updates for one queue entry.
-   */
-  private async streamQueueAssignmentsToSocket(
-    socket: WebSocket,
-    assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>,
-  ): Promise<void> {
-    try {
-      while (true) {
-        const data = await assignmentsReader.read();
-        if (data.done) {
-          break;
-        }
-
-        this.sendGameAssignmentToUserMatchmakingSubscriptions(
-          socket,
-          data.value.gameId,
-        );
-        break;
-      }
-    } catch {
-      // Reader cancellation is expected during unsubscribe.
-    } finally {
-      closeReader(assignmentsReader);
-    }
-  }
-
-  /**
-   * Streams assignment updates for one room entry.
-   */
-  private async streamRoomAssignmentsToSocket(
-    socket: WebSocket,
-    roomId: string,
-    assignmentsReader: ReadableStreamDefaultReader<AssignmentStorageData>,
-  ): Promise<void> {
-    try {
-      while (true) {
-        const data = await assignmentsReader.read();
-        if (data.done) {
-          break;
-        }
-
-        this.sendGameAssignmentToRoomSubscriptions(
-          socket,
-          roomId,
-          data.value.gameId,
-        );
-        break;
-      }
-    } catch {
-      // Reader cancellation is expected during unsubscribe.
-    } finally {
-      closeReader(assignmentsReader);
-    }
-  }
-
-  /**
    * Streams room updates for one room subscription.
    */
   private async streamRoomChangesToSocket(
@@ -975,33 +924,36 @@ export class SocketStore<
   }
 
   /**
-   * Sends one game assignment message to each active UserMatchmaking
-   * subscription.
+   * Sends game assignment messages for each stored assignment target.
    */
-  private sendGameAssignmentToUserMatchmakingSubscriptions(
-    socket: WebSocket,
-    gameId: string,
+  private sendGameAssignmentsToStoredSubscriptions(
+    assignments: GameAssignmentNotification[],
   ): void {
-    for (
-      const subscriptionId of this.getUserMatchmakingSubscriptionIds(socket)
-    ) {
-      sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
-        type: "GameAssignment",
-        subscriptionId,
-        gameId,
-      });
+    for (const assignment of assignments) {
+      if (assignment.subscriptionId == null) {
+        continue;
+      }
+
+      this.sendGameAssignmentToMatchingSubscriptions(
+        assignment.subscriptionId,
+        assignment.gameId,
+      );
     }
   }
 
   /**
-   * Sends one game assignment message to each active room subscription.
+   * Sends one game assignment message to sockets currently holding the
+   * referenced subscription ID.
    */
-  private sendGameAssignmentToRoomSubscriptions(
-    socket: WebSocket,
-    roomId: string,
+  private sendGameAssignmentToMatchingSubscriptions(
+    subscriptionId: string,
     gameId: string,
   ): void {
-    for (const subscriptionId of this.getRoomSubscriptionIds(socket, roomId)) {
+    for (const [socket, connectionState] of this.sockets.entries()) {
+      if (!connectionState.subscriptions.has(subscriptionId)) {
+        continue;
+      }
+
       sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
         type: "GameAssignment",
         subscriptionId,
@@ -1187,8 +1139,6 @@ export class SocketStore<
       return;
     }
 
-    closeReader(queueSubscription.assignmentsReader);
-
     if (options.removeFromDb) {
       try {
         await this.db.removeFromQueue(
@@ -1223,7 +1173,6 @@ export class SocketStore<
 
     const roomSubscriptionIds = [...roomConnection.subscriptionIds];
 
-    closeReader(roomConnection.assignmentsReader);
     closeReader(roomConnection.roomChangesReader);
 
     connectionState.roomConnections.delete(roomId);
