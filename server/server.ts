@@ -115,9 +115,7 @@ export class Server<
   async getInitialActivePublicGamesProps(): Promise<
     ActivePublicGamesViewData<Config>
   > {
-    const allActiveGames = await this.gameStateService.fetchActiveGames(
-      this.db,
-    );
+    const allActiveGames = await this.db.getAllActivePublicGames();
     return {
       allActiveGames,
     };
@@ -129,9 +127,7 @@ export class Server<
   async getInitialAvailablePublicRoomsProps(): Promise<
     AvailablePublicRoomsViewData<Config>
   > {
-    const allAvailableRooms = await this.gameStateService.fetchAvailableRooms(
-      this.db,
-    );
+    const allAvailableRooms = await this.db.getAllAvailablePublicRooms();
     return {
       allAvailableRooms,
     };

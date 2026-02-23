@@ -39,11 +39,11 @@ subscribe to multiple channels:
 
 - `server.ts` - Main initializer; creates `DB`, `SocketStore`, and `Server`
 - `server/server.ts` - Public server API, token/user setup, and client message
-  routing
+  routing, including initial channel payload assembly
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for
   UserMatchmaking, room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, user
-  matchmakings, active games, and tokens
+  matchmakings, active games, tokens, and available public room list snapshots
 - `server/gamestateservice.ts` - Game state projection and move processing,
   including outcome handling and ranked rating updates
 

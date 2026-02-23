@@ -827,7 +827,8 @@ export class DB<
     );
   }
 
-  public async getAllAvailableRooms(): Promise<AvailableRoom<Config>[]> {
+  // Returns all currently available public rooms.
+  public async getAllAvailablePublicRooms(): Promise<AvailableRoom<Config>[]> {
     const roomPrefix = getRoomPrefix();
     const iter = this.kv.list<RoomStorageData<Config, Loadout>>(
       { prefix: roomPrefix },
@@ -852,7 +853,7 @@ export class DB<
     return rooms;
   }
 
-  public watchForAvailableRoomListChanges(): ReadableStream<
+  public watchForAvailablePublicRoomListChanges(): ReadableStream<
     AvailableRoom<Config>[]
   > {
     const roomListTriggerKey = getRoomListTriggerKey();
@@ -860,8 +861,9 @@ export class DB<
     return stream.pipeThrough(
       new TransformStream({
         transform: async (_events, controller) => {
-          const rooms = await this.getAllAvailableRooms();
-          controller.enqueue(rooms);
+          const allAvailablePublicRooms = await this
+            .getAllAvailablePublicRooms();
+          controller.enqueue(allAvailablePublicRooms);
         },
       }),
     );

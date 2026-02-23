@@ -49,7 +49,7 @@ export async function initializeServer<
 
   const activePublicGamesStream: ReadableStream<ActiveGame<Config>[]> = db
     .watchForActivePublicGamesListChanges();
-  const availableRoomsStream = db.watchForAvailableRoomListChanges();
+  const availableRoomsStream = db.watchForAvailablePublicRoomListChanges();
 
   const socketStore = new SocketStore<
     Config,

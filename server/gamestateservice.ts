@@ -1,7 +1,5 @@
 import type { DB, GameStorageData } from "./db.ts";
 import type {
-  ActiveGame,
-  AvailableRoom,
   Game,
   OutcomeObject,
   PlayerStateObject,
@@ -39,24 +37,6 @@ export class GameStateService<
       Loadout
     >,
   ) {}
-
-  /**
-   * Returns the current available room list snapshot.
-   */
-  async fetchAvailableRooms(
-    db: DB<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
-  ): Promise<AvailableRoom<Config>[]> {
-    return await db.getAllAvailableRooms();
-  }
 
   /**
    * Resolves a user's player index for a game, if they are a participant.

@@ -1051,7 +1051,7 @@ export class SocketStore<
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
-    const allAvailableRooms = await this.db.getAllAvailableRooms();
+    const allAvailableRooms = await this.db.getAllAvailablePublicRooms();
     this.sendAvailablePublicRoomsUpdate(
       socket,
       subscriptionId,
