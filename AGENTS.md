@@ -43,7 +43,8 @@ subscribe to multiple channels:
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for
   UserMatchmaking, room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, user
-  matchmakings, active games, tokens, and available public room list snapshots
+  matchmakings, active games, tokens, and indexed global list snapshots
+  (`activepublicgames` and `availablepublicrooms`)
 - `server/gamestateservice.ts` - Game state projection and move processing,
   including outcome handling and ranked rating updates
 
@@ -98,7 +99,8 @@ Uses Deno KV for:
 - User matchmaking records (`["usermatchmakings", userId]`) for `activeGames`,
   `joinedRooms`, and `queueEntries`
 - Auth tokens
-- Real-time state synchronization via watch streams
+- Real-time state synchronization via watch streams on indexed snapshot keys for
+  global lists (instead of room scans)
 
 ### WebSocket Communication
 

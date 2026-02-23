@@ -75,14 +75,11 @@ function getQueuePrefix(queueId: string) {
 function getQueueEntryKey(queueId: string, entryId: string) {
   return ["queueentry", queueId, entryId];
 }
-function getRoomPrefix() {
-  return ["rooms"];
-}
 function getRoomKey(roomId: string) {
   return ["rooms", roomId];
 }
-function getRoomListTriggerKey() {
-  return ["roomlisttrigger"];
+function getAvailablePublicRoomsKey() {
+  return ["availablepublicrooms"];
 }
 function getActivePublicGamesKey() {
   return ["activepublicgames"];
@@ -271,7 +268,6 @@ export class DB<
     },
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
-    const roomListTriggerKey = getRoomListTriggerKey();
     const roomData: RoomStorageData<Config, Loadout> = {
       numPlayers: roomConfig.numPlayers,
       config: roomConfig.config,
@@ -279,11 +275,14 @@ export class DB<
       members: [],
     };
 
-    await this.repeatUntilTransactionSucceeds((transaction) => {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
       transaction
         .check({ key: roomKey, versionstamp: null })
-        .set(roomKey, roomData)
-        .set(roomListTriggerKey, {});
+        .set(roomKey, roomData);
+      await this.updateAvailablePublicRoomsOnOperation(
+        transaction,
+        { roomId, room: roomData },
+      );
     });
   }
 
@@ -325,7 +324,6 @@ export class DB<
     assignmentSubscriptionId?: string,
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
-    const roomListTriggerKey = getRoomListTriggerKey();
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const roomEntry = await this.kv.get<
@@ -382,9 +380,12 @@ export class DB<
       transaction
         .check(roomEntry)
         .set(roomKey, updatedRoom)
-        .set(roomListTriggerKey, {})
         .check(userMatchmakingEntry)
         .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
+      await this.updateAvailablePublicRoomsOnOperation(
+        transaction,
+        { roomId, room: updatedRoom },
+      );
     });
   }
 
@@ -393,7 +394,6 @@ export class DB<
     entryId: string,
   ): Promise<void> {
     const roomKey = getRoomKey(roomId);
-    const roomListTriggerKey = getRoomListTriggerKey();
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const roomEntry = await this.kv.get<
@@ -440,7 +440,6 @@ export class DB<
 
       transaction
         .check(roomEntry)
-        .set(roomListTriggerKey, {})
         .check(userMatchmakingEntry)
         .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
 
@@ -452,6 +451,17 @@ export class DB<
           members: nextMembers,
         });
       }
+      await this.updateAvailablePublicRoomsOnOperation(
+        transaction,
+        {
+          roomId,
+          room: nextMembers.length === 0 ? null : {
+            ...roomEntry.value,
+            members: nextMembers,
+          },
+          wasPrivate: roomEntry.value.private,
+        },
+      );
     });
   }
 
@@ -552,11 +562,62 @@ export class DB<
     }
   }
 
+  // Updates the indexed available public room list by mutating the provided
+  // transaction. When room is null, the room is removed from the list.
+  private async updateAvailablePublicRoomsOnOperation(
+    transaction: Deno.AtomicOperation,
+    options: {
+      roomId: string;
+      room: RoomStorageData<Config, Loadout> | null;
+      wasPrivate?: boolean;
+    },
+  ): Promise<void> {
+    if (options.room == null && options.wasPrivate === true) {
+      return;
+    }
+    if (options.room != null && options.room.private) {
+      return;
+    }
+
+    const availablePublicRoomsKey = getAvailablePublicRoomsKey();
+    const availablePublicRoomsEntry = await this.kv.get<
+      AvailableRoom<Config>[]
+    >(
+      availablePublicRoomsKey,
+    );
+    const allAvailablePublicRooms = availablePublicRoomsEntry.value ?? [];
+
+    let availablePublicRoomsNext: AvailableRoom<Config>[];
+    if (options.room == null) {
+      availablePublicRoomsNext = allAvailablePublicRooms.filter((room) =>
+        room.roomId !== options.roomId
+      );
+    } else {
+      const nextRoom: AvailableRoom<Config> = {
+        roomId: options.roomId,
+        numPlayers: options.room.numPlayers,
+        players: options.room.members.map((member) => member.player),
+        config: options.room.config,
+      };
+      const existingIndex = allAvailablePublicRooms.findIndex((room) =>
+        room.roomId === options.roomId
+      );
+      availablePublicRoomsNext = existingIndex === -1
+        ? [...allAvailablePublicRooms, nextRoom]
+        : allAvailablePublicRooms.map((room) =>
+          room.roomId === options.roomId ? nextRoom : room
+        );
+    }
+
+    transaction
+      .check(availablePublicRoomsEntry)
+      .set(availablePublicRoomsKey, availablePublicRoomsNext);
+  }
+
   public async commitRoom(
     roomId: string,
   ): Promise<GameAssignmentNotification[]> {
     const roomKey = getRoomKey(roomId);
-    const roomListTriggerKey = getRoomListTriggerKey();
     let gameAssignments: GameAssignmentNotification[] = [];
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
@@ -593,8 +654,11 @@ export class DB<
 
       transaction
         .check(roomEntry)
-        .set(roomListTriggerKey, {})
         .delete(roomKey);
+      await this.updateAvailablePublicRoomsOnOperation(
+        transaction,
+        { roomId, room: null, wasPrivate: roomEntry.value.private },
+      );
 
       // Fetch all user matchmaking entries to update their joinedRooms.
       const userMatchmakingKeys = userIds.map((userId) =>
@@ -829,41 +893,25 @@ export class DB<
 
   // Returns all currently available public rooms.
   public async getAllAvailablePublicRooms(): Promise<AvailableRoom<Config>[]> {
-    const roomPrefix = getRoomPrefix();
-    const iter = this.kv.list<RoomStorageData<Config, Loadout>>(
-      { prefix: roomPrefix },
+    const availablePublicRoomsKey = getAvailablePublicRoomsKey();
+    const availablePublicRoomsEntry = await this.kv.get<
+      AvailableRoom<Config>[]
+    >(
+      availablePublicRoomsKey,
     );
-    const rooms: AvailableRoom<Config>[] = [];
-
-    for await (const res of iter) {
-      const roomId = res.key[res.key.length - 1] as string;
-      const room = res.value;
-      if (room.private) {
-        continue;
-      }
-      const players = (room.members ?? []).map((member) => member.player);
-      rooms.push({
-        roomId,
-        numPlayers: room.numPlayers,
-        players,
-        config: room.config,
-      });
-    }
-
-    return rooms;
+    return availablePublicRoomsEntry.value ?? [];
   }
 
   public watchForAvailablePublicRoomListChanges(): ReadableStream<
     AvailableRoom<Config>[]
   > {
-    const roomListTriggerKey = getRoomListTriggerKey();
-    const stream = this.kv.watch([roomListTriggerKey]);
+    const availablePublicRoomsKey = getAvailablePublicRoomsKey();
+    const stream = this.kv.watch([availablePublicRoomsKey]);
     return stream.pipeThrough(
       new TransformStream({
-        transform: async (_events, controller) => {
-          const allAvailablePublicRooms = await this
-            .getAllAvailablePublicRooms();
-          controller.enqueue(allAvailablePublicRooms);
+        transform: (events, controller) => {
+          const data = events[0].value as AvailableRoom<Config>[] | null;
+          controller.enqueue(data ?? []);
         },
       }),
     );
