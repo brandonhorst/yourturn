@@ -41,24 +41,6 @@ export class GameStateService<
   ) {}
 
   /**
-   * Returns the current active game list snapshot.
-   */
-  async fetchActiveGames(
-    db: DB<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
-  ): Promise<ActiveGame<Config>[]> {
-    return await db.getAllActiveGames();
-  }
-
-  /**
    * Returns the current available room list snapshot.
    */
   async fetchAvailableRooms(

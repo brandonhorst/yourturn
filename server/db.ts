@@ -84,8 +84,8 @@ function getRoomKey(roomId: string) {
 function getRoomListTriggerKey() {
   return ["roomlisttrigger"];
 }
-function getActiveGamesKey() {
-  return ["activegames"];
+function getActivePublicGamesKey() {
+  return ["activepublicgames"];
 }
 function getGameKey(gameId: string) {
   return ["games", gameId];
@@ -460,7 +460,6 @@ export class DB<
   private async createNewGameOnOperation(
     transaction: Deno.AtomicOperation,
     options: {
-      activeGamesKey: Deno.KvKey;
       config: Config;
       gameId: string;
       loadouts: Loadout[];
@@ -468,17 +467,19 @@ export class DB<
       userIds: string[];
     },
   ): Promise<void> {
+    const activePublicGamesKey = getActivePublicGamesKey();
     const gameKey = getGameKey(options.gameId);
     const timestamp = new Date();
-    // Fetch active games and user records needed to build the new game state.
+    // Fetch active public games and user records needed to build the new game
+    // state.
     const userKeys = options.userIds.map((userId) => getUserKey(userId));
     const userMatchmakingKeys = options.userIds.map((userId) =>
       getUserMatchmakingKey(userId)
     );
-    const [activeGamesEntry, userEntries, userMatchmakingEntries] =
+    const [activePublicGamesEntry, userEntries, userMatchmakingEntries] =
       await Promise
         .all([
-          this.kv.get<ActiveGame<Config>[]>(options.activeGamesKey),
+          this.kv.get<ActiveGame<Config>[]>(activePublicGamesKey),
           this.kv.getMany<UserStorageData<Rating>[]>(userKeys),
           this.kv.getMany<UserMatchmakingStorageData<Config, Loadout>[]>(
             userMatchmakingKeys,
@@ -494,7 +495,7 @@ export class DB<
     }
     const players = userEntries.map((userEntry) => userEntry.value!.player);
 
-    // Build the new game state and active game payloads.
+    // Build the new game state and active public game payloads.
     const setupObject = {
       timestamp,
       numPlayers: options.userIds.length,
@@ -511,27 +512,30 @@ export class DB<
       outcome: undefined,
     };
 
-    // Build the new allActiveGames
-    const allActiveGames = activeGamesEntry.value ?? [];
-    const activeGame: ActiveGame<Config> = {
+    // Build the next active public games list value.
+    const allActivePublicGames = activePublicGamesEntry.value ?? [];
+    const activePublicGame: ActiveGame<Config> = {
       gameId: options.gameId,
       players,
       config: options.config,
       created: timestamp,
     };
-    const activeGamesNext = [...allActiveGames, activeGame];
+    const activePublicGamesNext = [
+      ...allActivePublicGames,
+      activePublicGame,
+    ];
 
     // Mutate the provided transaction with game + active lists + user updates.
     transaction
-      .check(activeGamesEntry)
-      .set(options.activeGamesKey, activeGamesNext)
+      .check(activePublicGamesEntry)
+      .set(activePublicGamesKey, activePublicGamesNext)
       .check({ key: gameKey, versionstamp: null })
       .set(gameKey, gameStorageData);
 
     for (const userMatchmakingEntry of userMatchmakingEntries) {
       const userActiveGamesNext = [
         ...userMatchmakingEntry.value!.activeGames ?? [],
-        activeGame,
+        activePublicGame,
       ];
 
       const updatedUserMatchmaking: UserMatchmakingStorageData<
@@ -553,7 +557,6 @@ export class DB<
   ): Promise<GameAssignmentNotification[]> {
     const roomKey = getRoomKey(roomId);
     const roomListTriggerKey = getRoomListTriggerKey();
-    const activeGamesKey = getActiveGamesKey();
     let gameAssignments: GameAssignmentNotification[] = [];
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
@@ -581,7 +584,6 @@ export class DB<
       await this.createNewGameOnOperation(
         transaction,
         {
-          activeGamesKey,
           config,
           gameId,
           loadouts,
@@ -634,7 +636,6 @@ export class DB<
     queueConfig: QueueConfig<Config>,
   ): Promise<GameAssignmentNotification[]> {
     const queuePrefix = getQueuePrefix(queueId);
-    const activeGamesKey = getActiveGamesKey();
     let gameAssignments: GameAssignmentNotification[] = [];
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
@@ -669,7 +670,6 @@ export class DB<
       await this.createNewGameOnOperation(
         transaction,
         {
-          activeGamesKey,
           config: queueConfig.config,
           gameId,
           loadouts,
@@ -729,7 +729,7 @@ export class DB<
     gameData: GameStorageData<Config, GameState, Outcome>,
   ): Promise<void> {
     const gameKey = getGameKey(gameId);
-    const activeGamesKey = getActiveGamesKey();
+    const activePublicGamesKey = getActivePublicGamesKey();
 
     const entry = await this.kv.get<
       GameStorageData<Config, GameState, Outcome>
@@ -745,16 +745,19 @@ export class DB<
       .set(gameKey, gameData);
 
     if (gameData.outcome !== undefined) {
-      const activeGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
-        activeGamesKey,
+      // If the game is over, remove it from the active public games list, if it's there
+      const activePublicGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
+        activePublicGamesKey,
       );
-      const allActiveGames = activeGamesEntry.value ?? [];
-      const activeGamesNext = allActiveGames.filter((game) =>
+      const allActivePublicGames = activePublicGamesEntry.value ?? [];
+      const activePublicGamesNext = allActivePublicGames.filter((game) =>
         game.gameId !== gameId
       );
-      transaction = transaction
-        .check(activeGamesEntry)
-        .set(activeGamesKey, activeGamesNext);
+      if (allActivePublicGames.length !== activePublicGamesNext.length) {
+        transaction = transaction
+          .check(activePublicGamesEntry)
+          .set(activePublicGamesKey, activePublicGamesNext);
+      }
     }
 
     const res = await transaction.commit();
@@ -780,6 +783,15 @@ export class DB<
     }
   }
 
+  // Returns all currently active public games.
+  public async getAllActivePublicGames(): Promise<ActiveGame<Config>[]> {
+    const activePublicGamesKey = getActivePublicGamesKey();
+    const activePublicGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
+      activePublicGamesKey,
+    );
+    return activePublicGamesEntry.value ?? [];
+  }
+
   public watchForGameChanges(
     gameId: string,
   ): ReadableStream<GameStorageData<Config, GameState, Outcome>> {
@@ -799,17 +811,12 @@ export class DB<
     );
   }
 
-  public async getAllActiveGames(): Promise<ActiveGame<Config>[]> {
-    const entry = await this.kv.get<ActiveGame<Config>[]>(
-      getActiveGamesKey(),
-    );
-    return entry.value ?? [];
-  }
-
-  // Watches for changes to the active game list key.
-  public watchForActiveGameListChanges(): ReadableStream<ActiveGame<Config>[]> {
-    const activeGamesKey = getActiveGamesKey();
-    const stream = this.kv.watch([activeGamesKey]);
+  // Watches for changes to the active public games list key.
+  public watchForActivePublicGamesListChanges(): ReadableStream<
+    ActiveGame<Config>[]
+  > {
+    const activePublicGamesKey = getActivePublicGamesKey();
+    const stream = this.kv.watch([activePublicGamesKey]);
     return stream.pipeThrough(
       new TransformStream({
         transform: (events, controller) => {

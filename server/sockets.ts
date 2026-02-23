@@ -996,7 +996,7 @@ export class SocketStore<
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
-    const allActiveGames = await this.db.getAllActiveGames();
+    const allActiveGames = await this.db.getAllActivePublicGames();
     this.sendActivePublicGamesUpdate(socket, subscriptionId, allActiveGames);
   }
 
