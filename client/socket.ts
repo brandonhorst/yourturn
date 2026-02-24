@@ -3,7 +3,7 @@ import type {
   Socket,
   SocketMessageListener,
   SocketOpenListener,
-} from "../types.ts";
+} from "@/types.ts";
 
 // Hook that opens and manages a socket created by `createSocket`, then calls
 // `onMessage` for each JSON message. It reconnects on close with exponential

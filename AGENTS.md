@@ -135,6 +135,8 @@ only `PlayerSnapshot<Rating>[]` (`allActiveUsers`).
 ## Agent Instructions
 
 - When making changes, ALWAYS run `deno task check` and fix errors.
+- Use the `@/` import alias (configured in `deno.json`) for root-based internal
+  TypeScript module imports instead of deep relative paths.
 - Keep this `AGENTS.md` file up to date. If behavior, architecture, module
   exports, protocols, or developer workflow changes, update this file in the
   same change set.

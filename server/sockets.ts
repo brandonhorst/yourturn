@@ -3,8 +3,8 @@ import type {
   GameStorageData,
   RoomWatchEvent,
   UserMatchmakingStorageData,
-} from "./db/types.ts";
-import type { DB } from "./db/db.ts";
+} from "@/server/db/types.ts";
+import type { DB } from "@/server/db/db.ts";
 import type {
   ActiveGame,
   ActivePublicGamesViewData,
@@ -16,9 +16,9 @@ import type {
   RoomEntry,
   UserMatchmakingViewData,
   UserProfileViewData,
-} from "../types.ts";
-import type { ServerMessage } from "../common/sockettypes.ts";
-import type { GameStateService } from "./gamestateservice.ts";
+} from "@/types.ts";
+import type { ServerMessage } from "@/common/sockettypes.ts";
+import type { GameStateService } from "@/server/gamestateservice.ts";
 import { ulid } from "@std/ulid";
 
 type QueueSubscription = {

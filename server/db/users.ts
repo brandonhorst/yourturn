@@ -1,12 +1,12 @@
-import type { TokenData, UserProfileViewData } from "../../types.ts";
-import { userStorageDataToUserProfileViewData } from "../utils.ts";
-import type { UserStorageData } from "./types.ts";
+import type { TokenData, UserProfileViewData } from "@/types.ts";
+import { userStorageDataToUserProfileViewData } from "@/server/utils.ts";
+import type { UserStorageData } from "@/server/db/types.ts";
 import {
   DBBase,
   getTokenKey,
   getUserByUsernameKey,
   getUserKey,
-} from "./utils.ts";
+} from "@/server/db/utils.ts";
 
 /**
  * User and auth-token persistence methods.

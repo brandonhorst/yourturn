@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
+import type { ClientMessage, ServerMessage } from "@/common/sockettypes.ts";
 import type {
   AccountUserProfileProps,
   ActivePublicGamesViewData,
@@ -15,7 +15,7 @@ import type {
   UserProfileProps,
   UserProfileUpdate,
   UserProfileViewData,
-} from "../types.ts";
+} from "@/types.ts";
 
 // Subscribes to a specific game on an already-open socket.
 export function useGameChannel<
