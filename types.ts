@@ -60,7 +60,6 @@ export type UserProfileViewData<Rating> = {
 };
 
 export type UserProfileUpdate = {
-  username?: string;
   description?: string;
 };
 

@@ -223,32 +223,16 @@ export class Server<
   }
 
   /**
-   * Validates and normalizes optional user profile fields supplied by clients.
+   * Validates and normalizes optional account user profile updates.
    */
   private normalizeUserProfileUpdate(
-    profileUpdate: { username?: string; description?: string },
-  ): { username?: string; description?: string } {
-    if (
-      profileUpdate.username === undefined &&
-      profileUpdate.description === undefined
-    ) {
-      throw new Error("Provide a username or description.");
+    profileUpdate: { description?: string },
+  ): { description: string } {
+    if (profileUpdate.description === undefined) {
+      throw new Error("Provide a description.");
     }
 
-    const normalizedUpdate: { username?: string; description?: string } = {};
-    if (profileUpdate.username !== undefined) {
-      const normalizedUsername = profileUpdate.username.trim();
-      if (normalizedUsername === "") {
-        throw new Error("Username cannot be empty.");
-      }
-      normalizedUpdate.username = normalizedUsername;
-    }
-
-    if (profileUpdate.description !== undefined) {
-      normalizedUpdate.description = profileUpdate.description;
-    }
-
-    return normalizedUpdate;
+    return { description: profileUpdate.description };
   }
 
   /**
@@ -404,25 +388,13 @@ export class Server<
         case "UpdateAccountUserProfile":
           try {
             const normalizedUpdate = this.normalizeUserProfileUpdate({
-              username: request.username,
               description: request.description,
             });
             await this.db.updateUserProfile(userId, normalizedUpdate);
-            const updatedUserProfile = await this.db.getUserProfileViewData(
-              userId,
-            );
-            if (updatedUserProfile != null) {
-              await this.db.updateActivePublicUserSnapshot(
-                userId,
-                userProfileViewDataToPlayerSnapshot(updatedUserProfile),
-              );
-            }
           } catch (err) {
             if (err instanceof Error) {
               if (
-                err.message === "Provide a username or description." ||
-                err.message === "Username cannot be empty." ||
-                err.message.endsWith(" already exists")
+                err.message === "Provide a description."
               ) {
                 sendDisplayError(err.message);
                 break;

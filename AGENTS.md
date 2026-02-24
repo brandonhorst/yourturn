@@ -110,8 +110,8 @@ Uses Deno KV for:
 - Active public users at `["activepublicusers", userId]` with
   `ActiveUserStorageData` (`playerSnapshot` and `connectionCount`) and a root
   ticker key at `["activepublicusers"]` that increments on presence writes
-- User profile updates also refresh active public user snapshots for currently
-  connected users, preserving each entry's `connectionCount`
+- Account profile updates only change `description`; they do not mutate active
+  public user snapshots because snapshots only store player-facing fields
 - Presence uses a 10-minute TTL with no heartbeat loop; TTL is pushed on socket
   setup plus subscribe/mutating requests
 - `PlayerSnapshot<Rating>` values are frozen at queue/room join time and stored
@@ -140,9 +140,9 @@ Message protocol types are defined in `common/sockettypes.ts`.
 targeted `GameAssignment` messages without a dedicated assignment KV key/watch
 stream.
 
-`UpdateAccountUserProfile` requests can include `username` and/or `description`,
-and persist canonical profile changes to `["users", userId]` for the
-authenticated socket user.
+`UpdateAccountUserProfile` requests can include `description` only, and persist
+that canonical profile change to `["users", userId]` for the authenticated
+socket user.
 
 UserMatchmaking channel payloads (`UserMatchmakingViewData`) contain matchmaking
 data only: `userActiveGames`, `roomIds`, and `queueEntries`. Player profile and

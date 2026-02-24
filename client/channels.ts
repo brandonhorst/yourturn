@@ -529,13 +529,12 @@ export function useAccountUserProfileChannel<Rating>({
   }, [socket]);
 
   const update = useCallback((changes: UserProfileUpdate) => {
-    if (changes.username == null && changes.description == null) {
+    if (changes.description == null) {
       return;
     }
 
     const request: ClientMessage<never, never, never, never, never> = {
       type: "UpdateAccountUserProfile",
-      username: changes.username,
       description: changes.description,
     };
     socket.send(JSON.stringify(request));

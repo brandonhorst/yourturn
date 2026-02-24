@@ -1252,16 +1252,13 @@ export class DB<
   }
 
   /**
-   * Updates only canonical user profile fields.
+   * Updates canonical user profile fields that are user-editable at runtime.
    */
   public async updateUserProfile(
     userId: string,
-    profile: { username?: string; description?: string },
+    profile: { description?: string },
   ): Promise<void> {
     const profileUpdate: Partial<UserStorageData<Rating>> = {};
-    if (profile.username !== undefined) {
-      profileUpdate.username = profile.username;
-    }
     if (profile.description !== undefined) {
       profileUpdate.description = profile.description;
     }
@@ -1316,34 +1313,6 @@ export class DB<
         },
       }),
     );
-  }
-
-  /**
-   * Updates the active-public-user snapshot while preserving connection count.
-   */
-  public async updateActivePublicUserSnapshot(
-    userId: string,
-    playerSnapshot: PlayerSnapshot<Rating>,
-  ): Promise<void> {
-    const activePublicUserKey = getActivePublicUserKey(userId);
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entry = await this.kv.get<ActiveUserStorageData<Rating>>(
-        activePublicUserKey,
-      );
-      if (entry.value == null) {
-        return;
-      }
-
-      transaction
-        .check(entry)
-        .set(activePublicUserKey, {
-          playerSnapshot,
-          connectionCount: entry.value.connectionCount,
-        }, {
-          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
-        });
-      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
-    });
   }
 
   /**

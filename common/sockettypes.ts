@@ -19,7 +19,6 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "SubscribeAccountUserProfile"; subscriptionId: string }
   | {
     type: "UpdateAccountUserProfile";
-    username?: string;
     description?: string;
   }
   // User Profile Channel
