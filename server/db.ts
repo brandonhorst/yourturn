@@ -81,8 +81,14 @@ function getRoomKey(roomId: string) {
 function getAvailablePublicRoomsKey() {
   return ["availablepublicrooms"];
 }
+function getAvailablePublicRoomKey(roomId: string) {
+  return ["availablepublicrooms", roomId];
+}
 function getActivePublicGamesKey() {
   return ["activepublicgames"];
+}
+function getActivePublicGameKey(gameId: string) {
+  return ["activepublicgames", gameId];
 }
 function getGameKey(gameId: string) {
   return ["games", gameId];
@@ -99,6 +105,10 @@ function getUserByUsernameKey(username: string) {
 function getTokenKey(token: string) {
   return ["tokens", token];
 }
+
+const PUBLIC_LIST_READ_LIMIT = 500;
+const PUBLIC_LIST_BATCH_SIZE = 500;
+const U64_MAX = (1n << 64n) - 1n;
 
 export class DB<
   Config,
@@ -166,6 +176,69 @@ export class DB<
       throw new Error(`Queue ${queueId} not found`);
     }
     return queueConfig;
+  }
+
+  /**
+   * Reads one snapshot batch for a direct-child index prefix.
+   */
+  private async listSingleBatch<T>(
+    prefix: Deno.KvKey,
+  ): Promise<Deno.KvEntry<T>[]> {
+    const entries = await Array.fromAsync(
+      this.kv.list<T>(
+        { prefix },
+        {
+          limit: PUBLIC_LIST_READ_LIMIT,
+          batchSize: PUBLIC_LIST_BATCH_SIZE,
+        },
+      ),
+    );
+    return entries.filter((entry) => entry.key.length === prefix.length + 1);
+  }
+
+  /**
+   * Mutates an indexed-list root counter by +1, 0, or -1 via a u64 sum.
+   * A delta of 0 keeps the count unchanged while still notifying watchers.
+   */
+  private mutateIndexedListRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    key: Deno.KvKey,
+    delta: -1 | 0 | 1,
+  ): void {
+    const sumValue = delta === -1 ? U64_MAX : BigInt(delta);
+    transaction.mutate({
+      type: "sum",
+      key,
+      value: new Deno.KvU64(sumValue),
+    });
+  }
+
+  /**
+   * Mutates the active public games root count.
+   */
+  private mutateActivePublicGamesRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    delta: -1 | 0 | 1,
+  ): void {
+    this.mutateIndexedListRootCountOnOperation(
+      transaction,
+      getActivePublicGamesKey(),
+      delta,
+    );
+  }
+
+  /**
+   * Mutates the available public rooms root count.
+   */
+  private mutateAvailablePublicRoomsRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    delta: -1 | 0 | 1,
+  ): void {
+    this.mutateIndexedListRootCountOnOperation(
+      transaction,
+      getAvailablePublicRoomsKey(),
+      delta,
+    );
   }
 
   public async addToQueue(
@@ -477,24 +550,21 @@ export class DB<
       userIds: string[];
     },
   ): Promise<void> {
-    const activePublicGamesKey = getActivePublicGamesKey();
+    const activePublicGameKey = getActivePublicGameKey(options.gameId);
     const gameKey = getGameKey(options.gameId);
     const timestamp = new Date();
-    // Fetch active public games and user records needed to build the new game
-    // state.
+    // Fetch user records needed to build the new game state.
     const userKeys = options.userIds.map((userId) => getUserKey(userId));
     const userMatchmakingKeys = options.userIds.map((userId) =>
       getUserMatchmakingKey(userId)
     );
-    const [activePublicGamesEntry, userEntries, userMatchmakingEntries] =
-      await Promise
-        .all([
-          this.kv.get<ActiveGame<Config>[]>(activePublicGamesKey),
-          this.kv.getMany<UserStorageData<Rating>[]>(userKeys),
-          this.kv.getMany<UserMatchmakingStorageData<Config, Loadout>[]>(
-            userMatchmakingKeys,
-          ),
-        ]);
+    const [userEntries, userMatchmakingEntries] = await Promise
+      .all([
+        this.kv.getMany<UserStorageData<Rating>[]>(userKeys),
+        this.kv.getMany<UserMatchmakingStorageData<Config, Loadout>[]>(
+          userMatchmakingKeys,
+        ),
+      ]);
 
     // Validate that all users and matchmaking records exist.
     for (const userEntry of userEntries) {
@@ -522,25 +592,20 @@ export class DB<
       outcome: undefined,
     };
 
-    // Build the next active public games list value.
-    const allActivePublicGames = activePublicGamesEntry.value ?? [];
     const activePublicGame: ActiveGame<Config> = {
       gameId: options.gameId,
       players,
       config: options.config,
       created: timestamp,
     };
-    const activePublicGamesNext = [
-      ...allActivePublicGames,
-      activePublicGame,
-    ];
 
-    // Mutate the provided transaction with game + active lists + user updates.
+    // Mutate the provided transaction with game + active list index + user updates.
     transaction
-      .check(activePublicGamesEntry)
-      .set(activePublicGamesKey, activePublicGamesNext)
+      .check({ key: activePublicGameKey, versionstamp: null })
+      .set(activePublicGameKey, activePublicGame)
       .check({ key: gameKey, versionstamp: null })
       .set(gameKey, gameStorageData);
+    this.mutateActivePublicGamesRootCountOnOperation(transaction, 1);
 
     for (const userMatchmakingEntry of userMatchmakingEntries) {
       const userActiveGamesNext = [
@@ -579,19 +644,21 @@ export class DB<
       return;
     }
 
-    const availablePublicRoomsKey = getAvailablePublicRoomsKey();
-    const availablePublicRoomsEntry = await this.kv.get<
-      AvailableRoom<Config>[]
+    const availablePublicRoomKey = getAvailablePublicRoomKey(options.roomId);
+    const availablePublicRoomEntry = await this.kv.get<
+      AvailableRoom<Config>
     >(
-      availablePublicRoomsKey,
+      availablePublicRoomKey,
     );
-    const allAvailablePublicRooms = availablePublicRoomsEntry.value ?? [];
 
-    let availablePublicRoomsNext: AvailableRoom<Config>[];
     if (options.room == null) {
-      availablePublicRoomsNext = allAvailablePublicRooms.filter((room) =>
-        room.roomId !== options.roomId
-      );
+      if (availablePublicRoomEntry.value == null) {
+        return;
+      }
+      transaction
+        .check(availablePublicRoomEntry)
+        .delete(availablePublicRoomKey);
+      this.mutateAvailablePublicRoomsRootCountOnOperation(transaction, -1);
     } else {
       const nextRoom: AvailableRoom<Config> = {
         roomId: options.roomId,
@@ -599,19 +666,18 @@ export class DB<
         players: options.room.members.map((member) => member.player),
         config: options.room.config,
       };
-      const existingIndex = allAvailablePublicRooms.findIndex((room) =>
-        room.roomId === options.roomId
-      );
-      availablePublicRoomsNext = existingIndex === -1
-        ? [...allAvailablePublicRooms, nextRoom]
-        : allAvailablePublicRooms.map((room) =>
-          room.roomId === options.roomId ? nextRoom : room
-        );
+      if (availablePublicRoomEntry.value == null) {
+        transaction
+          .check({ key: availablePublicRoomKey, versionstamp: null })
+          .set(availablePublicRoomKey, nextRoom);
+        this.mutateAvailablePublicRoomsRootCountOnOperation(transaction, 1);
+      } else {
+        transaction
+          .check(availablePublicRoomEntry)
+          .set(availablePublicRoomKey, nextRoom);
+        this.mutateAvailablePublicRoomsRootCountOnOperation(transaction, 0);
+      }
     }
-
-    transaction
-      .check(availablePublicRoomsEntry)
-      .set(availablePublicRoomsKey, availablePublicRoomsNext);
   }
 
   public async commitRoom(
@@ -793,7 +859,7 @@ export class DB<
     gameData: GameStorageData<Config, GameState, Outcome>,
   ): Promise<void> {
     const gameKey = getGameKey(gameId);
-    const activePublicGamesKey = getActivePublicGamesKey();
+    const activePublicGameKey = getActivePublicGameKey(gameId);
 
     const entry = await this.kv.get<
       GameStorageData<Config, GameState, Outcome>
@@ -809,18 +875,15 @@ export class DB<
       .set(gameKey, gameData);
 
     if (gameData.outcome !== undefined) {
-      // If the game is over, remove it from the active public games list, if it's there
-      const activePublicGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
-        activePublicGamesKey,
+      // If the game is over, remove it from the active public game index.
+      const activePublicGameEntry = await this.kv.get<ActiveGame<Config>>(
+        activePublicGameKey,
       );
-      const allActivePublicGames = activePublicGamesEntry.value ?? [];
-      const activePublicGamesNext = allActivePublicGames.filter((game) =>
-        game.gameId !== gameId
-      );
-      if (allActivePublicGames.length !== activePublicGamesNext.length) {
+      if (activePublicGameEntry.value != null) {
         transaction = transaction
-          .check(activePublicGamesEntry)
-          .set(activePublicGamesKey, activePublicGamesNext);
+          .check(activePublicGameEntry)
+          .delete(activePublicGameKey);
+        this.mutateActivePublicGamesRootCountOnOperation(transaction, -1);
       }
     }
 
@@ -849,11 +912,12 @@ export class DB<
 
   // Returns all currently active public games.
   public async getAllActivePublicGames(): Promise<ActiveGame<Config>[]> {
-    const activePublicGamesKey = getActivePublicGamesKey();
-    const activePublicGamesEntry = await this.kv.get<ActiveGame<Config>[]>(
-      activePublicGamesKey,
+    const activePublicGameEntries = await this.listSingleBatch<
+      ActiveGame<Config>
+    >(
+      getActivePublicGamesKey(),
     );
-    return activePublicGamesEntry.value ?? [];
+    return activePublicGameEntries.map((entry) => entry.value);
   }
 
   public watchForGameChanges(
@@ -875,17 +939,17 @@ export class DB<
     );
   }
 
-  // Watches for changes to the active public games list key.
+  // Watches the active public games root key and emits full indexed snapshots.
   public watchForActivePublicGamesListChanges(): ReadableStream<
     ActiveGame<Config>[]
   > {
     const activePublicGamesKey = getActivePublicGamesKey();
-    const stream = this.kv.watch([activePublicGamesKey]);
+    const stream = this.kv.watch<[Deno.KvU64]>([activePublicGamesKey]);
     return stream.pipeThrough(
       new TransformStream({
-        transform: (events, controller) => {
-          const data = events[0].value as ActiveGame<Config>[] | null;
-          controller.enqueue(data ?? []);
+        transform: async (_events, controller) => {
+          const data = await this.getAllActivePublicGames();
+          controller.enqueue(data);
         },
       }),
     );
@@ -893,25 +957,25 @@ export class DB<
 
   // Returns all currently available public rooms.
   public async getAllAvailablePublicRooms(): Promise<AvailableRoom<Config>[]> {
-    const availablePublicRoomsKey = getAvailablePublicRoomsKey();
-    const availablePublicRoomsEntry = await this.kv.get<
-      AvailableRoom<Config>[]
+    const availablePublicRoomEntries = await this.listSingleBatch<
+      AvailableRoom<Config>
     >(
-      availablePublicRoomsKey,
+      getAvailablePublicRoomsKey(),
     );
-    return availablePublicRoomsEntry.value ?? [];
+    return availablePublicRoomEntries.map((entry) => entry.value);
   }
 
+  // Watches the available public rooms root key and emits full indexed snapshots.
   public watchForAvailablePublicRoomListChanges(): ReadableStream<
     AvailableRoom<Config>[]
   > {
     const availablePublicRoomsKey = getAvailablePublicRoomsKey();
-    const stream = this.kv.watch([availablePublicRoomsKey]);
+    const stream = this.kv.watch<[Deno.KvU64]>([availablePublicRoomsKey]);
     return stream.pipeThrough(
       new TransformStream({
-        transform: (events, controller) => {
-          const data = events[0].value as AvailableRoom<Config>[] | null;
-          controller.enqueue(data ?? []);
+        transform: async (_events, controller) => {
+          const data = await this.getAllAvailablePublicRooms();
+          controller.enqueue(data);
         },
       }),
     );

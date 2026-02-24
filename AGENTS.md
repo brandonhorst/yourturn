@@ -44,7 +44,7 @@ subscribe to multiple channels:
   UserMatchmaking, room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, user
   matchmakings, active games, tokens, and indexed global list snapshots
-  (`activepublicgames` and `availablepublicrooms`)
+  (`["activepublicgames", gameId]` and `["availablepublicrooms", roomId]`)
 - `server/gamestateservice.ts` - Game state projection and move processing,
   including outcome handling and ranked rating updates
 
@@ -99,8 +99,12 @@ Uses Deno KV for:
 - User matchmaking records (`["usermatchmakings", userId]`) for `activeGames`,
   `joinedRooms`, and `queueEntries`
 - Auth tokens
-- Real-time state synchronization via watch streams on indexed snapshot keys for
-  global lists (instead of room scans)
+- Global list indexes store one entry per room/game and are read as snapshots
+  via `kv.list` (single batch, `limit=500`, `batchSize=500`)
+- Root invalidation keys (`["activepublicgames"]` and
+  `["availablepublicrooms"]`) are stored as `Deno.KvU64` counters and mutated
+  with atomic `sum` operations (`+1` insert, `-1` delete, `0` update) so list
+  watchers can track updates without scanning
 
 ### WebSocket Communication
 
