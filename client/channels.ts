@@ -10,14 +10,21 @@ import type {
   Socket,
   UserMatchmakingProps,
   UserMatchmakingViewData,
+  UserViewData,
 } from "../types.ts";
 
 // Subscribes to a specific game on an already-open socket.
-export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
+export function useGameChannel<
+  Move,
+  PlayerState,
+  PublicState,
+  Outcome,
+  Rating,
+>(
   socket: Socket,
   gameId: string,
-  initialGameProps: GameViewData<PlayerState, PublicState, Outcome>,
-): GameProps<Move, PlayerState, PublicState, Outcome> {
+  initialGameProps: GameViewData<PlayerState, PublicState, Outcome, Rating>,
+): GameProps<Move, PlayerState, PublicState, Outcome, Rating> {
   const playerId = initialGameProps.playerId;
   const players = initialGameProps.players;
   const [playerState, setPlayerState] = useState<PlayerState | undefined>(
@@ -89,7 +96,7 @@ export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
       const response = JSON.parse(message) as ServerMessage<
         never,
         never,
-        never,
+        Rating,
         PlayerState,
         PublicState,
         Outcome
@@ -165,17 +172,17 @@ export function useGameChannel<Move, PlayerState, PublicState, Outcome>(
     playerState: playerState,
     perform,
     outcome: outcome,
-  } as GameProps<Move, PlayerState, PublicState, Outcome>;
+  } as GameProps<Move, PlayerState, PublicState, Outcome, Rating>;
 }
 
 // Subscribes to the global active public games channel on an open socket.
-export function useActivePublicGamesChannel<Config>({
+export function useActivePublicGamesChannel<Config, Rating>({
   socket,
   initialActivePublicGamesProps,
 }: {
   socket: Socket;
-  initialActivePublicGamesProps: ActivePublicGamesViewData<Config>;
-}): ActivePublicGamesViewData<Config> {
+  initialActivePublicGamesProps: ActivePublicGamesViewData<Config, Rating>;
+}): ActivePublicGamesViewData<Config, Rating> {
   const [allActiveGames, setActiveGames] = useState(
     initialActivePublicGamesProps.allActiveGames,
   );
@@ -206,7 +213,7 @@ export function useActivePublicGamesChannel<Config>({
       const response = JSON.parse(message) as ServerMessage<
         Config,
         never,
-        never,
+        Rating,
         never,
         never,
         never
@@ -255,13 +262,16 @@ export function useActivePublicGamesChannel<Config>({
 }
 
 // Subscribes to the global available public rooms channel on an open socket.
-export function useAvailablePublicRoomsChannel<Config>({
+export function useAvailablePublicRoomsChannel<Config, Rating>({
   socket,
   initialAvailablePublicRoomsProps,
 }: {
   socket: Socket;
-  initialAvailablePublicRoomsProps: AvailablePublicRoomsViewData<Config>;
-}): AvailablePublicRoomsViewData<Config> {
+  initialAvailablePublicRoomsProps: AvailablePublicRoomsViewData<
+    Config,
+    Rating
+  >;
+}): AvailablePublicRoomsViewData<Config, Rating> {
   const [allAvailableRooms, setAvailableRooms] = useState(
     initialAvailablePublicRoomsProps.allAvailableRooms,
   );
@@ -292,7 +302,7 @@ export function useAvailablePublicRoomsChannel<Config>({
       const response = JSON.parse(message) as ServerMessage<
         Config,
         never,
-        never,
+        Rating,
         never,
         never,
         never
@@ -342,18 +352,108 @@ export function useAvailablePublicRoomsChannel<Config>({
   return { allAvailableRooms };
 }
 
+// Subscribes to one user profile channel on an already-open socket.
+export function useUserProfileChannel<Rating>({
+  socket,
+  userId,
+  initialUserProfileProps,
+}: {
+  socket: Socket;
+  userId: string;
+  initialUserProfileProps: UserViewData<Rating>;
+}): UserViewData<Rating> {
+  const [userProfile, setUserProfile] = useState(initialUserProfileProps);
+
+  useEffect(() => {
+    setUserProfile(initialUserProfileProps);
+  }, [initialUserProfileProps]);
+
+  useEffect(() => {
+    const subscriptionId = crypto.randomUUID();
+
+    // Sends the user profile subscription request for this hook instance.
+    function sendSubscribe() {
+      const request: ClientMessage<
+        never,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "SubscribeUserProfile",
+        subscriptionId,
+        userId,
+      };
+      socket.send(JSON.stringify(request));
+    }
+
+    function onOpen() {
+      sendSubscribe();
+    }
+
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
+        never,
+        never,
+        Rating,
+        never,
+        never,
+        never
+      >;
+      switch (response.type) {
+        case "UpdateUserProfileProps":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+          setUserProfile(response.userProfileProps);
+          break;
+      }
+    }
+
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
+    try {
+      sendSubscribe();
+    } catch {
+      // The socket may still be connecting; we'll subscribe once it opens.
+    }
+
+    return () => {
+      const request: ClientMessage<
+        never,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "Unsubscribe",
+        subscriptionId,
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown.
+      }
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
+    };
+  }, [socket, userId]);
+
+  return userProfile;
+}
+
 // Subscribes to UserMatchmaking on an already-open socket.
-export function useUserMatchmakingChannel<Config, Loadout>({
+export function useUserMatchmakingChannel<Config, Loadout, Rating>({
   socket,
   initialUserMatchmakingProps,
   navigate,
   displayError,
 }: {
   socket: Socket;
-  initialUserMatchmakingProps: UserMatchmakingViewData<Config, Loadout>;
+  initialUserMatchmakingProps: UserMatchmakingViewData<Config, Loadout, Rating>;
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
-}): UserMatchmakingProps<Config, Loadout> {
+}): UserMatchmakingProps<Config, Loadout, Rating> {
   const [userActiveGames, setUserActiveGames] = useState(
     initialUserMatchmakingProps.userActiveGames,
   );
@@ -390,7 +490,7 @@ export function useUserMatchmakingChannel<Config, Loadout>({
       const response = JSON.parse(message) as ServerMessage<
         Config,
         Loadout,
-        never,
+        Rating,
         never,
         never,
         never
@@ -511,7 +611,7 @@ export function useUserMatchmakingChannel<Config, Loadout>({
 }
 
 // Subscribes to a single joined room on an already-open socket.
-export function useRoomChannel<Config, Loadout>({
+export function useRoomChannel<Config, Loadout, Rating>({
   socket,
   roomId,
   initialRoomEntry,
@@ -520,11 +620,13 @@ export function useRoomChannel<Config, Loadout>({
 }: {
   socket: Socket;
   roomId: string;
-  initialRoomEntry: RoomEntry<Config, Loadout>;
+  initialRoomEntry: RoomEntry<Config, Loadout, Rating>;
   navigate: (gameId: string) => void;
   displayError: (message: string) => void;
-}): RoomProps<Config, Loadout> {
-  const [roomEntry, setRoomEntry] = useState<RoomEntry<Config, Loadout>>(
+}): RoomProps<Config, Loadout, Rating> {
+  const [roomEntry, setRoomEntry] = useState<
+    RoomEntry<Config, Loadout, Rating>
+  >(
     initialRoomEntry,
   );
 
@@ -559,7 +661,7 @@ export function useRoomChannel<Config, Loadout>({
       const response = JSON.parse(message) as ServerMessage<
         Config,
         Loadout,
-        never,
+        Rating,
         never,
         never,
         never

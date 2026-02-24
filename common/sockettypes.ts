@@ -4,6 +4,7 @@ import type {
   GameViewData,
   RoomEntry,
   UserMatchmakingViewData,
+  UserViewData,
 } from "../types.ts";
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
@@ -11,6 +12,8 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "SubscribeActivePublicGames"; subscriptionId: string }
   // Available Public Rooms Channel
   | { type: "SubscribeAvailablePublicRooms"; subscriptionId: string }
+  // User Profile Channel
+  | { type: "SubscribeUserProfile"; subscriptionId: string; userId: string }
   // UserMatchmaking channel
   | { type: "SubscribeUserMatchmaking"; subscriptionId: string }
   | {
@@ -52,24 +55,29 @@ export type ServerMessage<
   Outcome,
 > =
   | {
+    type: "UpdateUserProfileProps";
+    subscriptionId: string;
+    userProfileProps: UserViewData<Rating>;
+  }
+  | {
     type: "UpdateUserMatchmakingProps";
     subscriptionId: string;
-    userMatchmakingProps: UserMatchmakingViewData<Config, Loadout>;
+    userMatchmakingProps: UserMatchmakingViewData<Config, Loadout, Rating>;
   }
   | {
     type: "UpdateActivePublicGames";
     subscriptionId: string;
-    activePublicGamesProps: ActivePublicGamesViewData<Config>;
+    activePublicGamesProps: ActivePublicGamesViewData<Config, Rating>;
   }
   | {
     type: "UpdateAvailablePublicRooms";
     subscriptionId: string;
-    availablePublicRoomsProps: AvailablePublicRoomsViewData<Config>;
+    availablePublicRoomsProps: AvailablePublicRoomsViewData<Config, Rating>;
   }
   | {
     type: "UpdateRoomEntry";
     subscriptionId: string;
-    roomEntry: RoomEntry<Config, Loadout>;
+    roomEntry: RoomEntry<Config, Loadout, Rating>;
   }
   | { type: "RemoveRoomEntry"; subscriptionId: string; roomId: string }
   | { type: "GameAssignment"; subscriptionId: string; gameId: string }
@@ -77,5 +85,5 @@ export type ServerMessage<
   | {
     type: "UpdateGameState";
     subscriptionId: string;
-    gameViewData: GameViewData<PlayerState, PublicState, Outcome>;
+    gameViewData: GameViewData<PlayerState, PublicState, Outcome, Rating>;
   };

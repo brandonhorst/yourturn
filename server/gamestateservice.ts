@@ -42,7 +42,7 @@ export class GameStateService<
    * Resolves a user's player index for a game, if they are a participant.
    */
   getPlayerId(
-    gameData: GameStorageData<Config, GameState, Outcome>,
+    gameData: GameStorageData<Config, GameState, Outcome, Rating>,
     userId: string,
   ): number | undefined {
     const playerId = gameData.userIds.indexOf(userId);
@@ -56,7 +56,7 @@ export class GameStateService<
    * Produces a player-scoped view of game state for one participant.
    */
   getPlayerState(
-    gameData: GameStorageData<Config, GameState, Outcome>,
+    gameData: GameStorageData<Config, GameState, Outcome, Rating>,
     playerId: number,
     timestamp: Date = new Date(),
   ): PlayerState {
@@ -75,7 +75,7 @@ export class GameStateService<
    * Produces the observer-visible view of game state.
    */
   getPublicState(
-    gameData: GameStorageData<Config, GameState, Outcome>,
+    gameData: GameStorageData<Config, GameState, Outcome, Rating>,
     timestamp: Date = new Date(),
   ): PublicState {
     const state = gameData.gameState;
@@ -92,7 +92,7 @@ export class GameStateService<
    * Builds update payload fields for one game's public and player-specific view.
    */
   buildGameStateUpdate(
-    gameData: GameStorageData<Config, GameState, Outcome>,
+    gameData: GameStorageData<Config, GameState, Outcome, Rating>,
     playerId: number | undefined,
     options?: { timestamp?: Date; publicState?: PublicState },
   ): GameStateUpdate<PlayerState, PublicState, Outcome> {
@@ -170,7 +170,7 @@ export class GameStateService<
     >,
     gameId: string,
     computeNewState: (
-      gameData: GameStorageData<Config, GameState, Outcome>,
+      gameData: GameStorageData<Config, GameState, Outcome, Rating>,
     ) => GameState | undefined,
   ): Promise<void> {
     const gameData = await db.getGameStorageData(gameId);

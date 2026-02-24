@@ -44,9 +44,19 @@ export type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
 
-export type Player = {
+export type PlayerSnapshot<Rating> = {
+  userId: string;
   username: string;
   isGuest: boolean;
+  rating: Record<string, Rating>;
+};
+
+export type UserViewData<Rating> = {
+  userId: string;
+  username: string;
+  isGuest: boolean;
+  rating: Record<string, Rating>;
+  description: string;
 };
 
 export type TokenData = {
@@ -257,24 +267,24 @@ export interface Game<
 
 // ViewData and Props
 
-export type ActiveGame<Config> = {
+export type ActiveGame<Config, Rating> = {
   gameId: string;
-  players: Player[];
+  players: PlayerSnapshot<Rating>[];
   config: Config;
   created: Date;
 };
 
-export type AvailableRoom<Config> = {
+export type AvailableRoom<Config, Rating> = {
   roomId: string;
   numPlayers: number;
-  players: Player[];
+  players: PlayerSnapshot<Rating>[];
   config: Config;
 };
 
-export type RoomEntry<Config, Loadout> = {
+export type RoomEntry<Config, Loadout, Rating> = {
   roomId: string;
   numPlayers: number;
-  players: Player[];
+  players: PlayerSnapshot<Rating>[];
   config: Config;
   loadout: Loadout;
 };
@@ -284,82 +294,83 @@ export type QueueEntry<Loadout> = {
   loadout: Loadout;
 };
 
-export type ActivePublicGamesViewData<Config> = {
-  allActiveGames: ActiveGame<Config>[];
+export type ActivePublicGamesViewData<Config, Rating> = {
+  allActiveGames: ActiveGame<Config, Rating>[];
 };
 
-export type AvailablePublicRoomsViewData<Config> = {
-  allAvailableRooms: AvailableRoom<Config>[];
+export type AvailablePublicRoomsViewData<Config, Rating> = {
+  allAvailableRooms: AvailableRoom<Config, Rating>[];
 };
 
-export type UserMatchmakingViewData<Config, Loadout> = {
-  userActiveGames: ActiveGame<Config>[];
+export type UserMatchmakingViewData<Config, Loadout, Rating> = {
+  userActiveGames: ActiveGame<Config, Rating>[];
   roomIds: string[];
   queueEntries: QueueEntry<Loadout>[];
 };
 
-type CompletePlayerViewData<PlayerState, PublicState, Outcome> = {
-  players: Player[];
+type CompletePlayerViewData<PlayerState, PublicState, Outcome, Rating> = {
+  players: PlayerSnapshot<Rating>[];
   publicState: PublicState;
   playerId: number;
   playerState: PlayerState;
   outcome: Outcome;
 };
 
-type IncompletePlayerViewData<PlayerState, PublicState> = {
-  players: Player[];
+type IncompletePlayerViewData<PlayerState, PublicState, Rating> = {
+  players: PlayerSnapshot<Rating>[];
   publicState: PublicState;
   playerId: number;
   playerState: PlayerState;
   outcome: undefined;
 };
 
-type CompleteObserverViewData<PublicState, Outcome> = {
-  players: Player[];
+type CompleteObserverViewData<PublicState, Outcome, Rating> = {
+  players: PlayerSnapshot<Rating>[];
   publicState: PublicState;
   playerId: undefined;
   playerState: undefined;
   outcome: Outcome;
 };
 
-type IncompleteObserverViewData<PublicState> = {
-  players: Player[];
+type IncompleteObserverViewData<PublicState, Rating> = {
+  players: PlayerSnapshot<Rating>[];
   publicState: PublicState;
   playerId: undefined;
   playerState: undefined;
   outcome: undefined;
 };
 
-export type GameViewData<PlayerState, PublicState, Outcome> =
-  | CompletePlayerViewData<PlayerState, PublicState, Outcome>
-  | IncompletePlayerViewData<PlayerState, PublicState>
-  | CompleteObserverViewData<PublicState, Outcome>
-  | IncompleteObserverViewData<PublicState>;
+export type GameViewData<PlayerState, PublicState, Outcome, Rating> =
+  | CompletePlayerViewData<PlayerState, PublicState, Outcome, Rating>
+  | IncompletePlayerViewData<PlayerState, PublicState, Rating>
+  | CompleteObserverViewData<PublicState, Outcome, Rating>
+  | IncompleteObserverViewData<PublicState, Rating>;
 
-type IncompletePlayerProps<Move, PlayerState, PublicState> =
-  & IncompletePlayerViewData<PlayerState, PublicState>
+type IncompletePlayerProps<Move, PlayerState, PublicState, Rating> =
+  & IncompletePlayerViewData<PlayerState, PublicState, Rating>
   & { perform: (move: Move) => void };
 
-type CompletePlayerProps<PlayerState, PublicState, Outcome> =
-  & CompletePlayerViewData<PlayerState, PublicState, Outcome>
+type CompletePlayerProps<PlayerState, PublicState, Outcome, Rating> =
+  & CompletePlayerViewData<PlayerState, PublicState, Outcome, Rating>
   & { perform: undefined };
 
-type ObserveProps<PublicState, Outcome> =
+type ObserveProps<PublicState, Outcome, Rating> =
   & (
-    | CompleteObserverViewData<PublicState, Outcome>
+    | CompleteObserverViewData<PublicState, Outcome, Rating>
     | IncompleteObserverViewData<
-      PublicState
+      PublicState,
+      Rating
     >
   )
   & { perform: undefined };
 
-export type GameProps<Move, PlayerState, PublicState, Outcome> =
-  | CompletePlayerProps<PlayerState, PublicState, Outcome>
-  | IncompletePlayerProps<Move, PlayerState, PublicState>
-  | ObserveProps<PublicState, Outcome>;
+export type GameProps<Move, PlayerState, PublicState, Outcome, Rating> =
+  | CompletePlayerProps<PlayerState, PublicState, Outcome, Rating>
+  | IncompletePlayerProps<Move, PlayerState, PublicState, Rating>
+  | ObserveProps<PublicState, Outcome, Rating>;
 
-export type UserMatchmakingProps<Config, Loadout> =
-  & UserMatchmakingViewData<Config, Loadout>
+export type UserMatchmakingProps<Config, Loadout, Rating> =
+  & UserMatchmakingViewData<Config, Loadout, Rating>
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     leaveQueue: (queueId: string) => void;
@@ -370,8 +381,8 @@ export type UserMatchmakingProps<Config, Loadout> =
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
   };
 
-export type RoomProps<Config, Loadout> =
-  & RoomEntry<Config, Loadout>
+export type RoomProps<Config, Loadout, Rating> =
+  & RoomEntry<Config, Loadout, Rating>
   & {
     commitRoom: () => void;
     leaveRoom: () => void;

@@ -41,7 +41,7 @@ subscribe to multiple channels:
 - `server/server.ts` - Public server API, token/user setup, and client message
   routing, including initial channel payload assembly
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for
-  UserMatchmaking, room, queue, global lists, and per-game updates
+  UserProfile, UserMatchmaking, room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, user
   matchmakings, active games, tokens, and indexed global list snapshots
   (`["activepublicgames", gameId]` and `["availablepublicrooms", roomId]`)
@@ -95,7 +95,8 @@ Uses Deno KV for:
 - Queue matchmaking and room-based matchmaking
 - Queue entries and room members that optionally persist assignment subscription
   IDs used for direct `GameAssignment` socket delivery
-- User records (`["users", userId]`) for `player` and per-queue `ratings`
+- User records (`["users", userId]`) for canonical profile fields (`username`,
+  `isGuest`, `description`) and per-queue `ratings`
 - User matchmaking records (`["usermatchmakings", userId]`) for `activeGames`,
   `joinedRooms`, and `queueEntries`
 - Auth tokens
@@ -105,17 +106,21 @@ Uses Deno KV for:
   `["availablepublicrooms"]`) are stored as `Deno.KvU64` counters and mutated
   with atomic `sum` operations (`+1` insert, `-1` delete, `0` update) so list
   watchers can track updates without scanning
+- `PlayerSnapshot<Rating>` values are frozen at queue/room join time and stored
+  in queue entries, room members, games, active public games, and available
+  public rooms; they are intentionally not updated after join
 
 ### WebSocket Communication
 
 A single socket supports these channel subscriptions:
 
-1. **UserMatchmaking channel** - Matchmaking actions and user matchmaking
+1. **UserProfile channel** - Canonical user profile updates
+2. **UserMatchmaking channel** - Matchmaking actions and user matchmaking
    updates
-2. **Room channel** - Per-room lifecycle updates and room-specific actions
-3. **Game channel** - Moves and game state updates for players/observers
-4. **Active public games channel** - Global list of active games
-5. **Available public rooms channel** - Global list of joinable public rooms
+3. **Room channel** - Per-room lifecycle updates and room-specific actions
+4. **Game channel** - Moves and game state updates for players/observers
+5. **Active public games channel** - Global list of active games
+6. **Available public rooms channel** - Global list of joinable public rooms
 
 Message protocol types are defined in `common/sockettypes.ts`.
 
@@ -127,6 +132,10 @@ stream.
 UserMatchmaking channel payloads (`UserMatchmakingViewData`) contain matchmaking
 data only: `userActiveGames`, `roomIds`, and `queueEntries`. Player profile and
 ratings are not part of UserMatchmaking channel view data.
+
+UserProfile channel payloads (`UserViewData<Rating>`) contain canonical user
+profile data. Display-facing game and room payloads use `PlayerSnapshot<Rating>`
+instead.
 
 ## Agent Instructions
 

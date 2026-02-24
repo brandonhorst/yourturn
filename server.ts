@@ -47,8 +47,9 @@ export async function initializeServer<
     Loadout
   >(kv, game);
 
-  const activePublicGamesStream: ReadableStream<ActiveGame<Config>[]> = db
-    .watchForActivePublicGamesListChanges();
+  const activePublicGamesStream: ReadableStream<ActiveGame<Config, Rating>[]> =
+    db
+      .watchForActivePublicGamesListChanges();
   const availableRoomsStream = db.watchForAvailablePublicRoomListChanges();
 
   const socketStore = new SocketStore<

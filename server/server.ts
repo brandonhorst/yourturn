@@ -3,12 +3,17 @@ import type {
   AvailablePublicRoomsViewData,
   Game,
   GameViewData,
-  Player,
+  PlayerSnapshot,
   UserMatchmakingViewData,
+  UserViewData,
 } from "../types.ts";
 import type { ClientMessage } from "../common/sockettypes.ts";
 import { GameStateService } from "./gamestateservice.ts";
-import type { DB, GameStorageData } from "./db.ts";
+import {
+  type DB,
+  type GameStorageData,
+  userViewDataToPlayerSnapshot,
+} from "./db.ts";
 import type { SocketStore } from "./sockets.ts";
 import { ulid } from "@std/ulid";
 
@@ -78,7 +83,7 @@ export class Server<
   async getInitialUserMatchmakingProps(
     userId: string,
   ): Promise<
-    { props: UserMatchmakingViewData<Config, Loadout>; token: string }
+    { props: UserMatchmakingViewData<Config, Loadout, Rating>; token: string }
   > {
     if (userId === "") {
       throw new Error("Missing UserMatchmaking user ID");
@@ -113,7 +118,7 @@ export class Server<
    * Builds the initial payload for the active public games channel.
    */
   async getInitialActivePublicGamesProps(): Promise<
-    ActivePublicGamesViewData<Config>
+    ActivePublicGamesViewData<Config, Rating>
   > {
     const allActiveGames = await this.db.getAllActivePublicGames();
     return {
@@ -125,7 +130,7 @@ export class Server<
    * Builds the initial payload for the available public rooms channel.
    */
   async getInitialAvailablePublicRoomsProps(): Promise<
-    AvailablePublicRoomsViewData<Config>
+    AvailablePublicRoomsViewData<Config, Rating>
   > {
     const allAvailableRooms = await this.db.getAllAvailablePublicRooms();
     return {
@@ -134,12 +139,29 @@ export class Server<
   }
 
   /**
+   * Builds the initial payload for one UserProfile channel subscription.
+   */
+  async getInitialUserProfileProps(
+    userId: string,
+  ): Promise<UserViewData<Rating>> {
+    if (userId === "") {
+      throw new Error("Missing UserProfile user ID");
+    }
+
+    const userProfile = await this.db.getUserViewData(userId);
+    if (userProfile == null) {
+      throw new Error("Unknown UserProfile user");
+    }
+    return userProfile;
+  }
+
+  /**
    * Builds the initial game payload for a viewer or player.
    */
   async getInitialGameProps(
     gameId: string,
     userId: string,
-  ): Promise<GameViewData<PlayerState, PublicState, Outcome>> {
+  ): Promise<GameViewData<PlayerState, PublicState, Outcome, Rating>> {
     if (userId === "") {
       throw new Error("Missing game user id");
     }
@@ -154,9 +176,9 @@ export class Server<
    * Builds the initial game view payload for a specific player or observer.
    */
   private buildGameViewData(
-    gameData: GameStorageData<Config, GameState, Outcome>,
+    gameData: GameStorageData<Config, GameState, Outcome, Rating>,
     playerId: number | undefined,
-  ): GameViewData<PlayerState, PublicState, Outcome> {
+  ): GameViewData<PlayerState, PublicState, Outcome, Rating> {
     const gameStateUpdate = this.gameStateService.buildGameStateUpdate(
       gameData,
       playerId,
@@ -167,7 +189,7 @@ export class Server<
       playerState: gameStateUpdate.playerState,
       publicState: gameStateUpdate.publicState,
       outcome: gameStateUpdate.outcome,
-    } as GameViewData<PlayerState, PublicState, Outcome>;
+    } as GameViewData<PlayerState, PublicState, Outcome, Rating>;
   }
 
   /**
@@ -190,11 +212,16 @@ export class Server<
     };
 
     /**
-     * Fetches the latest user record for room and queue actions.
+     * Fetches the latest player snapshot for room and queue actions.
      */
-    const getUser = async (): Promise<Player | null> => {
-      const storedUser = await this.db.getUserStorageData(userId);
-      return storedUser?.player ?? null;
+    const getPlayerSnapshot = async (): Promise<
+      PlayerSnapshot<Rating> | null
+    > => {
+      const userViewData = await this.db.getUserViewData(userId);
+      if (userViewData == null) {
+        return null;
+      }
+      return userViewDataToPlayerSnapshot(userViewData);
     };
 
     /**
@@ -227,6 +254,23 @@ export class Server<
       > = JSON.parse(event.data);
 
       switch (request.type) {
+        case "SubscribeUserProfile": {
+          const latestUserProfile = await this.db.getUserViewData(
+            request.userId,
+          );
+          if (latestUserProfile == null) {
+            sendDisplayError("Unknown UserProfile user.");
+            break;
+          }
+
+          await this.socketStore.subscribeUserProfile(
+            socket,
+            request.subscriptionId,
+            request.userId,
+            latestUserProfile,
+          );
+          break;
+        }
         case "SubscribeUserMatchmaking": {
           const latestUserData = await this.db.getUserMatchmakingStorageData(
             userId,
@@ -287,8 +331,8 @@ export class Server<
             break;
           }
 
-          const user = await getUser();
-          if (user == null) {
+          const playerSnapshot = await getPlayerSnapshot();
+          if (playerSnapshot == null) {
             sendDisplayError("Unknown UserMatchmaking user.");
             break;
           }
@@ -298,7 +342,7 @@ export class Server<
               socket,
               request.queueId,
               userId,
-              user,
+              playerSnapshot,
               request.loadout,
               request.assignmentSubscriptionId,
             );
@@ -324,8 +368,8 @@ export class Server<
             break;
           }
 
-          const user = await getUser();
-          if (user == null) {
+          const playerSnapshot = await getPlayerSnapshot();
+          if (playerSnapshot == null) {
             sendDisplayError("Unknown UserMatchmaking user.");
             break;
           }
@@ -339,7 +383,7 @@ export class Server<
                 private: request.private,
               },
               userId,
-              user,
+              playerSnapshot,
               request.loadout,
               request.assignmentSubscriptionId,
             );
@@ -374,8 +418,8 @@ export class Server<
             break;
           }
 
-          const user = await getUser();
-          if (user == null) {
+          const playerSnapshot = await getPlayerSnapshot();
+          if (playerSnapshot == null) {
             sendDisplayError("Unknown UserMatchmaking user.");
             break;
           }
@@ -386,7 +430,7 @@ export class Server<
               socket,
               request.roomId,
               userId,
-              user,
+              playerSnapshot,
               request.loadout,
               request.assignmentSubscriptionId,
             );
@@ -488,7 +532,9 @@ export class Server<
     const user = await this.createGuestUser();
     const userId = ulid();
     await this.db.createNewUserStorageData(userId, {
-      player: user,
+      username: user.username,
+      isGuest: user.isGuest,
+      description: "",
       ratings: this.buildInitialRatings(),
     });
     await this.db.createNewUserMatchmakingStorageData(userId, {
@@ -527,9 +573,11 @@ export class Server<
   }
 
   /**
-   * Creates a unique guest player profile in memory before persistence.
+   * Creates a unique guest profile in memory before persistence.
    */
-  private async createGuestUser(): Promise<Player> {
+  private async createGuestUser(): Promise<
+    { username: string; isGuest: boolean }
+  > {
     for (let attempt = 0; attempt < 10000; attempt++) {
       const suffix = Math.floor(Math.random() * 10000).toString().padStart(
         4,

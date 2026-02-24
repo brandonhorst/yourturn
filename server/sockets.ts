@@ -11,9 +11,10 @@ import type {
   AvailablePublicRoomsViewData,
   AvailableRoom,
   GameViewData,
-  Player,
+  PlayerSnapshot,
   RoomEntry,
   UserMatchmakingViewData,
+  UserViewData,
 } from "../types.ts";
 import type { ServerMessage } from "../common/sockettypes.ts";
 import type { GameStateService } from "./gamestateservice.ts";
@@ -24,26 +25,35 @@ type QueueSubscription = {
   entryId: string;
 };
 
-type RoomConnectionState<Config, Loadout> = {
+type RoomConnectionState<Config, Loadout, Rating> = {
   userId: string;
   roomId: string;
   subscriptionIds: Set<string>;
   entryId: string;
   loadout: Loadout;
   roomChangesReader: ReadableStreamDefaultReader<
-    RoomWatchEvent<Config, Loadout>
+    RoomWatchEvent<Config, Loadout, Rating>
   >;
 };
 
 /**
  * UserMatchmaking-specific state tracked for one websocket.
  */
-type UserMatchmakingConnectionState<Config, Loadout> = {
+type UserMatchmakingConnectionState<Config, Loadout, Rating> = {
   subscriptionIds: Set<string>;
   userChangesReader: ReadableStreamDefaultReader<
-    UserMatchmakingStorageData<Config, Loadout>
+    UserMatchmakingStorageData<Config, Loadout, Rating>
   >;
   queueSubscriptions: Map<string, QueueSubscription>;
+};
+
+/**
+ * UserProfile-specific state tracked for one websocket and user ID.
+ */
+type UserProfileConnectionState<Rating> = {
+  userId: string;
+  subscriptionIds: Set<string>;
+  userChangesReader: ReadableStreamDefaultReader<UserViewData<Rating>>;
 };
 
 /**
@@ -58,14 +68,15 @@ type GameSocketSubscription = {
 /**
  * Shared stream and subscriber state for a single game.
  */
-type GameConnection<Config, GameState, Outcome> = {
+type GameConnection<Config, GameState, Outcome, Rating> = {
   gameSubscriptions: Map<string, GameSocketSubscription>;
   changesReader: ReadableStreamDefaultReader<
-    GameStorageData<Config, GameState, Outcome>
+    GameStorageData<Config, GameState, Outcome, Rating>
   >;
 };
 
 type SocketSubscription =
+  | { type: "UserProfile"; userId: string }
   | { type: "UserMatchmaking" }
   | { type: "Room"; roomId: string }
   | { type: "ActivePublicGames" }
@@ -76,10 +87,11 @@ type SocketSubscription =
  * Combined state for a websocket across UserMatchmaking, room, and game
  * subscriptions.
  */
-type SocketConnectionState<Config, Loadout> = {
+type SocketConnectionState<Config, Loadout, Rating> = {
   subscriptions: Map<string, SocketSubscription>;
-  roomConnections: Map<string, RoomConnectionState<Config, Loadout>>;
-  userMatchmaking?: UserMatchmakingConnectionState<Config, Loadout>;
+  roomConnections: Map<string, RoomConnectionState<Config, Loadout, Rating>>;
+  userProfileConnections: Map<string, UserProfileConnectionState<Rating>>;
+  userMatchmaking?: UserMatchmakingConnectionState<Config, Loadout, Rating>;
 };
 
 /**
@@ -125,15 +137,15 @@ function closeReader<T>(reader: ReadableStreamDefaultReader<T>): void {
 /**
  * Creates a strongly-typed game view payload for one subscriber update.
  */
-function buildGameViewData<PlayerState, PublicState, Outcome>(
-  players: Player[],
+function buildGameViewData<PlayerState, PublicState, Outcome, Rating>(
+  players: PlayerSnapshot<Rating>[],
   playerId: number | undefined,
   gameStateUpdate: {
     playerState: PlayerState | undefined;
     publicState: PublicState;
     outcome: Outcome | undefined;
   },
-): GameViewData<PlayerState, PublicState, Outcome> {
+): GameViewData<PlayerState, PublicState, Outcome, Rating> {
   if (playerId == null) {
     if (gameStateUpdate.outcome === undefined) {
       return {
@@ -191,7 +203,7 @@ export class SocketStore<
 > {
   private sockets: Map<
     WebSocket,
-    SocketConnectionState<Config, Loadout>
+    SocketConnectionState<Config, Loadout, Rating>
   > = new Map();
   private gameStateService?: GameStateService<
     Config,
@@ -207,7 +219,7 @@ export class SocketStore<
   private availablePublicRoomsSubscriptions: Map<string, WebSocket> = new Map();
   private gameConnections: Map<
     string,
-    GameConnection<Config, GameState, Outcome>
+    GameConnection<Config, GameState, Outcome, Rating>
   > = new Map();
 
   constructor(
@@ -221,8 +233,8 @@ export class SocketStore<
       Rating,
       Loadout
     >,
-    activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
-    availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
+    activeGamesStream: ReadableStream<ActiveGame<Config, Rating>[]>,
+    availableRoomsStream: ReadableStream<AvailableRoom<Config, Rating>[]>,
   ) {
     this.streamActivePublicGamesToSockets(activeGamesStream);
     this.streamAvailablePublicRoomsToSockets(availableRoomsStream);
@@ -247,13 +259,53 @@ export class SocketStore<
   }
 
   /**
+   * Subscribes one logical UserProfile channel instance on a websocket.
+   */
+  async subscribeUserProfile(
+    socket: WebSocket,
+    subscriptionId: string,
+    userId: string,
+    userProfile: UserViewData<Rating>,
+  ): Promise<void> {
+    await this.unsubscribe(socket, subscriptionId);
+
+    const connectionState = this.getOrCreateSocketConnection(socket);
+    let userProfileConnection = connectionState.userProfileConnections.get(
+      userId,
+    );
+
+    if (userProfileConnection == null) {
+      const userChangesReader = this.db.watchForUserChanges(userId).getReader();
+      userProfileConnection = {
+        userId,
+        subscriptionIds: new Set(),
+        userChangesReader,
+      };
+      connectionState.userProfileConnections.set(userId, userProfileConnection);
+      void this.streamUserProfileChangesToSocket(
+        socket,
+        userId,
+        userChangesReader,
+      );
+    }
+
+    userProfileConnection.subscriptionIds.add(subscriptionId);
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "UserProfile",
+      userId,
+    });
+
+    this.sendUserProfileSnapshot(socket, subscriptionId, userProfile);
+  }
+
+  /**
    * Subscribes one logical UserMatchmaking channel instance on a websocket.
    */
   async subscribeUserMatchmaking(
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
-    userData: UserMatchmakingStorageData<Config, Loadout>,
+    userData: UserMatchmakingStorageData<Config, Loadout, Rating>,
   ): Promise<void> {
     const existingConnection = this.sockets.get(socket);
     const existingSubscription = existingConnection?.subscriptions.get(
@@ -384,10 +436,10 @@ export class SocketStore<
       roomId,
     });
 
-    const roomEntry: RoomEntry<Config, Loadout> = {
+    const roomEntry: RoomEntry<Config, Loadout, Rating> = {
       roomId,
       numPlayers: room.numPlayers,
-      players: room.members.map((member) => member.player),
+      players: room.members.map((member) => member.playerSnapshot),
       config: room.config,
       loadout: roomMember.loadout,
     };
@@ -418,6 +470,13 @@ export class SocketStore<
     connectionState.subscriptions.delete(subscriptionId);
 
     switch (subscription.type) {
+      case "UserProfile":
+        this.unsubscribeUserProfileSubscription(
+          socket,
+          subscriptionId,
+          subscription.userId,
+        );
+        break;
       case "UserMatchmaking":
         await this.unsubscribeUserMatchmakingSubscription(
           socket,
@@ -468,7 +527,7 @@ export class SocketStore<
     socket: WebSocket,
     queueId: string,
     userId: string,
-    user: Player,
+    playerSnapshot: PlayerSnapshot<Rating>,
     loadout: Loadout,
     assignmentSubscriptionId?: string,
   ): Promise<void> {
@@ -485,7 +544,7 @@ export class SocketStore<
       queueId,
       entryId,
       userId,
-      user,
+      playerSnapshot,
       loadout,
       assignmentSubscriptionId,
     );
@@ -509,7 +568,7 @@ export class SocketStore<
     socket: WebSocket,
     roomConfig: { numPlayers: number; config: Config; private: boolean },
     userId: string,
-    user: Player,
+    playerSnapshot: PlayerSnapshot<Rating>,
     loadout: Loadout,
     assignmentSubscriptionId?: string,
   ): Promise<void> {
@@ -519,7 +578,7 @@ export class SocketStore<
       socket,
       roomId,
       userId,
-      user,
+      playerSnapshot,
       loadout,
       assignmentSubscriptionId,
     );
@@ -532,7 +591,7 @@ export class SocketStore<
     _socket: WebSocket,
     roomId: string,
     userId: string,
-    user: Player,
+    playerSnapshot: PlayerSnapshot<Rating>,
     loadout: Loadout,
     assignmentSubscriptionId?: string,
   ): Promise<boolean> {
@@ -543,7 +602,7 @@ export class SocketStore<
         roomId,
         entryId,
         userId,
-        user,
+        playerSnapshot,
         loadout,
         assignmentSubscriptionId,
       );
@@ -649,7 +708,7 @@ export class SocketStore<
     sendServerMessage<
       never,
       never,
-      never,
+      Rating,
       PlayerState,
       PublicState,
       Outcome
@@ -662,6 +721,35 @@ export class SocketStore<
         gameStateUpdate,
       ),
     });
+  }
+
+  /**
+   * Unsubscribes one UserProfile subscription and tears down user-profile
+   * streams when last.
+   */
+  private unsubscribeUserProfileSubscription(
+    socket: WebSocket,
+    subscriptionId: string,
+    userId: string,
+  ): void {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
+      return;
+    }
+    const userProfileConnection = connectionState.userProfileConnections.get(
+      userId,
+    );
+    if (userProfileConnection == null) {
+      return;
+    }
+
+    userProfileConnection.subscriptionIds.delete(subscriptionId);
+    if (userProfileConnection.subscriptionIds.size > 0) {
+      return;
+    }
+
+    closeReader(userProfileConnection.userChangesReader);
+    connectionState.userProfileConnections.delete(userId);
   }
 
   /**
@@ -717,7 +805,11 @@ export class SocketStore<
    */
   private async cleanupUserMatchmakingConnection(
     socket: WebSocket,
-    userMatchmakingState: UserMatchmakingConnectionState<Config, Loadout>,
+    userMatchmakingState: UserMatchmakingConnectionState<
+      Config,
+      Loadout,
+      Rating
+    >,
   ): Promise<void> {
     for (const queueId of [...userMatchmakingState.queueSubscriptions.keys()]) {
       await this.cleanupQueueSubscription(socket, queueId, {
@@ -762,7 +854,7 @@ export class SocketStore<
   private async streamUserChangesToSocket(
     socket: WebSocket,
     userChangesReader: ReadableStreamDefaultReader<
-      UserMatchmakingStorageData<Config, Loadout>
+      UserMatchmakingStorageData<Config, Loadout, Rating>
     >,
   ): Promise<void> {
     try {
@@ -781,13 +873,37 @@ export class SocketStore<
   }
 
   /**
+   * Streams UserProfile updates for one websocket and target user.
+   */
+  private async streamUserProfileChangesToSocket(
+    socket: WebSocket,
+    userId: string,
+    userChangesReader: ReadableStreamDefaultReader<UserViewData<Rating>>,
+  ): Promise<void> {
+    try {
+      while (true) {
+        const data = await userChangesReader.read();
+        if (data.done) {
+          break;
+        }
+
+        this.sendUserProfileSnapshotToSubscriptions(socket, userId, data.value);
+      }
+    } catch {
+      // Reader cancellation is expected during unsubscribe.
+    } finally {
+      closeReader(userChangesReader);
+    }
+  }
+
+  /**
    * Streams room updates for one room subscription.
    */
   private async streamRoomChangesToSocket(
     socket: WebSocket,
     roomId: string,
     roomChangesReader: ReadableStreamDefaultReader<
-      RoomWatchEvent<Config, Loadout>
+      RoomWatchEvent<Config, Loadout, Rating>
     >,
   ): Promise<void> {
     try {
@@ -826,10 +942,12 @@ export class SocketStore<
         roomConnection.entryId = roomMember.entryId;
         roomConnection.loadout = roomMember.loadout;
 
-        const roomEntry: RoomEntry<Config, Loadout> = {
+        const roomEntry: RoomEntry<Config, Loadout, Rating> = {
           roomId,
           numPlayers: data.value.room.numPlayers,
-          players: data.value.room.members.map((member) => member.player),
+          players: data.value.room.members.map((member) =>
+            member.playerSnapshot
+          ),
           config: data.value.room.config,
           loadout: roomMember.loadout,
         };
@@ -849,9 +967,13 @@ export class SocketStore<
   private sendUserMatchmakingSnapshot(
     socket: WebSocket,
     subscriptionId: string,
-    userData: UserMatchmakingStorageData<Config, Loadout>,
+    userData: UserMatchmakingStorageData<Config, Loadout, Rating>,
   ): void {
-    const userMatchmakingProps: UserMatchmakingViewData<Config, Loadout> = {
+    const userMatchmakingProps: UserMatchmakingViewData<
+      Config,
+      Loadout,
+      Rating
+    > = {
       userActiveGames: userData.activeGames,
       roomIds: userData.joinedRooms.map((joinedRoom) => joinedRoom.roomId),
       queueEntries: userData.queueEntries,
@@ -870,7 +992,7 @@ export class SocketStore<
    */
   private sendUserMatchmakingSnapshotToSubscriptions(
     socket: WebSocket,
-    userData: UserMatchmakingStorageData<Config, Loadout>,
+    userData: UserMatchmakingStorageData<Config, Loadout, Rating>,
   ): void {
     for (
       const subscriptionId of this.getUserMatchmakingSubscriptionIds(socket)
@@ -880,12 +1002,43 @@ export class SocketStore<
   }
 
   /**
+   * Sends one full UserProfile snapshot to one subscription ID.
+   */
+  private sendUserProfileSnapshot(
+    socket: WebSocket,
+    subscriptionId: string,
+    userProfile: UserViewData<Rating>,
+  ): void {
+    sendServerMessage<never, never, Rating, never, never, never>(socket, {
+      type: "UpdateUserProfileProps",
+      subscriptionId,
+      userProfileProps: userProfile,
+    });
+  }
+
+  /**
+   * Sends the latest UserProfile snapshot to each active UserProfile
+   * subscription for a user.
+   */
+  private sendUserProfileSnapshotToSubscriptions(
+    socket: WebSocket,
+    userId: string,
+    userProfile: UserViewData<Rating>,
+  ): void {
+    for (
+      const subscriptionId of this.getUserProfileSubscriptionIds(socket, userId)
+    ) {
+      this.sendUserProfileSnapshot(socket, subscriptionId, userProfile);
+    }
+  }
+
+  /**
    * Sends one room entry update to one subscription ID.
    */
   private sendRoomEntryUpdateToSubscription(
     socket: WebSocket,
     subscriptionId: string,
-    roomEntry: RoomEntry<Config, Loadout>,
+    roomEntry: RoomEntry<Config, Loadout, Rating>,
   ): void {
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
       type: "UpdateRoomEntry",
@@ -900,7 +1053,7 @@ export class SocketStore<
   private sendRoomEntryUpdateToRoomSubscriptions(
     socket: WebSocket,
     roomId: string,
-    roomEntry: RoomEntry<Config, Loadout>,
+    roomEntry: RoomEntry<Config, Loadout, Rating>,
   ): void {
     for (const subscriptionId of this.getRoomSubscriptionIds(socket, roomId)) {
       this.sendRoomEntryUpdateToSubscription(socket, subscriptionId, roomEntry);
@@ -975,6 +1128,26 @@ export class SocketStore<
   }
 
   /**
+   * Returns all active UserProfile subscription IDs for one socket and user.
+   */
+  private getUserProfileSubscriptionIds(
+    socket: WebSocket,
+    userId: string,
+  ): string[] {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
+      return [];
+    }
+    const userProfileConnection = connectionState.userProfileConnections.get(
+      userId,
+    );
+    if (userProfileConnection == null) {
+      return [];
+    }
+    return [...userProfileConnection.subscriptionIds];
+  }
+
+  /**
    * Returns all active room subscription IDs for one socket and room.
    */
   private getRoomSubscriptionIds(
@@ -1006,9 +1179,9 @@ export class SocketStore<
   private sendActivePublicGamesUpdate(
     socket: WebSocket,
     subscriptionId: string,
-    allActiveGames: ActiveGame<Config>[],
+    allActiveGames: ActiveGame<Config, Rating>[],
   ): void {
-    const activePublicGamesProps: ActivePublicGamesViewData<Config> = {
+    const activePublicGamesProps: ActivePublicGamesViewData<Config, Rating> = {
       allActiveGames,
     };
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
@@ -1022,11 +1195,11 @@ export class SocketStore<
    * Broadcasts active game list updates to all active public game subscriptions.
    */
   private streamActivePublicGamesToSockets(
-    activeGamesStream: ReadableStream<ActiveGame<Config>[]>,
+    activeGamesStream: ReadableStream<ActiveGame<Config, Rating>[]>,
   ): void {
     activeGamesStream.pipeTo(
       new WritableStream({
-        write: (allActiveGames: ActiveGame<Config>[]) => {
+        write: (allActiveGames: ActiveGame<Config, Rating>[]) => {
           for (
             const [subscriptionId, socket] of this
               .activePublicGamesSubscriptions.entries()
@@ -1065,9 +1238,12 @@ export class SocketStore<
   private sendAvailablePublicRoomsUpdate(
     socket: WebSocket,
     subscriptionId: string,
-    allAvailableRooms: AvailableRoom<Config>[],
+    allAvailableRooms: AvailableRoom<Config, Rating>[],
   ): void {
-    const availablePublicRoomsProps: AvailablePublicRoomsViewData<Config> = {
+    const availablePublicRoomsProps: AvailablePublicRoomsViewData<
+      Config,
+      Rating
+    > = {
       allAvailableRooms,
     };
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
@@ -1081,11 +1257,11 @@ export class SocketStore<
    * Broadcasts available room list updates to all public room subscriptions.
    */
   private streamAvailablePublicRoomsToSockets(
-    availableRoomsStream: ReadableStream<AvailableRoom<Config>[]>,
+    availableRoomsStream: ReadableStream<AvailableRoom<Config, Rating>[]>,
   ): void {
     availableRoomsStream.pipeTo(
       new WritableStream({
-        write: (allAvailableRooms: AvailableRoom<Config>[]) => {
+        write: (allAvailableRooms: AvailableRoom<Config, Rating>[]) => {
           for (
             const [subscriptionId, socket] of this
               .availablePublicRoomsSubscriptions.entries()
@@ -1109,7 +1285,7 @@ export class SocketStore<
   private getRoomConnection(
     socket: WebSocket,
     roomId: string,
-  ): RoomConnectionState<Config, Loadout> | undefined {
+  ): RoomConnectionState<Config, Loadout, Rating> | undefined {
     const connectionState = this.sockets.get(socket);
     if (connectionState == null) {
       return undefined;
@@ -1224,7 +1400,7 @@ export class SocketStore<
   private async streamGameChangesToSockets(
     gameId: string,
     changesReader: ReadableStreamDefaultReader<
-      GameStorageData<Config, GameState, Outcome>
+      GameStorageData<Config, GameState, Outcome, Rating>
     >,
   ): Promise<void> {
     const gameStateService = this.requireGameStateService();
@@ -1263,7 +1439,7 @@ export class SocketStore<
           sendServerMessage<
             never,
             never,
-            never,
+            Rating,
             PlayerState,
             PublicState,
             Outcome
@@ -1311,7 +1487,7 @@ export class SocketStore<
    */
   private getUserMatchmakingConnectionState(
     socket: WebSocket,
-  ): UserMatchmakingConnectionState<Config, Loadout> {
+  ): UserMatchmakingConnectionState<Config, Loadout, Rating> {
     const connectionState = this.sockets.get(socket);
     if (connectionState == null || connectionState.userMatchmaking == null) {
       throw new Error("Socket is not subscribed to userMatchmaking");
@@ -1325,15 +1501,16 @@ export class SocketStore<
    */
   private getOrCreateSocketConnection(
     socket: WebSocket,
-  ): SocketConnectionState<Config, Loadout> {
+  ): SocketConnectionState<Config, Loadout, Rating> {
     const existing = this.sockets.get(socket);
     if (existing != null) {
       return existing;
     }
 
-    const connectionState: SocketConnectionState<Config, Loadout> = {
+    const connectionState: SocketConnectionState<Config, Loadout, Rating> = {
       subscriptions: new Map(),
       roomConnections: new Map(),
+      userProfileConnections: new Map(),
     };
     this.sockets.set(socket, connectionState);
     return connectionState;
@@ -1351,6 +1528,9 @@ export class SocketStore<
       return;
     }
     if (connectionState.roomConnections.size > 0) {
+      return;
+    }
+    if (connectionState.userProfileConnections.size > 0) {
       return;
     }
     if (connectionState.userMatchmaking != null) {
