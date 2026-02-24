@@ -8,6 +8,7 @@ import type {
 import type {
   ActiveGame,
   ActivePublicGamesViewData,
+  ActiveUsersViewData,
   AvailablePublicRoomsViewData,
   AvailableRoom,
   GameViewData,
@@ -80,6 +81,7 @@ type SocketSubscription =
   | { type: "UserMatchmaking" }
   | { type: "Room"; roomId: string }
   | { type: "ActivePublicGames" }
+  | { type: "ActivePublicUsers" }
   | { type: "AvailablePublicRooms" }
   | { type: "Game"; gameId: string };
 
@@ -216,6 +218,7 @@ export class SocketStore<
     Loadout
   >;
   private activePublicGamesSubscriptions: Map<string, WebSocket> = new Map();
+  private activePublicUsersSubscriptions: Map<string, WebSocket> = new Map();
   private availablePublicRoomsSubscriptions: Map<string, WebSocket> = new Map();
   private gameConnections: Map<
     string,
@@ -234,9 +237,11 @@ export class SocketStore<
       Loadout
     >,
     activeGamesStream: ReadableStream<ActiveGame<Config, Rating>[]>,
+    activeUsersStream: ReadableStream<PlayerSnapshot<Rating>[]>,
     availableRoomsStream: ReadableStream<AvailableRoom<Config, Rating>[]>,
   ) {
     this.streamActivePublicGamesToSockets(activeGamesStream);
+    this.streamActivePublicUsersToSockets(activeUsersStream);
     this.streamAvailablePublicRoomsToSockets(availableRoomsStream);
   }
 
@@ -369,6 +374,23 @@ export class SocketStore<
   }
 
   /**
+   * Subscribes one logical active public users channel instance.
+   */
+  async subscribeActivePublicUsers(
+    socket: WebSocket,
+    subscriptionId: string,
+  ): Promise<void> {
+    await this.unsubscribe(socket, subscriptionId);
+
+    const connectionState = this.getOrCreateSocketConnection(socket);
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "ActivePublicUsers",
+    });
+    this.activePublicUsersSubscriptions.set(subscriptionId, socket);
+    await this.sendActivePublicUsersSnapshot(socket, subscriptionId);
+  }
+
+  /**
    * Subscribes one logical available public rooms channel instance.
    */
   async subscribeAvailablePublicRooms(
@@ -492,6 +514,9 @@ export class SocketStore<
         break;
       case "ActivePublicGames":
         this.activePublicGamesSubscriptions.delete(subscriptionId);
+        break;
+      case "ActivePublicUsers":
+        this.activePublicUsersSubscriptions.delete(subscriptionId);
         break;
       case "AvailablePublicRooms":
         this.availablePublicRoomsSubscriptions.delete(subscriptionId);
@@ -1214,6 +1239,61 @@ export class SocketStore<
       }),
     ).catch((err) => {
       console.error("Failed to broadcast active game updates", err);
+    });
+  }
+
+  /**
+   * Sends the latest active public users snapshot to one subscription.
+   */
+  private async sendActivePublicUsersSnapshot(
+    socket: WebSocket,
+    subscriptionId: string,
+  ): Promise<void> {
+    const allActiveUsers = await this.db.getAllActivePublicUsers();
+    this.sendActivePublicUsersUpdate(socket, subscriptionId, allActiveUsers);
+  }
+
+  /**
+   * Sends one active public users update payload to one subscription.
+   */
+  private sendActivePublicUsersUpdate(
+    socket: WebSocket,
+    subscriptionId: string,
+    allActiveUsers: PlayerSnapshot<Rating>[],
+  ): void {
+    const activePublicUsersProps: ActiveUsersViewData<Rating> = {
+      allActiveUsers,
+    };
+    sendServerMessage<never, Loadout, Rating, never, never, never>(socket, {
+      type: "UpdateActivePublicUsers",
+      subscriptionId,
+      activePublicUsersProps,
+    });
+  }
+
+  /**
+   * Broadcasts active user list updates to all active public user subscriptions.
+   */
+  private streamActivePublicUsersToSockets(
+    activeUsersStream: ReadableStream<PlayerSnapshot<Rating>[]>,
+  ): void {
+    activeUsersStream.pipeTo(
+      new WritableStream({
+        write: (allActiveUsers: PlayerSnapshot<Rating>[]) => {
+          for (
+            const [subscriptionId, socket] of this
+              .activePublicUsersSubscriptions.entries()
+          ) {
+            this.sendActivePublicUsersUpdate(
+              socket,
+              subscriptionId,
+              allActiveUsers,
+            );
+          }
+        },
+      }),
+    ).catch((err) => {
+      console.error("Failed to broadcast active user updates", err);
     });
   }
 

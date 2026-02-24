@@ -43,8 +43,9 @@ subscribe to multiple channels:
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for
   UserProfile, UserMatchmaking, room, queue, global lists, and per-game updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, user
-  matchmakings, active games, tokens, and indexed global list snapshots
-  (`["activepublicgames", gameId]` and `["availablepublicrooms", roomId]`)
+  matchmakings, active games, active users, tokens, and indexed global list
+  snapshots (`["activepublicgames", gameId]`,
+  `["availablepublicrooms", roomId]`, and `["activepublicusers", userId]`)
 - `server/gamestateservice.ts` - Game state projection and move processing,
   including outcome handling and ranked rating updates
 
@@ -53,7 +54,7 @@ subscribe to multiple channels:
 Client-side hooks are organized by functionality:
 
 - `client/channels.ts` - UserMatchmaking, room, and game channel subscription
-  hooks
+  hooks, including active public games/users and available room list hooks
 - `client/socket.ts` - Shared socket connection utilities
 
 ### Game Interface
@@ -106,6 +107,11 @@ Uses Deno KV for:
   `["availablepublicrooms"]`) are stored as `Deno.KvU64` counters and mutated
   with atomic `sum` operations (`+1` insert, `-1` delete, `0` update) so list
   watchers can track updates without scanning
+- Active public users at `["activepublicusers", userId]` with
+  `ActiveUserStorageData` (`playerSnapshot` and `connectionCount`) and a root
+  ticker key at `["activepublicusers"]` that increments on presence writes
+- Presence uses a 10-minute TTL with no heartbeat loop; TTL is pushed on socket
+  setup plus subscribe/mutating requests
 - `PlayerSnapshot<Rating>` values are frozen at queue/room join time and stored
   in queue entries, room members, games, active public games, and available
   public rooms; they are intentionally not updated after join
@@ -120,7 +126,8 @@ A single socket supports these channel subscriptions:
 3. **Room channel** - Per-room lifecycle updates and room-specific actions
 4. **Game channel** - Moves and game state updates for players/observers
 5. **Active public games channel** - Global list of active games
-6. **Available public rooms channel** - Global list of joinable public rooms
+6. **Active public users channel** - Global list of currently active users
+7. **Available public rooms channel** - Global list of joinable public rooms
 
 Message protocol types are defined in `common/sockettypes.ts`.
 
@@ -136,6 +143,9 @@ ratings are not part of UserMatchmaking channel view data.
 UserProfile channel payloads (`UserViewData<Rating>`) contain canonical user
 profile data. Display-facing game and room payloads use `PlayerSnapshot<Rating>`
 instead.
+
+Active public users channel payloads (`ActiveUsersViewData<Rating>`) contain
+only `PlayerSnapshot<Rating>[]` (`allActiveUsers`).
 
 ## Agent Instructions
 

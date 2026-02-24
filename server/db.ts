@@ -70,6 +70,11 @@ export type UserMatchmakingStorageData<Config, Loadout, Rating> = {
   queueEntries: QueueEntry<Loadout>[];
 };
 
+export type ActiveUserStorageData<Rating> = {
+  playerSnapshot: PlayerSnapshot<Rating>;
+  connectionCount: number;
+};
+
 /**
  * Converts canonical stored user data into socket-safe user profile view data.
  */
@@ -122,6 +127,12 @@ function getActivePublicGamesKey() {
 function getActivePublicGameKey(gameId: string) {
   return ["activepublicgames", gameId];
 }
+function getActivePublicUsersKey() {
+  return ["activepublicusers"];
+}
+function getActivePublicUserKey(userId: string) {
+  return ["activepublicusers", userId];
+}
 function getGameKey(gameId: string) {
   return ["games", gameId];
 }
@@ -140,6 +151,7 @@ function getTokenKey(token: string) {
 
 const PUBLIC_LIST_READ_LIMIT = 500;
 const PUBLIC_LIST_BATCH_SIZE = 500;
+const ACTIVE_PUBLIC_USER_TTL_MS = 10 * 60 * 1000;
 const U64_MAX = (1n << 64n) - 1n;
 
 export class DB<
@@ -255,6 +267,20 @@ export class DB<
     this.mutateIndexedListRootCountOnOperation(
       transaction,
       getActivePublicGamesKey(),
+      delta,
+    );
+  }
+
+  /**
+   * Mutates the active public users root ticker.
+   */
+  private mutateActivePublicUsersRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    delta: -1 | 0 | 1,
+  ): void {
+    this.mutateIndexedListRootCountOnOperation(
+      transaction,
+      getActivePublicUsersKey(),
       delta,
     );
   }
@@ -956,6 +982,116 @@ export class DB<
     } else {
       return entry.value;
     }
+  }
+
+  /**
+   * Increments one user's active-public-user connection count and refreshes TTL.
+   */
+  public async incrementActivePublicUserConnection(
+    userId: string,
+    playerSnapshot: PlayerSnapshot<Rating>,
+  ): Promise<void> {
+    const activePublicUserKey = getActivePublicUserKey(userId);
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<ActiveUserStorageData<Rating>>(
+        activePublicUserKey,
+      );
+      const nextActiveUser: ActiveUserStorageData<Rating> = {
+        playerSnapshot,
+        connectionCount: (entry.value?.connectionCount ?? 0) + 1,
+      };
+
+      transaction
+        .check(entry)
+        .set(activePublicUserKey, nextActiveUser, {
+          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
+        });
+      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
+    });
+  }
+
+  /**
+   * Refreshes one active-public-user entry's TTL without changing its value.
+   */
+  public async touchActivePublicUser(userId: string): Promise<void> {
+    const activePublicUserKey = getActivePublicUserKey(userId);
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<ActiveUserStorageData<Rating>>(
+        activePublicUserKey,
+      );
+      if (entry.value == null) {
+        return;
+      }
+
+      transaction
+        .check(entry)
+        .set(activePublicUserKey, entry.value, {
+          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
+        });
+      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
+    });
+  }
+
+  /**
+   * Decrements one user's active-public-user connection count.
+   * Deletes the entry once the count reaches zero.
+   */
+  public async decrementActivePublicUserConnection(userId: string): Promise<
+    void
+  > {
+    const activePublicUserKey = getActivePublicUserKey(userId);
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<ActiveUserStorageData<Rating>>(
+        activePublicUserKey,
+      );
+      if (entry.value == null) {
+        return;
+      }
+
+      const nextConnectionCount = entry.value.connectionCount - 1;
+      transaction.check(entry);
+      if (nextConnectionCount <= 0) {
+        transaction.delete(activePublicUserKey);
+      } else {
+        transaction.set(activePublicUserKey, {
+          playerSnapshot: entry.value.playerSnapshot,
+          connectionCount: nextConnectionCount,
+        }, {
+          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
+        });
+      }
+      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
+    });
+  }
+
+  /**
+   * Returns all currently active public users as player snapshots.
+   */
+  public async getAllActivePublicUsers(): Promise<PlayerSnapshot<Rating>[]> {
+    const activePublicUserEntries = await this.listSingleBatch<
+      ActiveUserStorageData<Rating>
+    >(
+      getActivePublicUsersKey(),
+    );
+    return activePublicUserEntries.map((entry) => entry.value.playerSnapshot);
+  }
+
+  /**
+   * Watches the active public users root key and emits full indexed snapshots.
+   */
+  public watchForActivePublicUsersListChanges(): ReadableStream<
+    PlayerSnapshot<Rating>[]
+  > {
+    const activePublicUsersKey = getActivePublicUsersKey();
+    const stream = this.kv.watch<[Deno.KvU64]>([activePublicUsersKey]);
+    return stream.pipeThrough(
+      new TransformStream({
+        transform: async (_events, controller) => {
+          const data = await this.getAllActivePublicUsers();
+          controller.enqueue(data);
+        },
+      }),
+    );
   }
 
   // Returns all currently active public games.

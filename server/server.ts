@@ -1,5 +1,6 @@
 import type {
   ActivePublicGamesViewData,
+  ActiveUsersViewData,
   AvailablePublicRoomsViewData,
   Game,
   GameViewData,
@@ -127,6 +128,18 @@ export class Server<
   }
 
   /**
+   * Builds the initial payload for the active public users channel.
+   */
+  async getInitialActivePublicUsersProps(): Promise<
+    ActiveUsersViewData<Rating>
+  > {
+    const allActiveUsers = await this.db.getAllActivePublicUsers();
+    return {
+      allActiveUsers,
+    };
+  }
+
+  /**
    * Builds the initial payload for the available public rooms channel.
    */
   async getInitialAvailablePublicRoomsProps(): Promise<
@@ -193,8 +206,8 @@ export class Server<
   }
 
   /**
-   * Configures one websocket to handle UserMatchmaking, room, and game
-   * messages.
+   * Configures one websocket to handle profile, matchmaking, list, room, and
+   * game channel messages.
    */
   configureSocket(
     socket: WebSocket,
@@ -225,6 +238,33 @@ export class Server<
     };
 
     /**
+     * Initializes active-public-user presence for this websocket connection.
+     */
+    const initializeSocketPresence = async (): Promise<void> => {
+      const playerSnapshot = await getPlayerSnapshot();
+      if (playerSnapshot == null) {
+        return;
+      }
+      await this.db.incrementActivePublicUserConnection(userId, playerSnapshot);
+    };
+
+    const socketPresenceReady = initializeSocketPresence().catch((err) => {
+      console.error("Failed to initialize socket presence", err);
+    });
+
+    /**
+     * Refreshes active-public-user TTL for inbound activity.
+     */
+    const touchSocketPresence = async (): Promise<void> => {
+      await socketPresenceReady;
+      try {
+        await this.db.touchActivePublicUser(userId);
+      } catch (err) {
+        console.error("Failed to refresh socket presence", err);
+      }
+    };
+
+    /**
      * Resolves the user's player ID for a specific game.
      */
     const getPlayerIdForGame = async (
@@ -238,6 +278,12 @@ export class Server<
      * Cleans up all channel subscriptions when the socket closes.
      */
     const handleSocketClose = async () => {
+      await socketPresenceReady;
+      try {
+        await this.db.decrementActivePublicUserConnection(userId);
+      } catch (err) {
+        console.error("Failed to decrement socket presence", err);
+      }
       await this.socketStore.unsubscribeSocket(socket);
     };
 
@@ -252,6 +298,25 @@ export class Server<
         PlayerState,
         PublicState
       > = JSON.parse(event.data);
+
+      if (
+        request.type === "SubscribeUserProfile" ||
+        request.type === "SubscribeUserMatchmaking" ||
+        request.type === "SubscribeActivePublicGames" ||
+        request.type === "SubscribeActivePublicUsers" ||
+        request.type === "SubscribeAvailablePublicRooms" ||
+        request.type === "SubscribeRoom" ||
+        request.type === "JoinQueue" ||
+        request.type === "CreateAndJoinRoom" ||
+        request.type === "JoinRoom" ||
+        request.type === "CommitRoom" ||
+        request.type === "LeaveQueue" ||
+        request.type === "LeaveRoom" ||
+        request.type === "SubscribeGame" ||
+        request.type === "Move"
+      ) {
+        await touchSocketPresence();
+      }
 
       switch (request.type) {
         case "SubscribeUserProfile": {
@@ -290,6 +355,12 @@ export class Server<
         }
         case "SubscribeActivePublicGames":
           await this.socketStore.subscribeActivePublicGames(
+            socket,
+            request.subscriptionId,
+          );
+          break;
+        case "SubscribeActivePublicUsers":
+          await this.socketStore.subscribeActivePublicUsers(
             socket,
             request.subscriptionId,
           );

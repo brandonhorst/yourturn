@@ -1,5 +1,6 @@
 import type {
   ActivePublicGamesViewData,
+  ActiveUsersViewData,
   AvailablePublicRoomsViewData,
   GameViewData,
   RoomEntry,
@@ -10,6 +11,8 @@ import type {
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   // Active Public Games Channel
   | { type: "SubscribeActivePublicGames"; subscriptionId: string }
+  // Active Public Users Channel
+  | { type: "SubscribeActivePublicUsers"; subscriptionId: string }
   // Available Public Rooms Channel
   | { type: "SubscribeAvailablePublicRooms"; subscriptionId: string }
   // User Profile Channel
@@ -68,6 +71,11 @@ export type ServerMessage<
     type: "UpdateActivePublicGames";
     subscriptionId: string;
     activePublicGamesProps: ActivePublicGamesViewData<Config, Rating>;
+  }
+  | {
+    type: "UpdateActivePublicUsers";
+    subscriptionId: string;
+    activePublicUsersProps: ActiveUsersViewData<Rating>;
   }
   | {
     type: "UpdateAvailablePublicRooms";

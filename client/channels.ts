@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type {
   ActivePublicGamesViewData,
+  ActiveUsersViewData,
   AvailablePublicRoomsViewData,
   GameProps,
   GameViewData,
@@ -259,6 +260,92 @@ export function useActivePublicGamesChannel<Config, Rating>({
   }, [socket]);
 
   return { allActiveGames };
+}
+
+// Subscribes to the global active public users channel on an open socket.
+export function useActivePublicUsersChannel<Rating>({
+  socket,
+  initialActivePublicUsersProps,
+}: {
+  socket: Socket;
+  initialActivePublicUsersProps: ActiveUsersViewData<Rating>;
+}): ActiveUsersViewData<Rating> {
+  const [allActiveUsers, setActiveUsers] = useState(
+    initialActivePublicUsersProps.allActiveUsers,
+  );
+
+  useEffect(() => {
+    const subscriptionId = crypto.randomUUID();
+
+    // Sends the active public users subscription request for this hook.
+    function sendSubscribe() {
+      const request: ClientMessage<
+        never,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "SubscribeActivePublicUsers",
+        subscriptionId,
+      };
+      socket.send(JSON.stringify(request));
+    }
+
+    function onOpen() {
+      sendSubscribe();
+    }
+
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
+        never,
+        never,
+        Rating,
+        never,
+        never,
+        never
+      >;
+      switch (response.type) {
+        case "UpdateActivePublicUsers":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+
+          setActiveUsers(response.activePublicUsersProps.allActiveUsers);
+          break;
+      }
+    }
+
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
+    try {
+      sendSubscribe();
+    } catch {
+      // The socket may still be connecting; we'll subscribe once it opens.
+    }
+
+    return () => {
+      const request: ClientMessage<
+        never,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "Unsubscribe",
+        subscriptionId,
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown.
+      }
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
+    };
+  }, [socket]);
+
+  return { allActiveUsers };
 }
 
 // Subscribes to the global available public rooms channel on an open socket.

@@ -298,6 +298,10 @@ export type ActivePublicGamesViewData<Config, Rating> = {
   allActiveGames: ActiveGame<Config, Rating>[];
 };
 
+export type ActiveUsersViewData<Rating> = {
+  allActiveUsers: PlayerSnapshot<Rating>[];
+};
+
 export type AvailablePublicRoomsViewData<Config, Rating> = {
   allAvailableRooms: AvailableRoom<Config, Rating>[];
 };

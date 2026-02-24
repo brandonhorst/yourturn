@@ -154,3 +154,27 @@ Two Preact components to define your views.
 
 In both cases, game state modifications cause a new state to be generated and
 the component to be re-rendered.
+
+## Active Public User Presence
+
+`yourturn` maintains a TTL-backed public presence list at
+`["activepublicusers", userId]` with:
+
+- `playerSnapshot`: a `PlayerSnapshot`
+- `connectionCount`: number of currently tracked open sockets for that user
+
+Presence entries are created/incremented when a socket is configured, refreshed
+when the user subscribes to channels or performs mutating operations, and
+decremented when the socket closes. All presence writes also increment the root
+ticker at `["activepublicusers"]`, which drives presence list watchers.
+
+The current design has known tradeoffs:
+
+- TTL expiration does not trigger an application-side presence write, so
+  expiration-only removals do not increment `["activepublicusers"]`. Watchers
+  notice those removals on the next ticker bump, not immediately at expiry.
+- There are no heartbeats. A connected but idle socket can age out after the
+  10-minute TTL window and temporarily disappear from the active users list
+  until a subsequent socket reconnect increments presence again.
+- Active public user snapshots are read with one `kv.list` batch (`limit=500`,
+  `batchSize=500`), so lists over 500 users are truncated.
