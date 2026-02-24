@@ -1,5 +1,5 @@
-import type { PlayerSnapshot, UserProfileViewData } from "@/types.ts";
-import type { UserStorageData } from "@/server/db/types.ts";
+import type { PlayerSnapshot, UserProfileViewData } from "../types.ts";
+import type { UserStorageData } from "./db/types.ts";
 
 /**
  * Converts canonical stored user data into socket-safe user profile view data.

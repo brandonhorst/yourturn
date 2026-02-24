@@ -1,5 +1,5 @@
-import type { Game } from "@/types.ts";
-import { MatchmakingDB } from "@/server/db/matchmaking.ts";
+import type { Game } from "../../types.ts";
+import { MatchmakingDB } from "./matchmaking.ts";
 
 /**
  * Primary DB facade that composes matchmaking, presence, and user persistence.

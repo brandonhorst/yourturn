@@ -6,7 +6,7 @@ import type {
   RoomEntry,
   UserMatchmakingViewData,
   UserProfileViewData,
-} from "@/types.ts";
+} from "../types.ts";
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   // Active Public Games Channel

@@ -1,11 +1,11 @@
-import type { PlayerSnapshot } from "@/types.ts";
-import type { ActiveUserStorageData } from "@/server/db/types.ts";
+import type { PlayerSnapshot } from "../../types.ts";
+import type { ActiveUserStorageData } from "./types.ts";
 import {
   ACTIVE_PUBLIC_USER_TTL_MS,
   getActivePublicUserKey,
   getActivePublicUsersKey,
-} from "@/server/db/utils.ts";
-import { UsersDB } from "@/server/db/users.ts";
+} from "./utils.ts";
+import { UsersDB } from "./users.ts";
 
 /**
  * Active-public-user presence persistence and watchers.

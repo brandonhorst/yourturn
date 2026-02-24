@@ -1,4 +1,4 @@
-import type { ActiveGame, PlayerSnapshot, QueueEntry } from "@/types.ts";
+import type { ActiveGame, PlayerSnapshot, QueueEntry } from "../../types.ts";
 
 export type QueueEntryValue<Loadout, Rating> = {
   timestamp: Date;

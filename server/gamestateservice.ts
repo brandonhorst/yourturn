@@ -1,11 +1,11 @@
-import type { DB } from "@/server/db/db.ts";
-import type { GameStorageData } from "@/server/db/types.ts";
+import type { DB } from "./db/db.ts";
+import type { GameStorageData } from "./db/types.ts";
 import type {
   Game,
   OutcomeObject,
   PlayerStateObject,
   PublicStateObject,
-} from "@/types.ts";
+} from "../types.ts";
 
 type GameStateUpdate<PlayerState, PublicState, Outcome> = {
   playerState: PlayerState | undefined;

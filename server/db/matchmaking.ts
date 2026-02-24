@@ -4,7 +4,7 @@ import type {
   AvailableRoom,
   PlayerSnapshot,
   QueueConfig,
-} from "@/types.ts";
+} from "../../types.ts";
 import type {
   GameAssignmentNotification,
   GameStorageData,
@@ -12,7 +12,7 @@ import type {
   RoomStorageData,
   RoomWatchEvent,
   UserMatchmakingStorageData,
-} from "@/server/db/types.ts";
+} from "./types.ts";
 import {
   getActivePublicGameKey,
   getActivePublicGamesKey,
@@ -23,8 +23,8 @@ import {
   getQueuePrefix,
   getRoomKey,
   getUserMatchmakingKey,
-} from "@/server/db/utils.ts";
-import { PresenceDB } from "@/server/db/presence.ts";
+} from "./utils.ts";
+import { PresenceDB } from "./presence.ts";
 
 /**
  * Matchmaking, room, game, and list-index persistence methods.

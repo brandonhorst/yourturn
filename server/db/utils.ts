@@ -1,4 +1,4 @@
-import type { Game, QueueConfig } from "@/types.ts";
+import type { Game, QueueConfig } from "../../types.ts";
 
 export const PUBLIC_LIST_READ_LIMIT = 500;
 export const PUBLIC_LIST_BATCH_SIZE = 500;
