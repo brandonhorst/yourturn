@@ -1,10 +1,10 @@
 import type {
+  DB,
   GameAssignmentNotification,
   GameStorageData,
   RoomWatchEvent,
   UserMatchmakingStorageData,
-} from "./db/types.ts";
-import type { DB } from "./db/db.ts";
+} from "./db.ts";
 import type {
   ActiveGame,
   ActivePublicGamesViewData,

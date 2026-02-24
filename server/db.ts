@@ -2,34 +2,159 @@ import { ulid } from "@std/ulid";
 import type {
   ActiveGame,
   AvailableRoom,
+  Game,
   PlayerSnapshot,
   QueueConfig,
-} from "../../types.ts";
-import type {
-  GameAssignmentNotification,
-  GameStorageData,
-  QueueEntryValue,
-  RoomStorageData,
-  RoomWatchEvent,
-  UserMatchmakingStorageData,
-} from "./types.ts";
-import {
-  getActivePublicGameKey,
-  getActivePublicGamesKey,
-  getAvailablePublicRoomKey,
-  getAvailablePublicRoomsKey,
-  getGameKey,
-  getQueueEntryKey,
-  getQueuePrefix,
-  getRoomKey,
-  getUserMatchmakingKey,
-} from "./utils.ts";
-import { PresenceDB } from "./presence.ts";
+  QueueEntry,
+  TokenData,
+  UserProfileViewData,
+} from "../types.ts";
+
+type QueueEntryValue<Loadout, Rating> = {
+  timestamp: Date;
+  userId: string;
+  playerSnapshot: PlayerSnapshot<Rating>;
+  loadout: Loadout;
+  assignmentSubscriptionId?: string;
+};
+
+export type RoomStorageData<Config, Loadout, Rating> = {
+  numPlayers: number;
+  config: Config;
+  private: boolean;
+  members: RoomMember<Loadout, Rating>[];
+};
+
+export type RoomWatchEvent<Config, Loadout, Rating> =
+  | { type: "updated"; room: RoomStorageData<Config, Loadout, Rating> }
+  | { type: "deleted" };
+
+type RoomMember<Loadout, Rating> = {
+  entryId: string;
+  timestamp: Date;
+  userId: string;
+  playerSnapshot: PlayerSnapshot<Rating>;
+  loadout: Loadout;
+  assignmentSubscriptionId?: string;
+};
+
+export type GameStorageData<Config, GameState, Outcome, Rating> = {
+  config: Config;
+  queueId?: string;
+  gameState: GameState;
+  userIds: string[];
+  players: PlayerSnapshot<Rating>[];
+  outcome: Outcome | undefined;
+};
+
+export type GameAssignmentNotification = {
+  gameId: string;
+  subscriptionId?: string;
+};
+
+export type JoinedRoom<Loadout> = {
+  roomId: string;
+  loadout: Loadout;
+};
+
+export type UserStorageData<Rating> = {
+  username: string;
+  isGuest: boolean;
+  description: string;
+  ratings: Record<string, Rating>;
+};
+
+export type UserMatchmakingStorageData<Config, Loadout, Rating> = {
+  activeGames: ActiveGame<Config, Rating>[];
+  joinedRooms: JoinedRoom<Loadout>[];
+  queueEntries: QueueEntry<Loadout>[];
+};
+
+export type ActiveUserStorageData<Rating> = {
+  playerSnapshot: PlayerSnapshot<Rating>;
+  connectionCount: number;
+};
 
 /**
- * Matchmaking, room, game, and list-index persistence methods.
+ * Converts canonical stored user data into socket-safe user profile view data.
  */
-export class MatchmakingDB<
+export function userStorageDataToUserProfileViewData<Rating>(
+  userId: string,
+  userStorageData: UserStorageData<Rating>,
+): UserProfileViewData<Rating> {
+  return {
+    userId,
+    username: userStorageData.username,
+    isGuest: userStorageData.isGuest,
+    description: userStorageData.description,
+    rating: structuredClone(userStorageData.ratings),
+  };
+}
+
+/**
+ * Converts user profile view data into a frozen player snapshot.
+ */
+export function userProfileViewDataToPlayerSnapshot<Rating>(
+  userProfileViewData: UserProfileViewData<Rating>,
+): PlayerSnapshot<Rating> {
+  return {
+    userId: userProfileViewData.userId,
+    username: userProfileViewData.username,
+    isGuest: userProfileViewData.isGuest,
+    rating: structuredClone(userProfileViewData.rating),
+  };
+}
+
+function getQueuePrefix(queueId: string) {
+  return ["queueentry", queueId];
+}
+
+function getQueueEntryKey(queueId: string, entryId: string) {
+  return ["queueentry", queueId, entryId];
+}
+function getRoomKey(roomId: string) {
+  return ["rooms", roomId];
+}
+function getAvailablePublicRoomsKey() {
+  return ["availablepublicrooms"];
+}
+function getAvailablePublicRoomKey(roomId: string) {
+  return ["availablepublicrooms", roomId];
+}
+function getActivePublicGamesKey() {
+  return ["activepublicgames"];
+}
+function getActivePublicGameKey(gameId: string) {
+  return ["activepublicgames", gameId];
+}
+function getActivePublicUsersKey() {
+  return ["activepublicusers"];
+}
+function getActivePublicUserKey(userId: string) {
+  return ["activepublicusers", userId];
+}
+function getGameKey(gameId: string) {
+  return ["games", gameId];
+}
+function getUserKey(userId: string) {
+  return ["users", userId];
+}
+function getUserMatchmakingKey(userId: string) {
+  return ["usermatchmakings", userId];
+}
+function getUserByUsernameKey(username: string) {
+  return ["usersByUsername", username];
+}
+function getTokenKey(token: string) {
+  return ["tokens", token];
+}
+
+const PUBLIC_LIST_READ_LIMIT = 500;
+const PUBLIC_LIST_BATCH_SIZE = 500;
+const ACTIVE_PUBLIC_USER_TTL_MS = 10 * 60 * 1000;
+const U64_MAX = (1n << 64n) - 1n;
+
+export class DB<
   Config,
   GameState,
   Move,
@@ -38,19 +163,142 @@ export class MatchmakingDB<
   Outcome,
   Rating,
   Loadout,
-> extends PresenceDB<
-  Config,
-  GameState,
-  Move,
-  PlayerState,
-  PublicState,
-  Outcome,
-  Rating,
-  Loadout
 > {
+  private kv: Deno.Kv;
+  private game: Game<
+    Config,
+    GameState,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  >;
+
+  constructor(
+    kv: Deno.Kv,
+    game: Game<
+      Config,
+      GameState,
+      Move,
+      PlayerState,
+      PublicState,
+      Outcome,
+      Rating,
+      Loadout
+    >,
+  ) {
+    this.kv = kv;
+    this.game = game;
+  }
+
   /**
-   * Adds one user to a queue and attempts queue graduation if capacity is met.
+   * Repeats a transaction operation until it succeeds.
+   * Creates a new Deno.AtomicOperation and passes it to the provided function.
+   * The function should build up operations on the transaction by mutating it.
+   * The function may be async to perform reads before building the transaction.
+   * This will keep retrying until the transaction commits successfully.
    */
+  private async repeatUntilTransactionSucceeds(
+    fn: (transaction: Deno.AtomicOperation) => void | Promise<void>,
+  ): Promise<void> {
+    let ok = false;
+    while (!ok) {
+      const transaction = this.kv.atomic();
+      await fn(transaction);
+      ok = (await transaction.commit()).ok;
+    }
+  }
+
+  /**
+   * Fetches queue configuration for a queue ID or throws if it is missing.
+   */
+  private getQueueConfig(queueId: string): QueueConfig<Config> {
+    const queueConfig = this.game.queues[queueId];
+    if (queueConfig == null) {
+      throw new Error(`Queue ${queueId} not found`);
+    }
+    return queueConfig;
+  }
+
+  /**
+   * Reads one snapshot batch for a direct-child index prefix.
+   */
+  private async listSingleBatch<T>(
+    prefix: Deno.KvKey,
+  ): Promise<Deno.KvEntry<T>[]> {
+    const entries = await Array.fromAsync(
+      this.kv.list<T>(
+        { prefix },
+        {
+          limit: PUBLIC_LIST_READ_LIMIT,
+          batchSize: PUBLIC_LIST_BATCH_SIZE,
+        },
+      ),
+    );
+    return entries.filter((entry) => entry.key.length === prefix.length + 1);
+  }
+
+  /**
+   * Mutates an indexed-list root counter by +1, 0, or -1 via a u64 sum.
+   * A delta of 0 keeps the count unchanged while still notifying watchers.
+   */
+  private mutateIndexedListRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    key: Deno.KvKey,
+    delta: -1 | 0 | 1,
+  ): void {
+    const sumValue = delta === -1 ? U64_MAX : BigInt(delta);
+    transaction.mutate({
+      type: "sum",
+      key,
+      value: new Deno.KvU64(sumValue),
+    });
+  }
+
+  /**
+   * Mutates the active public games root count.
+   */
+  private mutateActivePublicGamesRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    delta: -1 | 0 | 1,
+  ): void {
+    this.mutateIndexedListRootCountOnOperation(
+      transaction,
+      getActivePublicGamesKey(),
+      delta,
+    );
+  }
+
+  /**
+   * Mutates the active public users root ticker.
+   */
+  private mutateActivePublicUsersRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    delta: -1 | 0 | 1,
+  ): void {
+    this.mutateIndexedListRootCountOnOperation(
+      transaction,
+      getActivePublicUsersKey(),
+      delta,
+    );
+  }
+
+  /**
+   * Mutates the available public rooms root count.
+   */
+  private mutateAvailablePublicRoomsRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    delta: -1 | 0 | 1,
+  ): void {
+    this.mutateIndexedListRootCountOnOperation(
+      transaction,
+      getAvailablePublicRoomsKey(),
+      delta,
+    );
+  }
+
   public async addToQueue(
     queueId: string,
     entryId: string,
@@ -71,7 +319,7 @@ export class MatchmakingDB<
         throw new Error(`User ${userId} not found`);
       }
 
-      const queueEntry = {
+      const queueEntry: QueueEntry<Loadout> = {
         queueId,
         loadout,
       };
@@ -100,19 +348,16 @@ export class MatchmakingDB<
     return await this.maybeGraduateFromQueue(queueId, queueConfig);
   }
 
-  /**
-   * Removes one queue entry and clears that queue from the owner's matchmaking data.
-   */
   public async removeFromQueue(
     queueId: string,
     entryId: string,
   ): Promise<void> {
     const entryKey = getQueueEntryKey(queueId, entryId);
 
-    // First get the entry to find the userId.
+    // First get the entry to find the userId
     const entry = await this.kv.get<QueueEntryValue<Loadout, Rating>>(entryKey);
     if (entry.value == null) {
-      // Entry already removed, nothing to do.
+      // Entry already removed, nothing to do
       return;
     }
 
@@ -147,9 +392,6 @@ export class MatchmakingDB<
     });
   }
 
-  /**
-   * Creates a new room and updates the available-public-rooms index if needed.
-   */
   public async createRoom(
     roomId: string,
     roomConfig: {
@@ -177,9 +419,6 @@ export class MatchmakingDB<
     });
   }
 
-  /**
-   * Fetches one room record by room ID.
-   */
   public async getRoom(
     roomId: string,
   ): Promise<RoomStorageData<Config, Loadout, Rating> | null> {
@@ -189,9 +428,7 @@ export class MatchmakingDB<
     return entry.value;
   }
 
-  /**
-   * Watches a room record and emits updates as well as room deletion events.
-   */
+  // Watches a room record and emits updates as well as room deletion events.
   public watchForRoomChanges(
     roomId: string,
   ): ReadableStream<RoomWatchEvent<Config, Loadout, Rating>> {
@@ -213,9 +450,6 @@ export class MatchmakingDB<
     );
   }
 
-  /**
-   * Adds one user to a room and updates related user matchmaking and room indexes.
-   */
   public async addToRoom(
     roomId: string,
     entryId: string,
@@ -291,9 +525,6 @@ export class MatchmakingDB<
     });
   }
 
-  /**
-   * Removes one room member and cleans up room or user state as needed.
-   */
   public async removeFromRoom(
     roomId: string,
     entryId: string,
@@ -371,9 +602,8 @@ export class MatchmakingDB<
     });
   }
 
-  /**
-   * Creates a new game record and updates global/user active-game indexes in one transaction.
-   */
+  // Creates a new game record and updates global and user-specific active game lists
+  // by mutating the provided transaction.
   private async createNewGameOnOperation(
     transaction: Deno.AtomicOperation,
     options: {
@@ -458,9 +688,8 @@ export class MatchmakingDB<
     }
   }
 
-  /**
-   * Updates the available-public-rooms index entry for one room in the provided transaction.
-   */
+  // Updates the indexed available public room list by mutating the provided
+  // transaction. When room is null, the room is removed from the list.
   private async updateAvailablePublicRoomsOnOperation(
     transaction: Deno.AtomicOperation,
     options: {
@@ -512,9 +741,6 @@ export class MatchmakingDB<
     }
   }
 
-  /**
-   * Converts a full room into a committed game and returns assignment notifications.
-   */
   public async commitRoom(
     roomId: string,
   ): Promise<GameAssignmentNotification[]> {
@@ -603,9 +829,6 @@ export class MatchmakingDB<
     return gameAssignments;
   }
 
-  /**
-   * Starts a game when a queue reaches required players and returns assignment notifications.
-   */
   private async maybeGraduateFromQueue(
     queueId: string,
     queueConfig: QueueConfig<Config>,
@@ -614,20 +837,20 @@ export class MatchmakingDB<
     let gameAssignments: GameAssignmentNotification[] = [];
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      // Get desired queue entries, if they exist.
+      // Get desired queue entries, if they exist
       const queueEntries = await Array.fromAsync(
         this.kv.list<QueueEntryValue<Loadout, Rating>>(
           { prefix: queuePrefix },
           { limit: queueConfig.numPlayers },
         ),
       );
-      // If the queue doesn't have enough entrants, stop.
+      // If the queue doesn't have enough entrants, stop
       if (queueEntries.length < queueConfig.numPlayers) {
         gameAssignments = [];
-        return; // Nothing to do.
+        return; // Nothing to do
       }
 
-      // Initialize game storage data.
+      // Initialize Game Storage Data
       const userIds: string[] = [];
 
       for (let i = 0; i < queueConfig.numPlayers; i++) {
@@ -664,7 +887,7 @@ export class MatchmakingDB<
         UserMatchmakingStorageData<Config, Loadout, Rating>[]
       >(userMatchmakingKeys);
 
-      // For each player.
+      // For each player
       for (let i = 0; i < queueEntries.length; i++) {
         const entry = queueEntries[i];
 
@@ -673,7 +896,7 @@ export class MatchmakingDB<
           throw new Error(`User ${userIds[i]} not found`);
         }
 
-        // Remove this queue from the user's queueEntries.
+        // Remove this queue from the user's queueEntries
         const updatedQueues = userMatchmakingEntry.value.queueEntries.filter(
           (q) => q.queueId !== queueId,
         );
@@ -686,7 +909,7 @@ export class MatchmakingDB<
           queueEntries: updatedQueues,
         };
 
-        // Delete their queue entry, add an assignment, and update user data.
+        // Delete their queue entry, add an assignment, and update user data
         transaction
           .check(entry)
           .delete(entry.key)
@@ -700,8 +923,8 @@ export class MatchmakingDB<
 
   /**
    * Updates game storage data.
-   * @param gameId The ID of the game to update.
-   * @param gameData The updated game data.
+   * @param gameId The ID of the game to update
+   * @param gameData The updated game data
    */
   public async updateGameStorageData(
     gameId: string,
@@ -745,9 +968,6 @@ export class MatchmakingDB<
     }
   }
 
-  /**
-   * Fetches one game storage record by game ID.
-   */
   public async getGameStorageData(
     gameId: string,
   ): Promise<GameStorageData<Config, GameState, Outcome, Rating>> {
@@ -765,8 +985,116 @@ export class MatchmakingDB<
   }
 
   /**
-   * Returns all currently active public games.
+   * Increments one user's active-public-user connection count and refreshes TTL.
    */
+  public async incrementActivePublicUserConnection(
+    userId: string,
+    playerSnapshot: PlayerSnapshot<Rating>,
+  ): Promise<void> {
+    const activePublicUserKey = getActivePublicUserKey(userId);
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<ActiveUserStorageData<Rating>>(
+        activePublicUserKey,
+      );
+      const nextActiveUser: ActiveUserStorageData<Rating> = {
+        playerSnapshot,
+        connectionCount: (entry.value?.connectionCount ?? 0) + 1,
+      };
+
+      transaction
+        .check(entry)
+        .set(activePublicUserKey, nextActiveUser, {
+          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
+        });
+      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
+    });
+  }
+
+  /**
+   * Refreshes one active-public-user entry's TTL without changing its value.
+   */
+  public async touchActivePublicUser(userId: string): Promise<void> {
+    const activePublicUserKey = getActivePublicUserKey(userId);
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<ActiveUserStorageData<Rating>>(
+        activePublicUserKey,
+      );
+      if (entry.value == null) {
+        return;
+      }
+
+      transaction
+        .check(entry)
+        .set(activePublicUserKey, entry.value, {
+          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
+        });
+      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
+    });
+  }
+
+  /**
+   * Decrements one user's active-public-user connection count.
+   * Deletes the entry once the count reaches zero.
+   */
+  public async decrementActivePublicUserConnection(userId: string): Promise<
+    void
+  > {
+    const activePublicUserKey = getActivePublicUserKey(userId);
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<ActiveUserStorageData<Rating>>(
+        activePublicUserKey,
+      );
+      if (entry.value == null) {
+        return;
+      }
+
+      const nextConnectionCount = entry.value.connectionCount - 1;
+      transaction.check(entry);
+      if (nextConnectionCount <= 0) {
+        transaction.delete(activePublicUserKey);
+      } else {
+        transaction.set(activePublicUserKey, {
+          playerSnapshot: entry.value.playerSnapshot,
+          connectionCount: nextConnectionCount,
+        }, {
+          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
+        });
+      }
+      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
+    });
+  }
+
+  /**
+   * Returns all currently active public users as player snapshots.
+   */
+  public async getAllActivePublicUsers(): Promise<PlayerSnapshot<Rating>[]> {
+    const activePublicUserEntries = await this.listSingleBatch<
+      ActiveUserStorageData<Rating>
+    >(
+      getActivePublicUsersKey(),
+    );
+    return activePublicUserEntries.map((entry) => entry.value.playerSnapshot);
+  }
+
+  /**
+   * Watches the active public users root key and emits full indexed snapshots.
+   */
+  public watchForActivePublicUsersListChanges(): ReadableStream<
+    PlayerSnapshot<Rating>[]
+  > {
+    const activePublicUsersKey = getActivePublicUsersKey();
+    const stream = this.kv.watch<[Deno.KvU64]>([activePublicUsersKey]);
+    return stream.pipeThrough(
+      new TransformStream({
+        transform: async (_events, controller) => {
+          const data = await this.getAllActivePublicUsers();
+          controller.enqueue(data);
+        },
+      }),
+    );
+  }
+
+  // Returns all currently active public games.
   public async getAllActivePublicGames(): Promise<
     ActiveGame<Config, Rating>[]
   > {
@@ -778,9 +1106,6 @@ export class MatchmakingDB<
     return activePublicGameEntries.map((entry) => entry.value);
   }
 
-  /**
-   * Watches one game record and emits non-null game snapshots.
-   */
   public watchForGameChanges(
     gameId: string,
   ): ReadableStream<GameStorageData<Config, GameState, Outcome, Rating>> {
@@ -802,9 +1127,7 @@ export class MatchmakingDB<
     );
   }
 
-  /**
-   * Watches the active-public-games root key and emits full indexed snapshots.
-   */
+  // Watches the active public games root key and emits full indexed snapshots.
   public watchForActivePublicGamesListChanges(): ReadableStream<
     ActiveGame<Config, Rating>[]
   > {
@@ -820,9 +1143,7 @@ export class MatchmakingDB<
     );
   }
 
-  /**
-   * Returns all currently available public rooms.
-   */
+  // Returns all currently available public rooms.
   public async getAllAvailablePublicRooms(): Promise<
     AvailableRoom<Config, Rating>[]
   > {
@@ -834,9 +1155,7 @@ export class MatchmakingDB<
     return availablePublicRoomEntries.map((entry) => entry.value);
   }
 
-  /**
-   * Watches the available-public-rooms root key and emits full indexed snapshots.
-   */
+  // Watches the available public rooms root key and emits full indexed snapshots.
   public watchForAvailablePublicRoomListChanges(): ReadableStream<
     AvailableRoom<Config, Rating>[]
   > {
@@ -847,6 +1166,150 @@ export class MatchmakingDB<
         transform: async (_events, controller) => {
           const data = await this.getAllAvailablePublicRooms();
           controller.enqueue(data);
+        },
+      }),
+    );
+  }
+
+  // Creates a new user record and username index entry if neither already exists.
+  public async createNewUserStorageData(
+    userId: string,
+    data: UserStorageData<Rating>,
+  ): Promise<void> {
+    const userKey = getUserKey(userId);
+    const usernameKey = getUserByUsernameKey(data.username);
+    const res = await this.kv.atomic()
+      .check({ key: userKey, versionstamp: null })
+      .check({ key: usernameKey, versionstamp: null })
+      .set(userKey, data)
+      .set(usernameKey, userId)
+      .commit();
+    if (!res.ok) {
+      throw new Error(
+        `User ${userId} or username ${data.username} already exists`,
+      );
+    }
+  }
+
+  /**
+   * Upserts user storage data and keeps the username index in sync.
+   */
+  public async updateUserStorageData(
+    userId: string,
+    data: Partial<UserStorageData<Rating>>,
+  ): Promise<void> {
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<UserStorageData<Rating>>(
+        getUserKey(userId),
+      );
+      if (entry.value == null) {
+        throw new Error(`Updating unstored user ${userId}`);
+      }
+      const existingData = entry.value;
+
+      const updatedData: UserStorageData<Rating> = {
+        ...existingData,
+        ...data,
+      };
+
+      const previousUsername = existingData.username;
+      const updatedUsername = updatedData.username;
+      const previousUsernameEntry = await this.kv.get<string>(
+        getUserByUsernameKey(previousUsername),
+      );
+      if (previousUsernameEntry.value !== userId) {
+        throw new Error(
+          `Username index for ${previousUsername} is not owned by ${userId}`,
+        );
+      }
+
+      transaction
+        .check(entry)
+        .set(getUserKey(userId), updatedData);
+
+      if (previousUsername !== updatedUsername) {
+        const updatedUsernameEntry = await this.kv.get<string>(
+          getUserByUsernameKey(updatedUsername),
+        );
+        if (
+          updatedUsernameEntry.value != null &&
+          updatedUsernameEntry.value !== userId
+        ) {
+          throw new Error(`Username ${updatedUsername} already exists`);
+        }
+
+        transaction
+          .check(previousUsernameEntry)
+          .check(updatedUsernameEntry)
+          .delete(getUserByUsernameKey(previousUsername))
+          .set(getUserByUsernameKey(updatedUsername), userId);
+      } else {
+        transaction
+          .check(previousUsernameEntry)
+          .set(getUserByUsernameKey(previousUsername), userId);
+      }
+    });
+  }
+
+  /**
+   * Updates canonical user profile fields that are user-editable at runtime.
+   */
+  public async updateUserProfile(
+    userId: string,
+    profile: { description?: string },
+  ): Promise<void> {
+    const profileUpdate: Partial<UserStorageData<Rating>> = {};
+    if (profile.description !== undefined) {
+      profileUpdate.description = profile.description;
+    }
+    if (Object.keys(profileUpdate).length === 0) {
+      return;
+    }
+
+    await this.updateUserStorageData(userId, profileUpdate);
+  }
+
+  // Fetches the stored user data for a userId, if present.
+  public async getUserStorageData(
+    userId: string,
+  ): Promise<UserStorageData<Rating> | null> {
+    const entry = await this.kv.get<UserStorageData<Rating>>(
+      getUserKey(userId),
+    );
+    return entry.value;
+  }
+
+  /**
+   * Fetches the canonical user profile view data for a userId, if present.
+   */
+  public async getUserProfileViewData(
+    userId: string,
+  ): Promise<UserProfileViewData<Rating> | null> {
+    const userStorageData = await this.getUserStorageData(userId);
+    if (userStorageData == null) {
+      return null;
+    }
+    return userStorageDataToUserProfileViewData(userId, userStorageData);
+  }
+
+  /**
+   * Watches canonical user profile updates for one user.
+   */
+  public watchForUserProfileChanges(
+    userId: string,
+  ): ReadableStream<UserProfileViewData<Rating>> {
+    const userKey = getUserKey(userId);
+    const stream = this.kv.watch<[UserStorageData<Rating>]>([userKey]);
+    return stream.pipeThrough(
+      new TransformStream({
+        transform: (events, controller) => {
+          const userStorageData = events[0].value;
+          if (userStorageData == null) {
+            return;
+          }
+          controller.enqueue(
+            userStorageDataToUserProfileViewData(userId, userStorageData),
+          );
         },
       }),
     );
@@ -933,5 +1396,24 @@ export class MatchmakingDB<
         },
       }),
     );
+  }
+
+  public async usernameExists(username: string): Promise<boolean> {
+    const entry = await this.kv.get<string>(getUserByUsernameKey(username));
+    return entry.value != null;
+  }
+
+  public async storeToken(token: string, tokenData: TokenData): Promise<void> {
+    const res = await this.kv.atomic()
+      .set(getTokenKey(token), tokenData)
+      .commit();
+    if (!res.ok) {
+      throw new Error(`Failed to store token`);
+    }
+  }
+
+  public async getToken(token: string): Promise<TokenData | null> {
+    const entry = await this.kv.get<TokenData>(getTokenKey(token));
+    return entry.value ?? null;
   }
 }

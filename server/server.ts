@@ -10,10 +10,12 @@ import type {
 } from "../types.ts";
 import type { ClientMessage } from "../common/sockettypes.ts";
 import { GameStateService } from "./gamestateservice.ts";
-import type { DB } from "./db/db.ts";
-import type { GameStorageData } from "./db/types.ts";
+import {
+  type DB,
+  type GameStorageData,
+  userProfileViewDataToPlayerSnapshot,
+} from "./db.ts";
 import type { SocketStore } from "./sockets.ts";
-import { userProfileViewDataToPlayerSnapshot } from "./utils.ts";
 import { ulid } from "@std/ulid";
 
 const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
