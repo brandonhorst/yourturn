@@ -42,10 +42,11 @@ subscribe to multiple channels:
   routing, including initial channel payload assembly
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for
   UserProfile, UserMatchmaking, room, queue, global lists, and per-game updates
-- `server/db.ts` - Deno KV persistence for users, queues, rooms, user
-  matchmakings, active games, active users, tokens, and indexed global list
-  snapshots (`["activepublicgames", gameId]`,
-  `["availablepublicrooms", roomId]`, and `["activepublicusers", userId]`)
+- `server/db/` - Deno KV persistence and matchmaking implementation (see
+  `server/db/AGENTS.md` for module-internal architecture, keyspace, and
+  invariants)
+- `server/utils.ts` - Shared server-side data conversion helpers for canonical
+  user profiles and player snapshots
 - `server/gamestateservice.ts` - Game state projection and move processing,
   including outcome handling and ranked rating updates
 
@@ -90,33 +91,9 @@ Key methods:
 
 ### Database Layer
 
-Uses Deno KV for:
-
-- Game state persistence
-- Queue matchmaking and room-based matchmaking
-- Queue entries and room members that optionally persist assignment subscription
-  IDs used for direct `GameAssignment` socket delivery
-- User records (`["users", userId]`) for canonical profile fields (`username`,
-  `isGuest`, `description`) and per-queue `ratings`
-- User matchmaking records (`["usermatchmakings", userId]`) for `activeGames`,
-  `joinedRooms`, and `queueEntries`
-- Auth tokens
-- Global list indexes store one entry per room/game and are read as snapshots
-  via `kv.list` (single batch, `limit=500`, `batchSize=500`)
-- Root invalidation keys (`["activepublicgames"]` and
-  `["availablepublicrooms"]`) are stored as `Deno.KvU64` counters and mutated
-  with atomic `sum` operations (`+1` insert, `-1` delete, `0` update) so list
-  watchers can track updates without scanning
-- Active public users at `["activepublicusers", userId]` with
-  `ActiveUserStorageData` (`playerSnapshot` and `connectionCount`) and a root
-  ticker key at `["activepublicusers"]` that increments on presence writes
-- Account profile updates only change `description`; they do not mutate active
-  public user snapshots because snapshots only store player-facing fields
-- Presence uses a 10-minute TTL with no heartbeat loop; TTL is pushed on socket
-  setup plus subscribe/mutating requests
-- `PlayerSnapshot<Rating>` values are frozen at queue/room join time and stored
-  in queue entries, room members, games, active public games, and available
-  public rooms; they are intentionally not updated after join
+The database layer uses Deno KV and lives under `server/db/`. Module-internal
+storage keys, indexes, watchers, and invariants are documented in
+`server/db/AGENTS.md`.
 
 ### WebSocket Communication
 

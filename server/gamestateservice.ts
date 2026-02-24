@@ -1,4 +1,5 @@
-import type { DB, GameStorageData } from "./db.ts";
+import type { DB } from "./db/db.ts";
+import type { GameStorageData } from "./db/types.ts";
 import type {
   Game,
   OutcomeObject,
