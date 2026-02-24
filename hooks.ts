@@ -1,4 +1,5 @@
 export {
+  useAccountUserProfileChannel,
   useActivePublicGamesChannel,
   useActivePublicUsersChannel,
   useAvailablePublicRoomsChannel,

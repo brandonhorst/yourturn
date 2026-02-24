@@ -15,7 +15,7 @@ import type {
   PlayerSnapshot,
   RoomEntry,
   UserMatchmakingViewData,
-  UserViewData,
+  UserProfileViewData,
 } from "../types.ts";
 import type { ServerMessage } from "../common/sockettypes.ts";
 import type { GameStateService } from "./gamestateservice.ts";
@@ -49,12 +49,13 @@ type UserMatchmakingConnectionState<Config, Loadout, Rating> = {
 };
 
 /**
- * UserProfile-specific state tracked for one websocket and user ID.
+ * UserProfile-specific state tracked for one websocket and user ID across
+ * AccountUserProfile and UserProfile channels.
  */
 type UserProfileConnectionState<Rating> = {
   userId: string;
   subscriptionIds: Set<string>;
-  userChangesReader: ReadableStreamDefaultReader<UserViewData<Rating>>;
+  userChangesReader: ReadableStreamDefaultReader<UserProfileViewData<Rating>>;
 };
 
 /**
@@ -77,6 +78,7 @@ type GameConnection<Config, GameState, Outcome, Rating> = {
 };
 
 type SocketSubscription =
+  | { type: "AccountUserProfile"; userId: string }
   | { type: "UserProfile"; userId: string }
   | { type: "UserMatchmaking" }
   | { type: "Room"; roomId: string }
@@ -264,13 +266,13 @@ export class SocketStore<
   }
 
   /**
-   * Subscribes one logical UserProfile channel instance on a websocket.
+   * Subscribes one logical AccountUserProfile channel instance on a websocket.
    */
-  async subscribeUserProfile(
+  async subscribeAccountUserProfile(
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
-    userProfile: UserViewData<Rating>,
+    userProfile: UserProfileViewData<Rating>,
   ): Promise<void> {
     await this.unsubscribe(socket, subscriptionId);
 
@@ -280,7 +282,49 @@ export class SocketStore<
     );
 
     if (userProfileConnection == null) {
-      const userChangesReader = this.db.watchForUserChanges(userId).getReader();
+      const userChangesReader = this.db.watchForUserProfileChanges(userId)
+        .getReader();
+      userProfileConnection = {
+        userId,
+        subscriptionIds: new Set(),
+        userChangesReader,
+      };
+      connectionState.userProfileConnections.set(userId, userProfileConnection);
+      void this.streamUserProfileChangesToSocket(
+        socket,
+        userId,
+        userChangesReader,
+      );
+    }
+
+    userProfileConnection.subscriptionIds.add(subscriptionId);
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "AccountUserProfile",
+      userId,
+    });
+
+    this.sendAccountUserProfileSnapshot(socket, subscriptionId, userProfile);
+  }
+
+  /**
+   * Subscribes one logical UserProfile channel instance on a websocket.
+   */
+  async subscribeUserProfile(
+    socket: WebSocket,
+    subscriptionId: string,
+    userId: string,
+    userProfile: UserProfileViewData<Rating>,
+  ): Promise<void> {
+    await this.unsubscribe(socket, subscriptionId);
+
+    const connectionState = this.getOrCreateSocketConnection(socket);
+    let userProfileConnection = connectionState.userProfileConnections.get(
+      userId,
+    );
+
+    if (userProfileConnection == null) {
+      const userChangesReader = this.db.watchForUserProfileChanges(userId)
+        .getReader();
       userProfileConnection = {
         userId,
         subscriptionIds: new Set(),
@@ -492,6 +536,13 @@ export class SocketStore<
     connectionState.subscriptions.delete(subscriptionId);
 
     switch (subscription.type) {
+      case "AccountUserProfile":
+        this.unsubscribeUserProfileSubscription(
+          socket,
+          subscriptionId,
+          subscription.userId,
+        );
+        break;
       case "UserProfile":
         this.unsubscribeUserProfileSubscription(
           socket,
@@ -903,7 +954,7 @@ export class SocketStore<
   private async streamUserProfileChangesToSocket(
     socket: WebSocket,
     userId: string,
-    userChangesReader: ReadableStreamDefaultReader<UserViewData<Rating>>,
+    userChangesReader: ReadableStreamDefaultReader<UserProfileViewData<Rating>>,
   ): Promise<void> {
     try {
       while (true) {
@@ -1027,12 +1078,27 @@ export class SocketStore<
   }
 
   /**
+   * Sends one full AccountUserProfile snapshot to one subscription ID.
+   */
+  private sendAccountUserProfileSnapshot(
+    socket: WebSocket,
+    subscriptionId: string,
+    userProfile: UserProfileViewData<Rating>,
+  ): void {
+    sendServerMessage<never, never, Rating, never, never, never>(socket, {
+      type: "UpdateAccountUserProfileProps",
+      subscriptionId,
+      accountUserProfileProps: userProfile,
+    });
+  }
+
+  /**
    * Sends one full UserProfile snapshot to one subscription ID.
    */
   private sendUserProfileSnapshot(
     socket: WebSocket,
     subscriptionId: string,
-    userProfile: UserViewData<Rating>,
+    userProfile: UserProfileViewData<Rating>,
   ): void {
     sendServerMessage<never, never, Rating, never, never, never>(socket, {
       type: "UpdateUserProfileProps",
@@ -1042,18 +1108,38 @@ export class SocketStore<
   }
 
   /**
-   * Sends the latest UserProfile snapshot to each active UserProfile
-   * subscription for a user.
+   * Sends the latest profile snapshot to each active AccountUserProfile and
+   * UserProfile subscription for a user.
    */
   private sendUserProfileSnapshotToSubscriptions(
     socket: WebSocket,
     userId: string,
-    userProfile: UserViewData<Rating>,
+    userProfile: UserProfileViewData<Rating>,
   ): void {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
+      return;
+    }
+
     for (
       const subscriptionId of this.getUserProfileSubscriptionIds(socket, userId)
     ) {
-      this.sendUserProfileSnapshot(socket, subscriptionId, userProfile);
+      const subscription = connectionState.subscriptions.get(subscriptionId);
+      if (subscription == null) {
+        continue;
+      }
+
+      if (subscription.type === "AccountUserProfile") {
+        this.sendAccountUserProfileSnapshot(
+          socket,
+          subscriptionId,
+          userProfile,
+        );
+        continue;
+      }
+      if (subscription.type === "UserProfile") {
+        this.sendUserProfileSnapshot(socket, subscriptionId, userProfile);
+      }
     }
   }
 

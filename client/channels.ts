@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type {
+  AccountUserProfileProps,
   ActivePublicGamesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
@@ -11,7 +12,9 @@ import type {
   Socket,
   UserMatchmakingProps,
   UserMatchmakingViewData,
-  UserViewData,
+  UserProfileProps,
+  UserProfileUpdate,
+  UserProfileViewData,
 } from "../types.ts";
 
 // Subscribes to a specific game on an already-open socket.
@@ -439,7 +442,112 @@ export function useAvailablePublicRoomsChannel<Config, Rating>({
   return { allAvailableRooms };
 }
 
-// Subscribes to one user profile channel on an already-open socket.
+// Subscribes to the authenticated user's AccountUserProfile channel.
+export function useAccountUserProfileChannel<Rating>({
+  socket,
+  initialAccountUserProfileProps,
+}: {
+  socket: Socket;
+  initialAccountUserProfileProps: UserProfileViewData<Rating>;
+}): AccountUserProfileProps<Rating> {
+  const [accountUserProfile, setAccountUserProfile] = useState(
+    initialAccountUserProfileProps,
+  );
+
+  useEffect(() => {
+    setAccountUserProfile(initialAccountUserProfileProps);
+  }, [initialAccountUserProfileProps]);
+
+  useEffect(() => {
+    const subscriptionId = crypto.randomUUID();
+
+    // Sends the authenticated user profile subscription request.
+    function sendSubscribe() {
+      const request: ClientMessage<
+        never,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "SubscribeAccountUserProfile",
+        subscriptionId,
+      };
+      socket.send(JSON.stringify(request));
+    }
+
+    function onOpen() {
+      sendSubscribe();
+    }
+
+    function onMessage(message: string) {
+      const response = JSON.parse(message) as ServerMessage<
+        never,
+        never,
+        Rating,
+        never,
+        never,
+        never
+      >;
+      switch (response.type) {
+        case "UpdateAccountUserProfileProps":
+          if (response.subscriptionId !== subscriptionId) {
+            break;
+          }
+          setAccountUserProfile(response.accountUserProfileProps);
+          break;
+      }
+    }
+
+    socket.addMessageListener(onMessage);
+    socket.addOpenListener(onOpen);
+    try {
+      sendSubscribe();
+    } catch {
+      // The socket may still be connecting; we'll subscribe once it opens.
+    }
+
+    return () => {
+      const request: ClientMessage<
+        never,
+        never,
+        never,
+        never,
+        never
+      > = {
+        type: "Unsubscribe",
+        subscriptionId,
+      };
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // Ignore socket state errors during teardown.
+      }
+      socket.removeMessageListener(onMessage);
+      socket.removeOpenListener(onOpen);
+    };
+  }, [socket]);
+
+  const update = useCallback((changes: UserProfileUpdate) => {
+    if (changes.username == null && changes.description == null) {
+      return;
+    }
+
+    const request: ClientMessage<never, never, never, never, never> = {
+      type: "UpdateAccountUserProfile",
+      username: changes.username,
+      description: changes.description,
+    };
+    socket.send(JSON.stringify(request));
+  }, [socket]);
+
+  return {
+    ...accountUserProfile,
+    update,
+  };
+}
+
+// Subscribes to any user's public UserProfile channel by userId.
 export function useUserProfileChannel<Rating>({
   socket,
   userId,
@@ -447,8 +555,8 @@ export function useUserProfileChannel<Rating>({
 }: {
   socket: Socket;
   userId: string;
-  initialUserProfileProps: UserViewData<Rating>;
-}): UserViewData<Rating> {
+  initialUserProfileProps: UserProfileViewData<Rating>;
+}): UserProfileProps<Rating> {
   const [userProfile, setUserProfile] = useState(initialUserProfileProps);
 
   useEffect(() => {

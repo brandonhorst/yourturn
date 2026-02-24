@@ -51,12 +51,17 @@ export type PlayerSnapshot<Rating> = {
   rating: Record<string, Rating>;
 };
 
-export type UserViewData<Rating> = {
+export type UserProfileViewData<Rating> = {
   userId: string;
   username: string;
   isGuest: boolean;
   rating: Record<string, Rating>;
   description: string;
+};
+
+export type UserProfileUpdate = {
+  username?: string;
+  description?: string;
 };
 
 export type TokenData = {
@@ -383,6 +388,14 @@ export type UserMatchmakingProps<Config, Loadout, Rating> =
       player: { loadout: Loadout },
     ) => void;
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
+  };
+
+export type UserProfileProps<Rating> = UserProfileViewData<Rating>;
+
+export type AccountUserProfileProps<Rating> =
+  & UserProfileViewData<Rating>
+  & {
+    update: (changes: UserProfileUpdate) => void;
   };
 
 export type RoomProps<Config, Loadout, Rating> =

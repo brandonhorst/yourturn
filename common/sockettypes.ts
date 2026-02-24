@@ -5,7 +5,7 @@ import type {
   GameViewData,
   RoomEntry,
   UserMatchmakingViewData,
-  UserViewData,
+  UserProfileViewData,
 } from "../types.ts";
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
@@ -15,6 +15,13 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "SubscribeActivePublicUsers"; subscriptionId: string }
   // Available Public Rooms Channel
   | { type: "SubscribeAvailablePublicRooms"; subscriptionId: string }
+  // Account User Profile Channel
+  | { type: "SubscribeAccountUserProfile"; subscriptionId: string }
+  | {
+    type: "UpdateAccountUserProfile";
+    username?: string;
+    description?: string;
+  }
   // User Profile Channel
   | { type: "SubscribeUserProfile"; subscriptionId: string; userId: string }
   // UserMatchmaking channel
@@ -58,9 +65,14 @@ export type ServerMessage<
   Outcome,
 > =
   | {
+    type: "UpdateAccountUserProfileProps";
+    subscriptionId: string;
+    accountUserProfileProps: UserProfileViewData<Rating>;
+  }
+  | {
     type: "UpdateUserProfileProps";
     subscriptionId: string;
-    userProfileProps: UserViewData<Rating>;
+    userProfileProps: UserProfileViewData<Rating>;
   }
   | {
     type: "UpdateUserMatchmakingProps";

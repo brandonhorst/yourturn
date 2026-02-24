@@ -6,14 +6,14 @@ import type {
   GameViewData,
   PlayerSnapshot,
   UserMatchmakingViewData,
-  UserViewData,
+  UserProfileViewData,
 } from "../types.ts";
 import type { ClientMessage } from "../common/sockettypes.ts";
 import { GameStateService } from "./gamestateservice.ts";
 import {
   type DB,
   type GameStorageData,
-  userViewDataToPlayerSnapshot,
+  userProfileViewDataToPlayerSnapshot,
 } from "./db.ts";
 import type { SocketStore } from "./sockets.ts";
 import { ulid } from "@std/ulid";
@@ -152,16 +152,33 @@ export class Server<
   }
 
   /**
+   * Builds the initial payload for one AccountUserProfile channel subscription.
+   */
+  async getInitialAccountUserProfileProps(
+    userId: string,
+  ): Promise<UserProfileViewData<Rating>> {
+    if (userId === "") {
+      throw new Error("Missing AccountUserProfile user ID");
+    }
+
+    const userProfile = await this.db.getUserProfileViewData(userId);
+    if (userProfile == null) {
+      throw new Error("Unknown AccountUserProfile user");
+    }
+    return userProfile;
+  }
+
+  /**
    * Builds the initial payload for one UserProfile channel subscription.
    */
   async getInitialUserProfileProps(
     userId: string,
-  ): Promise<UserViewData<Rating>> {
+  ): Promise<UserProfileViewData<Rating>> {
     if (userId === "") {
       throw new Error("Missing UserProfile user ID");
     }
 
-    const userProfile = await this.db.getUserViewData(userId);
+    const userProfile = await this.db.getUserProfileViewData(userId);
     if (userProfile == null) {
       throw new Error("Unknown UserProfile user");
     }
@@ -206,6 +223,35 @@ export class Server<
   }
 
   /**
+   * Validates and normalizes optional user profile fields supplied by clients.
+   */
+  private normalizeUserProfileUpdate(
+    profileUpdate: { username?: string; description?: string },
+  ): { username?: string; description?: string } {
+    if (
+      profileUpdate.username === undefined &&
+      profileUpdate.description === undefined
+    ) {
+      throw new Error("Provide a username or description.");
+    }
+
+    const normalizedUpdate: { username?: string; description?: string } = {};
+    if (profileUpdate.username !== undefined) {
+      const normalizedUsername = profileUpdate.username.trim();
+      if (normalizedUsername === "") {
+        throw new Error("Username cannot be empty.");
+      }
+      normalizedUpdate.username = normalizedUsername;
+    }
+
+    if (profileUpdate.description !== undefined) {
+      normalizedUpdate.description = profileUpdate.description;
+    }
+
+    return normalizedUpdate;
+  }
+
+  /**
    * Configures one websocket to handle profile, matchmaking, list, room, and
    * game channel messages.
    */
@@ -230,11 +276,11 @@ export class Server<
     const getPlayerSnapshot = async (): Promise<
       PlayerSnapshot<Rating> | null
     > => {
-      const userViewData = await this.db.getUserViewData(userId);
-      if (userViewData == null) {
+      const userProfileViewData = await this.db.getUserProfileViewData(userId);
+      if (userProfileViewData == null) {
         return null;
       }
-      return userViewDataToPlayerSnapshot(userViewData);
+      return userProfileViewDataToPlayerSnapshot(userProfileViewData);
     };
 
     /**
@@ -300,7 +346,9 @@ export class Server<
       > = JSON.parse(event.data);
 
       if (
+        request.type === "SubscribeAccountUserProfile" ||
         request.type === "SubscribeUserProfile" ||
+        request.type === "UpdateAccountUserProfile" ||
         request.type === "SubscribeUserMatchmaking" ||
         request.type === "SubscribeActivePublicGames" ||
         request.type === "SubscribeActivePublicUsers" ||
@@ -319,8 +367,25 @@ export class Server<
       }
 
       switch (request.type) {
+        case "SubscribeAccountUserProfile": {
+          const latestUserProfile = await this.db.getUserProfileViewData(
+            userId,
+          );
+          if (latestUserProfile == null) {
+            sendDisplayError("Unknown AccountUserProfile user.");
+            break;
+          }
+
+          await this.socketStore.subscribeAccountUserProfile(
+            socket,
+            request.subscriptionId,
+            userId,
+            latestUserProfile,
+          );
+          break;
+        }
         case "SubscribeUserProfile": {
-          const latestUserProfile = await this.db.getUserViewData(
+          const latestUserProfile = await this.db.getUserProfileViewData(
             request.userId,
           );
           if (latestUserProfile == null) {
@@ -336,6 +401,37 @@ export class Server<
           );
           break;
         }
+        case "UpdateAccountUserProfile":
+          try {
+            const normalizedUpdate = this.normalizeUserProfileUpdate({
+              username: request.username,
+              description: request.description,
+            });
+            await this.db.updateUserProfile(userId, normalizedUpdate);
+            const updatedUserProfile = await this.db.getUserProfileViewData(
+              userId,
+            );
+            if (updatedUserProfile != null) {
+              await this.db.updateActivePublicUserSnapshot(
+                userId,
+                userProfileViewDataToPlayerSnapshot(updatedUserProfile),
+              );
+            }
+          } catch (err) {
+            if (err instanceof Error) {
+              if (
+                err.message === "Provide a username or description." ||
+                err.message === "Username cannot be empty." ||
+                err.message.endsWith(" already exists")
+              ) {
+                sendDisplayError(err.message);
+                break;
+              }
+            }
+            console.error("Failed to update account user profile", err);
+            sendDisplayError("Unable to update account user profile.");
+          }
+          break;
         case "SubscribeUserMatchmaking": {
           const latestUserData = await this.db.getUserMatchmakingStorageData(
             userId,

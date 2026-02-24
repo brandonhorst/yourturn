@@ -7,7 +7,7 @@ import type {
   QueueConfig,
   QueueEntry,
   TokenData,
-  UserViewData,
+  UserProfileViewData,
 } from "../types.ts";
 
 type QueueEntryValue<Loadout, Rating> = {
@@ -78,10 +78,10 @@ export type ActiveUserStorageData<Rating> = {
 /**
  * Converts canonical stored user data into socket-safe user profile view data.
  */
-export function userStorageDataToUserViewData<Rating>(
+export function userStorageDataToUserProfileViewData<Rating>(
   userId: string,
   userStorageData: UserStorageData<Rating>,
-): UserViewData<Rating> {
+): UserProfileViewData<Rating> {
   return {
     userId,
     username: userStorageData.username,
@@ -94,14 +94,14 @@ export function userStorageDataToUserViewData<Rating>(
 /**
  * Converts user profile view data into a frozen player snapshot.
  */
-export function userViewDataToPlayerSnapshot<Rating>(
-  userViewData: UserViewData<Rating>,
+export function userProfileViewDataToPlayerSnapshot<Rating>(
+  userProfileViewData: UserProfileViewData<Rating>,
 ): PlayerSnapshot<Rating> {
   return {
-    userId: userViewData.userId,
-    username: userViewData.username,
-    isGuest: userViewData.isGuest,
-    rating: structuredClone(userViewData.rating),
+    userId: userProfileViewData.userId,
+    username: userProfileViewData.username,
+    isGuest: userProfileViewData.isGuest,
+    rating: structuredClone(userProfileViewData.rating),
   };
 }
 
@@ -1191,7 +1191,9 @@ export class DB<
     }
   }
 
-  // Upserts user storage data and keeps the username index in sync.
+  /**
+   * Upserts user storage data and keeps the username index in sync.
+   */
   public async updateUserStorageData(
     userId: string,
     data: Partial<UserStorageData<Rating>>,
@@ -1212,17 +1214,62 @@ export class DB<
 
       const previousUsername = existingData.username;
       const updatedUsername = updatedData.username;
+      const previousUsernameEntry = await this.kv.get<string>(
+        getUserByUsernameKey(previousUsername),
+      );
+      if (previousUsernameEntry.value !== userId) {
+        throw new Error(
+          `Username index for ${previousUsername} is not owned by ${userId}`,
+        );
+      }
+
       transaction
         .check(entry)
         .set(getUserKey(userId), updatedData);
+
       if (previousUsername !== updatedUsername) {
+        const updatedUsernameEntry = await this.kv.get<string>(
+          getUserByUsernameKey(updatedUsername),
+        );
+        if (
+          updatedUsernameEntry.value != null &&
+          updatedUsernameEntry.value !== userId
+        ) {
+          throw new Error(`Username ${updatedUsername} already exists`);
+        }
+
         transaction
+          .check(previousUsernameEntry)
+          .check(updatedUsernameEntry)
           .delete(getUserByUsernameKey(previousUsername))
           .set(getUserByUsernameKey(updatedUsername), userId);
       } else {
-        transaction.set(getUserByUsernameKey(previousUsername), userId);
+        transaction
+          .check(previousUsernameEntry)
+          .set(getUserByUsernameKey(previousUsername), userId);
       }
     });
+  }
+
+  /**
+   * Updates only canonical user profile fields.
+   */
+  public async updateUserProfile(
+    userId: string,
+    profile: { username?: string; description?: string },
+  ): Promise<void> {
+    const profileUpdate: Partial<UserStorageData<Rating>> = {};
+    if (profile.username !== undefined) {
+      profileUpdate.username = profile.username;
+    }
+    if (profile.description !== undefined) {
+      profileUpdate.description = profile.description;
+    }
+    if (Object.keys(profileUpdate).length === 0) {
+      return;
+    }
+
+    await this.updateUserStorageData(userId, profileUpdate);
   }
 
   // Fetches the stored user data for a userId, if present.
@@ -1238,22 +1285,22 @@ export class DB<
   /**
    * Fetches the canonical user profile view data for a userId, if present.
    */
-  public async getUserViewData(
+  public async getUserProfileViewData(
     userId: string,
-  ): Promise<UserViewData<Rating> | null> {
+  ): Promise<UserProfileViewData<Rating> | null> {
     const userStorageData = await this.getUserStorageData(userId);
     if (userStorageData == null) {
       return null;
     }
-    return userStorageDataToUserViewData(userId, userStorageData);
+    return userStorageDataToUserProfileViewData(userId, userStorageData);
   }
 
   /**
    * Watches canonical user profile updates for one user.
    */
-  public watchForUserChanges(
+  public watchForUserProfileChanges(
     userId: string,
-  ): ReadableStream<UserViewData<Rating>> {
+  ): ReadableStream<UserProfileViewData<Rating>> {
     const userKey = getUserKey(userId);
     const stream = this.kv.watch<[UserStorageData<Rating>]>([userKey]);
     return stream.pipeThrough(
@@ -1264,11 +1311,39 @@ export class DB<
             return;
           }
           controller.enqueue(
-            userStorageDataToUserViewData(userId, userStorageData),
+            userStorageDataToUserProfileViewData(userId, userStorageData),
           );
         },
       }),
     );
+  }
+
+  /**
+   * Updates the active-public-user snapshot while preserving connection count.
+   */
+  public async updateActivePublicUserSnapshot(
+    userId: string,
+    playerSnapshot: PlayerSnapshot<Rating>,
+  ): Promise<void> {
+    const activePublicUserKey = getActivePublicUserKey(userId);
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const entry = await this.kv.get<ActiveUserStorageData<Rating>>(
+        activePublicUserKey,
+      );
+      if (entry.value == null) {
+        return;
+      }
+
+      transaction
+        .check(entry)
+        .set(activePublicUserKey, {
+          playerSnapshot,
+          connectionCount: entry.value.connectionCount,
+        }, {
+          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
+        });
+      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
+    });
   }
 
   /**

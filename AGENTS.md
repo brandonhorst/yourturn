@@ -110,6 +110,8 @@ Uses Deno KV for:
 - Active public users at `["activepublicusers", userId]` with
   `ActiveUserStorageData` (`playerSnapshot` and `connectionCount`) and a root
   ticker key at `["activepublicusers"]` that increments on presence writes
+- User profile updates also refresh active public user snapshots for currently
+  connected users, preserving each entry's `connectionCount`
 - Presence uses a 10-minute TTL with no heartbeat loop; TTL is pushed on socket
   setup plus subscribe/mutating requests
 - `PlayerSnapshot<Rating>` values are frozen at queue/room join time and stored
@@ -120,14 +122,16 @@ Uses Deno KV for:
 
 A single socket supports these channel subscriptions:
 
-1. **UserProfile channel** - Canonical user profile updates
-2. **UserMatchmaking channel** - Matchmaking actions and user matchmaking
+1. **AccountUserProfile channel** - Canonical profile updates for the
+   authenticated socket user
+2. **UserProfile channel** - Canonical profile updates for any requested user ID
+3. **UserMatchmaking channel** - Matchmaking actions and user matchmaking
    updates
-3. **Room channel** - Per-room lifecycle updates and room-specific actions
-4. **Game channel** - Moves and game state updates for players/observers
-5. **Active public games channel** - Global list of active games
-6. **Active public users channel** - Global list of currently active users
-7. **Available public rooms channel** - Global list of joinable public rooms
+4. **Room channel** - Per-room lifecycle updates and room-specific actions
+5. **Game channel** - Moves and game state updates for players/observers
+6. **Active public games channel** - Global list of active games
+7. **Active public users channel** - Global list of currently active users
+8. **Available public rooms channel** - Global list of joinable public rooms
 
 Message protocol types are defined in `common/sockettypes.ts`.
 
@@ -136,13 +140,17 @@ Message protocol types are defined in `common/sockettypes.ts`.
 targeted `GameAssignment` messages without a dedicated assignment KV key/watch
 stream.
 
+`UpdateAccountUserProfile` requests can include `username` and/or `description`,
+and persist canonical profile changes to `["users", userId]` for the
+authenticated socket user.
+
 UserMatchmaking channel payloads (`UserMatchmakingViewData`) contain matchmaking
 data only: `userActiveGames`, `roomIds`, and `queueEntries`. Player profile and
 ratings are not part of UserMatchmaking channel view data.
 
-UserProfile channel payloads (`UserViewData<Rating>`) contain canonical user
-profile data. Display-facing game and room payloads use `PlayerSnapshot<Rating>`
-instead.
+AccountUserProfile and UserProfile channel payloads
+(`UserProfileViewData<Rating>`) contain canonical user profile data.
+Display-facing game and room payloads use `PlayerSnapshot<Rating>` instead.
 
 Active public users channel payloads (`ActiveUsersViewData<Rating>`) contain
 only `PlayerSnapshot<Rating>[]` (`allActiveUsers`).
