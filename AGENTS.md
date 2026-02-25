@@ -20,7 +20,8 @@ it works with any sockets, it is intended for use within a Deno Fresh app.
 The hooks manage connections to Websockets (those configured in `server`), as
 well as some internal state.
 
-`types` contains definitions of types used by both sides.
+`types` contains definitions of types used by both sides, including the public
+`Server` interface returned by `initializeServer`.
 
 ## Architecture
 
@@ -31,16 +32,18 @@ The framework exports three main modules as defined in `deno.json`:
 - `server` - WebSocket configuration and message handling for server-side game
   logic
 - `hooks` - Preact hooks for client-side WebSocket management and state
-- `types` - Shared TypeScript type definitions
+- `types` - Shared TypeScript type definitions, including the public `Server`
+  API shape returned by `initializeServer`
 
 ### Server Architecture
 
 The server-side code is organized around a single WebSocket connection that can
 subscribe to multiple channels:
 
-- `server.ts` - Main initializer; creates `DB`, `SocketStore`, and `Server`
-- `server/server.ts` - Public server API, token/user setup, and client message
-  routing, including initial channel payload assembly
+- `server.ts` - Main initializer; creates `DB` and `SocketStore`, then returns a
+  `types.Server` implementation
+- `server/server.ts` - `ServerController` implementation for token/user setup
+  and client message routing, including initial channel payload assembly
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for
   AccountUserProfile, UserMatchmaking, room, queue, global lists, and per-game
   updates

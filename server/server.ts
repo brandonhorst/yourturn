@@ -5,6 +5,7 @@ import type {
   Game,
   GameViewData,
   PlayerSnapshot,
+  Server,
   UserMatchmakingViewData,
   UserProfileViewData,
 } from "../types.ts";
@@ -20,7 +21,7 @@ import { ulid } from "@std/ulid";
 
 const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
 
-export class Server<
+export class ServerController<
   Config,
   GameState,
   Move,
@@ -29,7 +30,16 @@ export class Server<
   Outcome,
   Rating,
   Loadout,
-> {
+> implements
+  Server<
+    Config,
+    Move,
+    PlayerState,
+    PublicState,
+    Outcome,
+    Rating,
+    Loadout
+  > {
   private gameStateService: GameStateService<
     Config,
     GameState,

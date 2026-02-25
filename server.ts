@@ -1,7 +1,7 @@
-import type { ActiveGame, Game, PlayerSnapshot } from "./types.ts";
+import type { ActiveGame, Game, PlayerSnapshot, Server } from "./types.ts";
 import { DB } from "./server/db.ts";
 import { SocketStore } from "./server/sockets.ts";
-import { Server } from "./server/server.ts";
+import { ServerController } from "./server/server.ts";
 
 export async function initializeServer<
   Config,
@@ -26,7 +26,6 @@ export async function initializeServer<
 ): Promise<
   Server<
     Config,
-    GameState,
     Move,
     PlayerState,
     PublicState,
@@ -70,7 +69,7 @@ export async function initializeServer<
     availableRoomsStream,
   );
 
-  return new Server(
+  return new ServerController(
     game,
     db,
     socketStore,

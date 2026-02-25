@@ -83,6 +83,47 @@ export interface Socket {
   send: (data: string) => void;
 }
 
+/**
+ * Public server API returned by initializeServer.
+ *
+ * Exposes methods for bootstrapping socket subscriptions and fetching initial
+ * channel payloads used by client hooks.
+ */
+export interface Server<
+  Config,
+  Move,
+  PlayerState,
+  PublicState,
+  Outcome,
+  Rating,
+  Loadout,
+> {
+  getInitialUserMatchmakingProps(
+    userId: string,
+  ): Promise<
+    { props: UserMatchmakingViewData<Config, Loadout, Rating>; token: string }
+  >;
+  getInitialActivePublicGamesProps(): Promise<
+    ActivePublicGamesViewData<Config, Rating>
+  >;
+  getInitialActivePublicUsersProps(): Promise<ActiveUsersViewData<Rating>>;
+  getInitialAvailablePublicRoomsProps(): Promise<
+    AvailablePublicRoomsViewData<Config, Rating>
+  >;
+  getInitialAccountUserProfileProps(
+    userId: string,
+  ): Promise<UserProfileViewData<Rating>>;
+  getInitialUserProfileProps(
+    userId: string,
+  ): Promise<UserProfileViewData<Rating>>;
+  getInitialGameProps(
+    gameId: string,
+    userId: string,
+  ): Promise<GameViewData<PlayerState, PublicState, Outcome, Rating>>;
+  configureSocket(socket: WebSocket, userId: string): void;
+  resolveToken(token: string | undefined): Promise<string>;
+}
+
 export type SetupObject<Config, Loadout> = {
   timestamp: Date;
   numPlayers: number;
