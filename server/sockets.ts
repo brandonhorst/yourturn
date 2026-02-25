@@ -22,7 +22,11 @@ import type {
 } from "../types.ts";
 import type { ServerMessage } from "../common/sockettypes.ts";
 import type { GameStateService } from "./gamestateservice.ts";
+import { logServer, serializeLogValue } from "./logging.ts";
 import { ulid } from "@std/ulid";
+
+const SOCKET_STORE_LOG_MODULE = "server.sockets";
+const SOCKET_WIRE_LOG_MODULE = "server.socket";
 
 type QueueSubscription = {
   queueId: string;
@@ -106,7 +110,7 @@ type SocketConnectionState<T extends GameTypes> = {
 };
 
 /**
- * Serializes and sends one server message over a websocket.
+ * Serializes and sends one server message over a websocket, with debug logs.
  */
 function sendServerMessage<
   T extends GameTypes,
@@ -114,6 +118,13 @@ function sendServerMessage<
   socket: WebSocket,
   message: ServerMessage<T>,
 ): void {
+  logServer(
+    SOCKET_WIRE_LOG_MODULE,
+    "INFO",
+    `Socket outbound message payload=${
+      serializeLogValue({ type: message.type, message })
+    }`,
+  );
   socket.send(JSON.stringify(message));
 }
 
@@ -216,6 +227,11 @@ export class SocketStore<T extends GameTypes> {
     activeUsersStream: ReadableStream<PlayerSnapshot<T>[]>,
     availableRoomsStream: ReadableStream<AvailableRoom<T>[]>,
   ) {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      "SocketStore initialized",
+    );
     this.streamActivePublicMatchesToSockets(activeMatchesStream);
     this.streamActivePublicUsersToSockets(activeUsersStream);
     this.streamAvailablePublicRoomsToSockets(availableRoomsStream);
@@ -228,6 +244,11 @@ export class SocketStore<T extends GameTypes> {
     gameStateService: GameStateService<T>,
   ): void {
     this.gameStateService = gameStateService;
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      "Registered GameStateService with SocketStore",
+    );
   }
 
   /**
@@ -239,6 +260,13 @@ export class SocketStore<T extends GameTypes> {
     userId: string,
     userProfile: UserProfileViewData<T>,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeAccountUserProfile request=${
+        serializeLogValue({ subscriptionId, userId, userProfile })
+      }`,
+    );
     await this.unsubscribe(socket, subscriptionId);
 
     const connectionState = this.getOrCreateSocketConnection(socket);
@@ -284,6 +312,13 @@ export class SocketStore<T extends GameTypes> {
     userId: string,
     userData: UserMatchmakingStorageData<T>,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeUserMatchmaking request=${
+        serializeLogValue({ subscriptionId, userId, userData })
+      }`,
+    );
     const existingConnection = this.sockets.get(socket);
     const existingSubscription = existingConnection?.subscriptions.get(
       subscriptionId,
@@ -347,6 +382,13 @@ export class SocketStore<T extends GameTypes> {
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeActivePublicMatches request=${
+        serializeLogValue({ subscriptionId })
+      }`,
+    );
     await this.unsubscribe(socket, subscriptionId);
 
     const connectionState = this.getOrCreateSocketConnection(socket);
@@ -364,6 +406,13 @@ export class SocketStore<T extends GameTypes> {
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeActivePublicUsers request=${
+        serializeLogValue({ subscriptionId })
+      }`,
+    );
     await this.unsubscribe(socket, subscriptionId);
 
     const connectionState = this.getOrCreateSocketConnection(socket);
@@ -381,6 +430,13 @@ export class SocketStore<T extends GameTypes> {
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeAvailablePublicRooms request=${
+        serializeLogValue({ subscriptionId })
+      }`,
+    );
     await this.unsubscribe(socket, subscriptionId);
 
     const connectionState = this.getOrCreateSocketConnection(socket);
@@ -400,6 +456,13 @@ export class SocketStore<T extends GameTypes> {
     roomId: string,
     userId: string,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeRoom request=${
+        serializeLogValue({ subscriptionId, roomId, userId })
+      }`,
+    );
     await this.unsubscribe(socket, subscriptionId);
 
     const room = await this.db.getRoom(roomId);
@@ -463,6 +526,11 @@ export class SocketStore<T extends GameTypes> {
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `unsubscribe request=${serializeLogValue({ subscriptionId })}`,
+    );
     const connectionState = this.sockets.get(socket);
     if (connectionState == null) {
       return;
@@ -517,6 +585,11 @@ export class SocketStore<T extends GameTypes> {
    * Unsubscribes a websocket from all channel subscriptions.
    */
   async unsubscribeSocket(socket: WebSocket): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      "unsubscribeSocket request={}",
+    );
     const connectionState = this.sockets.get(socket);
     if (connectionState == null) {
       return;
@@ -540,6 +613,19 @@ export class SocketStore<T extends GameTypes> {
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `joinQueue request=${
+        serializeLogValue({
+          queueId,
+          userId,
+          playerSnapshot,
+          loadout,
+          assignmentSubscriptionId,
+        })
+      }`,
+    );
     const userMatchmakingState = this.getUserMatchmakingConnectionState(socket);
 
     if (userMatchmakingState.queueSubscriptions.has(queueId)) {
@@ -568,6 +654,13 @@ export class SocketStore<T extends GameTypes> {
     }
 
     this.sendMatchAssignmentsToStoredSubscriptions(matchAssignments);
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `joinQueue result=${
+        serializeLogValue({ queueId, userId, assignments: matchAssignments })
+      }`,
+    );
   }
 
   /**
@@ -585,6 +678,19 @@ export class SocketStore<T extends GameTypes> {
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `createAndJoinRoom request=${
+        serializeLogValue({
+          roomConfig,
+          userId,
+          playerSnapshot,
+          loadout,
+          assignmentSubscriptionId,
+        })
+      }`,
+    );
     const roomId = ulid();
     await this.db.createRoom(roomId, userId, roomConfig);
     await this.joinRoom(
@@ -594,6 +700,11 @@ export class SocketStore<T extends GameTypes> {
       playerSnapshot,
       loadout,
       assignmentSubscriptionId,
+    );
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `createAndJoinRoom created room=${serializeLogValue({ roomId, userId })}`,
     );
   }
 
@@ -608,6 +719,19 @@ export class SocketStore<T extends GameTypes> {
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<boolean> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `joinRoom request=${
+        serializeLogValue({
+          roomId,
+          userId,
+          playerSnapshot,
+          loadout,
+          assignmentSubscriptionId,
+        })
+      }`,
+    );
     const entryId = ulid();
 
     try {
@@ -619,10 +743,22 @@ export class SocketStore<T extends GameTypes> {
         loadout,
         assignmentSubscriptionId,
       );
-    } catch {
+    } catch (error) {
+      logServer(
+        SOCKET_STORE_LOG_MODULE,
+        "WARN",
+        `joinRoom failed error=${
+          serializeLogValue(error instanceof Error ? error : String(error))
+        }`,
+      );
       return false;
     }
 
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `joinRoom succeeded=${serializeLogValue({ roomId, userId, entryId })}`,
+    );
     return true;
   }
 
@@ -630,6 +766,11 @@ export class SocketStore<T extends GameTypes> {
    * Leaves one queue and removes its stored queue entry state.
    */
   async leaveQueue(socket: WebSocket, queueId: string): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `leaveQueue request=${serializeLogValue({ queueId })}`,
+    );
     await this.cleanupQueueSubscription(socket, queueId, {
       removeFromDb: true,
     });
@@ -639,6 +780,11 @@ export class SocketStore<T extends GameTypes> {
    * Commits one room to a match when the user is an active member.
    */
   async commitRoom(roomId: string, userId: string): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `commitRoom request=${serializeLogValue({ roomId, userId })}`,
+    );
     const room = await this.db.getRoom(roomId);
     if (room == null) {
       throw new Error(`Room ${roomId} not found`);
@@ -653,6 +799,13 @@ export class SocketStore<T extends GameTypes> {
 
     const matchAssignments = await this.db.commitRoom(roomId, userId);
     this.sendMatchAssignmentsToStoredSubscriptions(matchAssignments);
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `commitRoom assignments=${
+        serializeLogValue({ roomId, userId, matchAssignments })
+      }`,
+    );
   }
 
   /**
@@ -663,6 +816,11 @@ export class SocketStore<T extends GameTypes> {
     roomId: string,
     userId: string,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `leaveRoom request=${serializeLogValue({ roomId, userId })}`,
+    );
     const room = await this.db.getRoom(roomId);
     if (room != null) {
       const member = room.members.find((roomMember) =>
@@ -677,6 +835,11 @@ export class SocketStore<T extends GameTypes> {
       notifyClient: true,
       removeSubscriptionEntries: true,
     });
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `leaveRoom completed=${serializeLogValue({ roomId, userId })}`,
+    );
   }
 
   /**
@@ -688,6 +851,13 @@ export class SocketStore<T extends GameTypes> {
     matchId: string,
     playerId?: number,
   ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeMatch request=${
+        serializeLogValue({ subscriptionId, matchId, playerId })
+      }`,
+    );
     await this.unsubscribe(socket, subscriptionId);
 
     const gameStateService = this.requireGameStateService();
@@ -727,6 +897,13 @@ export class SocketStore<T extends GameTypes> {
         gameStateUpdate,
       ),
     });
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeMatch sent initial state=${
+        serializeLogValue({ subscriptionId, matchId, playerId })
+      }`,
+    );
   }
 
   /**
@@ -1286,7 +1463,13 @@ export class SocketStore<T extends GameTypes> {
         },
       }),
     ).catch((err) => {
-      console.error("Failed to broadcast active match updates", err);
+      logServer(
+        SOCKET_STORE_LOG_MODULE,
+        "ERROR",
+        `Failed to broadcast active match updates error=${
+          serializeLogValue(err instanceof Error ? err : String(err))
+        }`,
+      );
     });
   }
 
@@ -1440,7 +1623,13 @@ export class SocketStore<T extends GameTypes> {
         },
       }),
     ).catch((err) => {
-      console.error("Failed to broadcast active user updates", err);
+      logServer(
+        SOCKET_STORE_LOG_MODULE,
+        "ERROR",
+        `Failed to broadcast active user updates error=${
+          serializeLogValue(err instanceof Error ? err : String(err))
+        }`,
+      );
     });
   }
 
@@ -1499,7 +1688,13 @@ export class SocketStore<T extends GameTypes> {
         },
       }),
     ).catch((err) => {
-      console.error("Failed to broadcast available room updates", err);
+      logServer(
+        SOCKET_STORE_LOG_MODULE,
+        "ERROR",
+        `Failed to broadcast available room updates error=${
+          serializeLogValue(err instanceof Error ? err : String(err))
+        }`,
+      );
     });
   }
 
@@ -1546,7 +1741,13 @@ export class SocketStore<T extends GameTypes> {
           queueSubscription.entryId,
         );
       } catch (err) {
-        console.error("Failed to remove queue subscription", err);
+        logServer(
+          SOCKET_STORE_LOG_MODULE,
+          "ERROR",
+          `Failed to remove queue subscription error=${
+            serializeLogValue(err instanceof Error ? err : String(err))
+          }`,
+        );
       }
     }
 

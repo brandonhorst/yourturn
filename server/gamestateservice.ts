@@ -1,4 +1,5 @@
 import type { DB, MatchStorageData } from "./db.ts";
+import { logServer, serializeLogValue } from "./logging.ts";
 import type {
   GameDefinition,
   GameTypes,
@@ -12,6 +13,8 @@ type GameStateUpdate<T extends GameTypes> = {
   publicState: T["PublicState"];
   outcome: T["Outcome"] | undefined;
 };
+
+const GAMESTATE_LOG_MODULE = "server.gamestate";
 
 /**
  * Encapsulates game-derived state projection and move processing helpers.
@@ -115,6 +118,11 @@ export class GameStateService<
     playerId: number,
     move: T["Move"],
   ): Promise<void> {
+    logServer(
+      GAMESTATE_LOG_MODULE,
+      "INFO",
+      `handleMove request=${serializeLogValue({ matchId, playerId, move })}`,
+    );
     await this.updateGameState(db, matchId, playerId, (gameData) => {
       const moveData = {
         playerId,
@@ -126,6 +134,13 @@ export class GameStateService<
 
       const state = gameData.gameState;
       if (!this.game.isValidMove(state, moveData)) {
+        logServer(
+          GAMESTATE_LOG_MODULE,
+          "WARN",
+          `Rejected invalid move request=${
+            serializeLogValue({ matchId, playerId, move })
+          }`,
+        );
         return undefined;
       }
 
@@ -146,11 +161,25 @@ export class GameStateService<
   ): Promise<void> {
     const gameData = await db.getMatchStorageData(matchId);
     if (gameData.outcome !== undefined) {
+      logServer(
+        GAMESTATE_LOG_MODULE,
+        "INFO",
+        `Ignoring move for completed match request=${
+          serializeLogValue({ matchId, actorPlayerId })
+        }`,
+      );
       return;
     }
 
     const newState = computeNewState(gameData);
     if (newState === undefined) {
+      logServer(
+        GAMESTATE_LOG_MODULE,
+        "INFO",
+        `No state transition computed request=${
+          serializeLogValue({ matchId, actorPlayerId })
+        }`,
+      );
       return;
     }
 
@@ -172,6 +201,13 @@ export class GameStateService<
     }
 
     await db.updateMatchStorageData(matchId, newGameData, actorUserId);
+    logServer(
+      GAMESTATE_LOG_MODULE,
+      "INFO",
+      `Persisted match state update=${
+        serializeLogValue({ matchId, actorUserId, completed: outcome != null })
+      }`,
+    );
 
     if (outcome == null) {
       return;
@@ -214,6 +250,13 @@ export class GameStateService<
           { actorUserId },
         );
       }),
+    );
+    logServer(
+      GAMESTATE_LOG_MODULE,
+      "INFO",
+      `Updated ranked ratings outcome=${
+        serializeLogValue({ matchId, queueId, updatedRatings })
+      }`,
     );
   }
 }

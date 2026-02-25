@@ -1,4 +1,9 @@
 import { ulid } from "@std/ulid";
+import {
+  logServer,
+  serializeLogValue,
+  type ServerLogLevel,
+} from "./logging.ts";
 import type {
   ActiveMatch,
   AuditLogEntry,
@@ -172,6 +177,7 @@ const USER_COMPLETED_MATCHES_READ_LIMIT = 500;
 const USER_COMPLETED_MATCHES_BATCH_SIZE = 500;
 const ACTIVE_PUBLIC_USER_TTL_MS = 10 * 60 * 1000;
 const U64_MAX = (1n << 64n) - 1n;
+const DB_LOG_MODULE = "server.db";
 
 export class DB<
   T extends GameTypes,
@@ -185,6 +191,14 @@ export class DB<
   ) {
     this.kv = kv;
     this.game = game;
+    this.log("INFO", "DB initialized");
+  }
+
+  /**
+   * Emits one log entry for database operations.
+   */
+  private log(level: ServerLogLevel, message: string): void {
+    logServer(DB_LOG_MODULE, level, message);
   }
 
   /**
@@ -331,6 +345,19 @@ export class DB<
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<MatchAssignmentNotification[]> {
+    this.log(
+      "INFO",
+      `addToQueue request=${
+        serializeLogValue({
+          queueId,
+          entryId,
+          userId,
+          playerSnapshot,
+          loadout,
+          assignmentSubscriptionId,
+        })
+      }`,
+    );
     const queueConfig = this.getQueueConfig(queueId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entryKey = getQueueEntryKey(queueId, entryId);
@@ -371,19 +398,38 @@ export class DB<
       });
     });
 
-    return await this.maybeGraduateFromQueue(queueId, queueConfig, userId);
+    const assignments = await this.maybeGraduateFromQueue(
+      queueId,
+      queueConfig,
+      userId,
+    );
+    this.log(
+      "INFO",
+      `addToQueue result=${
+        serializeLogValue({ queueId, entryId, userId, assignments })
+      }`,
+    );
+    return assignments;
   }
 
   public async removeFromQueue(
     queueId: string,
     entryId: string,
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `removeFromQueue request=${serializeLogValue({ queueId, entryId })}`,
+    );
     const entryKey = getQueueEntryKey(queueId, entryId);
 
     // First get the entry to find the userId
     const entry = await this.kv.get<QueueEntryValue<T>>(entryKey);
     if (entry.value == null) {
       // Entry already removed, nothing to do
+      this.log(
+        "INFO",
+        `removeFromQueue noop=${serializeLogValue({ queueId, entryId })}`,
+      );
       return;
     }
 
@@ -418,6 +464,12 @@ export class DB<
         entryId,
       });
     });
+    this.log(
+      "INFO",
+      `removeFromQueue completed=${
+        serializeLogValue({ queueId, entryId, userId })
+      }`,
+    );
   }
 
   public async createRoom(
@@ -429,6 +481,10 @@ export class DB<
       private: boolean;
     },
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `createRoom request=${serializeLogValue({ roomId, userId, roomConfig })}`,
+    );
     const roomKey = getRoomKey(roomId);
     const roomData: RoomStorageData<T> = {
       numPlayers: roomConfig.numPlayers,
@@ -452,13 +508,25 @@ export class DB<
         private: roomConfig.private,
       });
     });
+    this.log(
+      "INFO",
+      `createRoom completed=${serializeLogValue({ roomId, userId })}`,
+    );
   }
 
   public async getRoom(
     roomId: string,
   ): Promise<RoomStorageData<T> | null> {
+    this.log(
+      "INFO",
+      `getRoom request=${serializeLogValue({ roomId })}`,
+    );
     const entry = await this.kv.get<RoomStorageData<T>>(
       getRoomKey(roomId),
+    );
+    this.log(
+      "INFO",
+      `getRoom response=${serializeLogValue({ roomId, room: entry.value })}`,
     );
     return entry.value;
   }
@@ -467,6 +535,10 @@ export class DB<
   public watchForRoomChanges(
     roomId: string,
   ): ReadableStream<RoomWatchEvent<T>> {
+    this.log(
+      "INFO",
+      `watchForRoomChanges request=${serializeLogValue({ roomId })}`,
+    );
     const roomKey = getRoomKey(roomId);
     const stream = this.kv.watch<RoomStorageData<T>[]>([
       roomKey,
@@ -493,6 +565,19 @@ export class DB<
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `addToRoom request=${
+        serializeLogValue({
+          roomId,
+          entryId,
+          userId,
+          playerSnapshot,
+          loadout,
+          assignmentSubscriptionId,
+        })
+      }`,
+    );
     const roomKey = getRoomKey(roomId);
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
@@ -560,12 +645,20 @@ export class DB<
         entryId,
       });
     });
+    this.log(
+      "INFO",
+      `addToRoom completed=${serializeLogValue({ roomId, entryId, userId })}`,
+    );
   }
 
   public async removeFromRoom(
     roomId: string,
     entryId: string,
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `removeFromRoom request=${serializeLogValue({ roomId, entryId })}`,
+    );
     const roomKey = getRoomKey(roomId);
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
@@ -639,6 +732,10 @@ export class DB<
         entryId,
       });
     });
+    this.log(
+      "INFO",
+      `removeFromRoom completed=${serializeLogValue({ roomId, entryId })}`,
+    );
   }
 
   // Creates a new game record and updates global and user-specific active game lists
@@ -779,6 +876,10 @@ export class DB<
     roomId: string,
     userId: string,
   ): Promise<MatchAssignmentNotification[]> {
+    this.log(
+      "INFO",
+      `commitRoom request=${serializeLogValue({ roomId, userId })}`,
+    );
     const roomKey = getRoomKey(roomId);
     let matchAssignments: MatchAssignmentNotification[] = [];
 
@@ -863,6 +964,12 @@ export class DB<
       });
     });
 
+    this.log(
+      "INFO",
+      `commitRoom result=${
+        serializeLogValue({ roomId, userId, matchAssignments })
+      }`,
+    );
     return matchAssignments;
   }
 
@@ -871,6 +978,16 @@ export class DB<
     queueConfig: QueueConfig<T>,
     userId: string,
   ): Promise<MatchAssignmentNotification[]> {
+    this.log(
+      "INFO",
+      `maybeGraduateFromQueue request=${
+        serializeLogValue({
+          queueId,
+          userId,
+          numPlayers: queueConfig.numPlayers,
+        })
+      }`,
+    );
     const queuePrefix = getQueuePrefix(queueId);
     let matchAssignments: MatchAssignmentNotification[] = [];
 
@@ -958,6 +1075,12 @@ export class DB<
       });
     });
 
+    this.log(
+      "INFO",
+      `maybeGraduateFromQueue result=${
+        serializeLogValue({ queueId, userId, matchAssignments })
+      }`,
+    );
     return matchAssignments;
   }
 
@@ -975,6 +1098,12 @@ export class DB<
     gameData: MatchStorageData<T>,
     userId: string,
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `updateMatchStorageData request=${
+        serializeLogValue({ matchId, userId, gameData })
+      }`,
+    );
     const gameKey = getMatchKey(matchId);
     const activePublicMatchKey = getActivePublicMatchKey(matchId);
     const participantUserIds = [...new Set(gameData.userIds)];
@@ -1077,11 +1206,26 @@ export class DB<
     if (!res.ok) {
       throw new Error(`Failed to update match ${matchId}`);
     }
+    this.log(
+      "INFO",
+      `updateMatchStorageData completed=${
+        serializeLogValue({
+          matchId,
+          userId,
+          completedMatchEntryId,
+          hasOutcome: gameData.outcome != null,
+        })
+      }`,
+    );
   }
 
   public async getMatchStorageData(
     matchId: string,
   ): Promise<MatchStorageData<T>> {
+    this.log(
+      "INFO",
+      `getMatchStorageData request=${serializeLogValue({ matchId })}`,
+    );
     const gameKey = getMatchKey(matchId);
     const entry = await this.kv.get<
       MatchStorageData<T>
@@ -1091,6 +1235,12 @@ export class DB<
     if (entry.value == null) {
       throw new Error(`Match ${matchId} not found`);
     } else {
+      this.log(
+        "INFO",
+        `getMatchStorageData response=${
+          serializeLogValue({ matchId, gameData: entry.value })
+        }`,
+      );
       return entry.value;
     }
   }
@@ -1102,6 +1252,12 @@ export class DB<
     userId: string,
     playerSnapshot: PlayerSnapshot<T>,
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `incrementActivePublicUserConnection request=${
+        serializeLogValue({ userId, playerSnapshot })
+      }`,
+    );
     const activePublicUserKey = getActivePublicUserKey(userId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entry = await this.kv.get<ActiveUserStorageData<T>>(
@@ -1119,12 +1275,22 @@ export class DB<
         });
       this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
     });
+    this.log(
+      "INFO",
+      `incrementActivePublicUserConnection completed=${
+        serializeLogValue({ userId })
+      }`,
+    );
   }
 
   /**
    * Refreshes one active-public-user entry's TTL without changing its value.
    */
   public async touchActivePublicUser(userId: string): Promise<void> {
+    this.log(
+      "INFO",
+      `touchActivePublicUser request=${serializeLogValue({ userId })}`,
+    );
     const activePublicUserKey = getActivePublicUserKey(userId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entry = await this.kv.get<ActiveUserStorageData<T>>(
@@ -1141,6 +1307,10 @@ export class DB<
         });
       this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
     });
+    this.log(
+      "INFO",
+      `touchActivePublicUser completed=${serializeLogValue({ userId })}`,
+    );
   }
 
   /**
@@ -1150,6 +1320,12 @@ export class DB<
   public async decrementActivePublicUserConnection(userId: string): Promise<
     void
   > {
+    this.log(
+      "INFO",
+      `decrementActivePublicUserConnection request=${
+        serializeLogValue({ userId })
+      }`,
+    );
     const activePublicUserKey = getActivePublicUserKey(userId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entry = await this.kv.get<ActiveUserStorageData<T>>(
@@ -1173,6 +1349,12 @@ export class DB<
       }
       this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
     });
+    this.log(
+      "INFO",
+      `decrementActivePublicUserConnection completed=${
+        serializeLogValue({ userId })
+      }`,
+    );
   }
 
   /**
@@ -1181,12 +1363,25 @@ export class DB<
   public async getAllActivePublicUsers(): Promise<
     PlayerSnapshot<T>[]
   > {
+    this.log(
+      "INFO",
+      "getAllActivePublicUsers request={}",
+    );
     const activePublicUserEntries = await this.listSingleBatch<
       ActiveUserStorageData<T>
     >(
       getActivePublicUsersKey(),
     );
-    return activePublicUserEntries.map((entry) => entry.value.playerSnapshot);
+    const allActiveUsers = activePublicUserEntries.map((entry) =>
+      entry.value.playerSnapshot
+    );
+    this.log(
+      "INFO",
+      `getAllActivePublicUsers response=${
+        serializeLogValue({ count: allActiveUsers.length, allActiveUsers })
+      }`,
+    );
+    return allActiveUsers;
   }
 
   /**
@@ -1195,6 +1390,10 @@ export class DB<
   public watchForActivePublicUsersListChanges(): ReadableStream<
     PlayerSnapshot<T>[]
   > {
+    this.log(
+      "INFO",
+      "watchForActivePublicUsersListChanges request={}",
+    );
     const activePublicUsersKey = getActivePublicUsersKey();
     const stream = this.kv.watch<[Deno.KvU64]>([activePublicUsersKey]);
     return stream.pipeThrough(
@@ -1211,17 +1410,34 @@ export class DB<
   public async getAllActivePublicMatches(): Promise<
     ActiveMatch<T>[]
   > {
+    this.log(
+      "INFO",
+      "getAllActivePublicMatches request={}",
+    );
     const activePublicMatchEntries = await this.listSingleBatch<
       ActiveMatch<T>
     >(
       getActivePublicMatchesKey(),
     );
-    return activePublicMatchEntries.map((entry) => entry.value);
+    const allActiveMatches = activePublicMatchEntries.map((entry) =>
+      entry.value
+    );
+    this.log(
+      "INFO",
+      `getAllActivePublicMatches response=${
+        serializeLogValue({ count: allActiveMatches.length, allActiveMatches })
+      }`,
+    );
+    return allActiveMatches;
   }
 
   public watchForMatchChanges(
     matchId: string,
   ): ReadableStream<MatchStorageData<T>> {
+    this.log(
+      "INFO",
+      `watchForMatchChanges request=${serializeLogValue({ matchId })}`,
+    );
     const gameKey = getMatchKey(matchId);
     const stream = this.kv.watch<
       MatchStorageData<T>[]
@@ -1244,6 +1460,10 @@ export class DB<
   public watchForActivePublicMatchesListChanges(): ReadableStream<
     ActiveMatch<T>[]
   > {
+    this.log(
+      "INFO",
+      "watchForActivePublicMatchesListChanges request={}",
+    );
     const activePublicMatchesKey = getActivePublicMatchesKey();
     const stream = this.kv.watch<[Deno.KvU64]>([activePublicMatchesKey]);
     return stream.pipeThrough(
@@ -1260,18 +1480,38 @@ export class DB<
   public async getAllAvailablePublicRooms(): Promise<
     AvailableRoom<T>[]
   > {
+    this.log(
+      "INFO",
+      "getAllAvailablePublicRooms request={}",
+    );
     const availablePublicRoomEntries = await this.listSingleBatch<
       AvailableRoom<T>
     >(
       getAvailablePublicRoomsKey(),
     );
-    return availablePublicRoomEntries.map((entry) => entry.value);
+    const allAvailableRooms = availablePublicRoomEntries.map((entry) =>
+      entry.value
+    );
+    this.log(
+      "INFO",
+      `getAllAvailablePublicRooms response=${
+        serializeLogValue({
+          count: allAvailableRooms.length,
+          allAvailableRooms,
+        })
+      }`,
+    );
+    return allAvailableRooms;
   }
 
   // Watches the available public rooms root key and emits full indexed snapshots.
   public watchForAvailablePublicRoomListChanges(): ReadableStream<
     AvailableRoom<T>[]
   > {
+    this.log(
+      "INFO",
+      "watchForAvailablePublicRoomListChanges request={}",
+    );
     const availablePublicRoomsKey = getAvailablePublicRoomsKey();
     const stream = this.kv.watch<[Deno.KvU64]>([availablePublicRoomsKey]);
     return stream.pipeThrough(
@@ -1289,6 +1529,10 @@ export class DB<
     userId: string,
     data: UserStorageData<T>,
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `createNewUserStorageData request=${serializeLogValue({ userId, data })}`,
+    );
     const userKey = getUserKey(userId);
     const usernameKey = getUserByUsernameKey(data.username);
     const transaction = this.kv.atomic()
@@ -1308,6 +1552,12 @@ export class DB<
         `User ${userId} or username ${data.username} already exists`,
       );
     }
+    this.log(
+      "INFO",
+      `createNewUserStorageData completed=${
+        serializeLogValue({ userId, username: data.username })
+      }`,
+    );
   }
 
   /**
@@ -1318,6 +1568,12 @@ export class DB<
     data: Partial<UserStorageData<T>>,
     options?: { actorUserId?: string },
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `updateUserStorageData request=${
+        serializeLogValue({ userId, data, options })
+      }`,
+    );
     const actorUserId = options?.actorUserId ?? userId;
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entry = await this.kv.get<UserStorageData<T>>(
@@ -1374,6 +1630,12 @@ export class DB<
         userId: actorUserId,
       });
     });
+    this.log(
+      "INFO",
+      `updateUserStorageData completed=${
+        serializeLogValue({ userId, actorUserId })
+      }`,
+    );
   }
 
   /**
@@ -1383,23 +1645,45 @@ export class DB<
     userId: string,
     profile: { description?: string },
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `updateUserProfile request=${serializeLogValue({ userId, profile })}`,
+    );
     const profileUpdate: Partial<UserStorageData<T>> = {};
     if (profile.description !== undefined) {
       profileUpdate.description = profile.description;
     }
     if (Object.keys(profileUpdate).length === 0) {
+      this.log(
+        "INFO",
+        `updateUserProfile noop=${serializeLogValue({ userId })}`,
+      );
       return;
     }
 
     await this.updateUserStorageData(userId, profileUpdate);
+    this.log(
+      "INFO",
+      `updateUserProfile completed=${serializeLogValue({ userId })}`,
+    );
   }
 
   // Fetches the stored user data for a userId, if present.
   public async getUserStorageData(
     userId: string,
   ): Promise<UserStorageData<T> | null> {
+    this.log(
+      "INFO",
+      `getUserStorageData request=${serializeLogValue({ userId })}`,
+    );
     const entry = await this.kv.get<UserStorageData<T>>(
       getUserKey(userId),
+    );
+    this.log(
+      "INFO",
+      `getUserStorageData response=${
+        serializeLogValue({ userId, user: entry.value })
+      }`,
     );
     return entry.value;
   }
@@ -1433,16 +1717,33 @@ export class DB<
   public async getUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<T> | null> {
+    this.log(
+      "INFO",
+      `getUserProfileViewData request=${serializeLogValue({ userId })}`,
+    );
     const userStorageData = await this.getUserStorageData(userId);
     if (userStorageData == null) {
+      this.log(
+        "INFO",
+        `getUserProfileViewData response=${
+          serializeLogValue({ userId, userProfile: null })
+        }`,
+      );
       return null;
     }
     const completedMatches = await this.getUserCompletedMatches(userId);
-    return userStorageDataToUserProfileViewData(
+    const userProfile = userStorageDataToUserProfileViewData(
       userId,
       userStorageData,
       completedMatches,
     );
+    this.log(
+      "INFO",
+      `getUserProfileViewData response=${
+        serializeLogValue({ userId, userProfile })
+      }`,
+    );
+    return userProfile;
   }
 
   /**
@@ -1452,6 +1753,10 @@ export class DB<
   public watchForUserProfileChanges(
     userId: string,
   ): ReadableStream<UserProfileViewData<T>> {
+    this.log(
+      "INFO",
+      `watchForUserProfileChanges request=${serializeLogValue({ userId })}`,
+    );
     const userKey = getUserKey(userId);
     const completedMatchesKey = getUserCompletedMatchesKey(userId);
     const stream = this.kv.watch<[UserStorageData<T>, Deno.KvU64]>([
@@ -1479,6 +1784,12 @@ export class DB<
     data: UserMatchmakingStorageData<T>,
     options?: { actorUserId?: string },
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `createNewUserMatchmakingStorageData request=${
+        serializeLogValue({ userId, data, options })
+      }`,
+    );
     const actorUserId = options?.actorUserId ?? userId;
     const userMatchmakingKey = getUserMatchmakingKey(userId);
     const transaction = this.kv.atomic()
@@ -1492,6 +1803,12 @@ export class DB<
     if (!res.ok) {
       throw new Error(`User matchmaking ${userId} already exists`);
     }
+    this.log(
+      "INFO",
+      `createNewUserMatchmakingStorageData completed=${
+        serializeLogValue({ userId, actorUserId })
+      }`,
+    );
   }
 
   /**
@@ -1502,6 +1819,12 @@ export class DB<
     data: Partial<UserMatchmakingStorageData<T>>,
     options?: { actorUserId?: string },
   ): Promise<void> {
+    this.log(
+      "INFO",
+      `updateUserMatchmakingStorageData request=${
+        serializeLogValue({ userId, data, options })
+      }`,
+    );
     const actorUserId = options?.actorUserId ?? userId;
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entry = await this.kv.get<
@@ -1526,6 +1849,12 @@ export class DB<
         userId: actorUserId,
       });
     });
+    this.log(
+      "INFO",
+      `updateUserMatchmakingStorageData completed=${
+        serializeLogValue({ userId, actorUserId })
+      }`,
+    );
   }
 
   /**
@@ -1534,10 +1863,20 @@ export class DB<
   public async getUserMatchmakingStorageData(
     userId: string,
   ): Promise<UserMatchmakingStorageData<T> | null> {
+    this.log(
+      "INFO",
+      `getUserMatchmakingStorageData request=${serializeLogValue({ userId })}`,
+    );
     const entry = await this.kv.get<
       UserMatchmakingStorageData<T>
     >(
       getUserMatchmakingKey(userId),
+    );
+    this.log(
+      "INFO",
+      `getUserMatchmakingStorageData response=${
+        serializeLogValue({ userId, userMatchmaking: entry.value })
+      }`,
     );
     return entry.value;
   }
@@ -1548,6 +1887,10 @@ export class DB<
   public watchForUserMatchmakingChanges(
     userId: string,
   ): ReadableStream<UserMatchmakingStorageData<T>> {
+    this.log(
+      "INFO",
+      `watchForUserMatchmakingChanges request=${serializeLogValue({ userId })}`,
+    );
     const userMatchmakingKey = getUserMatchmakingKey(userId);
     const stream = this.kv.watch<
       [UserMatchmakingStorageData<T>]
@@ -1567,21 +1910,47 @@ export class DB<
   }
 
   public async usernameExists(username: string): Promise<boolean> {
+    this.log(
+      "INFO",
+      `usernameExists request=${serializeLogValue({ username })}`,
+    );
     const entry = await this.kv.get<string>(getUserByUsernameKey(username));
-    return entry.value != null;
+    const exists = entry.value != null;
+    this.log(
+      "INFO",
+      `usernameExists response=${serializeLogValue({ username, exists })}`,
+    );
+    return exists;
   }
 
   public async storeToken(token: string, tokenData: TokenData): Promise<void> {
+    this.log(
+      "INFO",
+      `storeToken request=${serializeLogValue({ token, tokenData })}`,
+    );
     const res = await this.kv.atomic()
       .set(getTokenKey(token), tokenData)
       .commit();
     if (!res.ok) {
       throw new Error(`Failed to store token`);
     }
+    this.log(
+      "INFO",
+      `storeToken completed=${serializeLogValue({ token, tokenData })}`,
+    );
   }
 
   public async getToken(token: string): Promise<TokenData | null> {
+    this.log(
+      "INFO",
+      `getToken request=${serializeLogValue({ token })}`,
+    );
     const entry = await this.kv.get<TokenData>(getTokenKey(token));
-    return entry.value ?? null;
+    const tokenData = entry.value ?? null;
+    this.log(
+      "INFO",
+      `getToken response=${serializeLogValue({ token, tokenData })}`,
+    );
+    return tokenData;
   }
 }

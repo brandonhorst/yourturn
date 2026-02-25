@@ -20,10 +20,13 @@ import {
   type MatchStorageData,
   userProfileViewDataToPlayerSnapshot,
 } from "./db.ts";
+import { logServer, serializeLogValue } from "./logging.ts";
 import type { SocketStore } from "./sockets.ts";
 import { ulid } from "@std/ulid";
 
 const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
+const SERVER_CONTROLLER_LOG_MODULE = "server.controller";
+const SOCKET_LOG_MODULE = "server.socket";
 
 export class ServerController<T extends GameTypes> implements Server<T> {
   private gameStateService: GameStateService<T>;
@@ -35,6 +38,11 @@ export class ServerController<T extends GameTypes> implements Server<T> {
   ) {
     this.gameStateService = new GameStateService(this.game);
     this.socketStore.setGameStateService(this.gameStateService);
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      "ServerController initialized",
+    );
   }
 
   /**
@@ -49,6 +57,11 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       token: string;
     }
   > {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getUserMatchmakingViewData request=${serializeLogValue({ userId })}`,
+    );
     if (userId === "") {
       throw new Error("Missing UserMatchmaking user ID");
     }
@@ -71,7 +84,7 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       userMatchmakingData.activeMatches,
     );
 
-    return {
+    const response = {
       props: {
         userActiveMatches,
         roomIds: userMatchmakingData.joinedRooms.map((joinedRoom) =>
@@ -81,6 +94,15 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       },
       token: reconnectToken,
     };
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getUserMatchmakingViewData response=${serializeLogValue(response)}`,
+    );
+
+    return {
+      ...response,
+    };
   }
 
   /**
@@ -89,13 +111,24 @@ export class ServerController<T extends GameTypes> implements Server<T> {
   async getActivePublicMatchesViewData(): Promise<
     ActivePublicMatchesViewData<T>
   > {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      "getActivePublicMatchesViewData request={}",
+    );
     const allActiveMatches = await this.db.getAllActivePublicMatches();
     const projectedMatches = await this.buildActivePublicMatchViews(
       allActiveMatches,
     );
-    return {
+    const response = {
       allActiveMatches: projectedMatches,
     };
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getActivePublicMatchesViewData response=${serializeLogValue(response)}`,
+    );
+    return response;
   }
 
   /**
@@ -104,10 +137,21 @@ export class ServerController<T extends GameTypes> implements Server<T> {
   async getActivePublicUsersViewData(): Promise<
     ActiveUsersViewData<T>
   > {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      "getActivePublicUsersViewData request={}",
+    );
     const allActiveUsers = await this.db.getAllActivePublicUsers();
-    return {
+    const response = {
       allActiveUsers,
     };
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getActivePublicUsersViewData response=${serializeLogValue(response)}`,
+    );
+    return response;
   }
 
   /**
@@ -116,10 +160,21 @@ export class ServerController<T extends GameTypes> implements Server<T> {
   async getAvailablePublicRoomsViewData(): Promise<
     AvailablePublicRoomsViewData<T>
   > {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      "getAvailablePublicRoomsViewData request={}",
+    );
     const allAvailableRooms = await this.db.getAllAvailablePublicRooms();
-    return {
+    const response = {
       allAvailableRooms,
     };
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getAvailablePublicRoomsViewData response=${serializeLogValue(response)}`,
+    );
+    return response;
   }
 
   /**
@@ -128,6 +183,11 @@ export class ServerController<T extends GameTypes> implements Server<T> {
   async getUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<T>> {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getUserProfileViewData request=${serializeLogValue({ userId })}`,
+    );
     if (userId === "") {
       throw new Error("Missing UserProfile user ID");
     }
@@ -136,6 +196,11 @@ export class ServerController<T extends GameTypes> implements Server<T> {
     if (userProfile == null) {
       throw new Error("Unknown UserProfile user");
     }
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getUserProfileViewData response=${serializeLogValue(userProfile)}`,
+    );
     return userProfile;
   }
 
@@ -146,6 +211,11 @@ export class ServerController<T extends GameTypes> implements Server<T> {
     matchId: string,
     userId: string,
   ): Promise<MatchViewData<T>> {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getMatchViewData request=${serializeLogValue({ matchId, userId })}`,
+    );
     if (userId === "") {
       throw new Error("Missing match user id");
     }
@@ -153,7 +223,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
     const gameData = await this.db.getMatchStorageData(matchId);
 
     const playerId = this.gameStateService.getPlayerId(gameData, userId);
-    return this.buildMatchViewData(gameData, playerId);
+    const matchViewData = this.buildMatchViewData(gameData, playerId);
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getMatchViewData response=${serializeLogValue(matchViewData)}`,
+    );
+    return matchViewData;
   }
 
   /**
@@ -294,15 +370,47 @@ export class ServerController<T extends GameTypes> implements Server<T> {
     socket: WebSocket,
     userId: string,
   ) {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `configureSocket request=${serializeLogValue({ userId })}`,
+    );
     if (userId === "") {
       throw new Error("Missing socket user id");
     }
+    const socketConnectionId = ulid();
+    logServer(
+      SOCKET_LOG_MODULE,
+      "INFO",
+      `Socket connected payload=${
+        serializeLogValue({ socketConnectionId, userId })
+      }`,
+    );
+
+    /**
+     * Sends one server message to the client with an outbound debug log.
+     */
+    const sendSocketMessage = (message: ServerMessage<T>): void => {
+      logServer(
+        SOCKET_LOG_MODULE,
+        "INFO",
+        `Socket outbound message payload=${
+          serializeLogValue({
+            socketConnectionId,
+            userId,
+            type: message.type,
+            message,
+          })
+        }`,
+      );
+      socket.send(JSON.stringify(message));
+    };
 
     /**
      * Sends an error response to the client over this websocket.
      */
     const sendDisplayError = (message: string): void => {
-      socket.send(JSON.stringify({ type: "DisplayError", message }));
+      sendSocketMessage({ type: "DisplayError", message });
     };
 
     /**
@@ -330,7 +438,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
     };
 
     const socketPresenceReady = initializeSocketPresence().catch((err) => {
-      console.error("Failed to initialize socket presence", err);
+      logServer(
+        SOCKET_LOG_MODULE,
+        "ERROR",
+        `Failed to initialize socket presence error=${
+          serializeLogValue(err instanceof Error ? err : String(err))
+        }`,
+      );
     });
 
     /**
@@ -341,7 +455,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       try {
         await this.db.touchActivePublicUser(userId);
       } catch (err) {
-        console.error("Failed to refresh socket presence", err);
+        logServer(
+          SOCKET_LOG_MODULE,
+          "ERROR",
+          `Failed to refresh socket presence error=${
+            serializeLogValue(err instanceof Error ? err : String(err))
+          }`,
+        );
       }
     };
 
@@ -358,12 +478,31 @@ export class ServerController<T extends GameTypes> implements Server<T> {
     /**
      * Cleans up all channel subscriptions when the socket closes.
      */
-    const handleSocketClose = async () => {
+    const handleSocketClose = async (event: CloseEvent) => {
+      logServer(
+        SOCKET_LOG_MODULE,
+        "INFO",
+        `Socket disconnected payload=${
+          serializeLogValue({
+            socketConnectionId,
+            userId,
+            code: event.code,
+            reason: event.reason,
+            wasClean: event.wasClean,
+          })
+        }`,
+      );
       await socketPresenceReady;
       try {
         await this.db.decrementActivePublicUserConnection(userId);
       } catch (err) {
-        console.error("Failed to decrement socket presence", err);
+        logServer(
+          SOCKET_LOG_MODULE,
+          "ERROR",
+          `Failed to decrement socket presence error=${
+            serializeLogValue(err instanceof Error ? err : String(err))
+          }`,
+        );
       }
       await this.socketStore.unsubscribeSocket(socket);
     };
@@ -372,7 +511,53 @@ export class ServerController<T extends GameTypes> implements Server<T> {
      * Routes any client message to the matching channel handler.
      */
     const handleSocketMessage = async (event: MessageEvent) => {
-      const request: ClientMessage<T> = JSON.parse(event.data);
+      if (typeof event.data !== "string") {
+        logServer(
+          SOCKET_LOG_MODULE,
+          "WARN",
+          `Socket inbound non-string message payload=${
+            serializeLogValue({
+              socketConnectionId,
+              userId,
+              dataType: typeof event.data,
+            })
+          }`,
+        );
+        return;
+      }
+
+      let request: ClientMessage<T>;
+      try {
+        request = JSON.parse(event.data) as ClientMessage<T>;
+      } catch (err) {
+        logServer(
+          SOCKET_LOG_MODULE,
+          "ERROR",
+          `Failed to parse socket message payload=${
+            serializeLogValue({
+              socketConnectionId,
+              userId,
+              error: err,
+              rawMessage: event.data,
+            })
+          }`,
+        );
+        sendDisplayError("Invalid socket message.");
+        return;
+      }
+
+      logServer(
+        SOCKET_LOG_MODULE,
+        "INFO",
+        `Socket inbound message payload=${
+          serializeLogValue({
+            socketConnectionId,
+            userId,
+            type: request.type,
+            request,
+          })
+        }`,
+      );
 
       if (
         request.type === "SubscribeAccountUserProfile" ||
@@ -414,16 +599,14 @@ export class ServerController<T extends GameTypes> implements Server<T> {
           break;
         }
         case "FetchUserProfile":
-          socket.send(
-            JSON.stringify(
-              {
-                type: "FetchUserProfileResult",
-                requestId: request.requestId,
-                userProfile: await this.db.getUserProfileViewData(
-                  request.userId,
-                ),
-              } satisfies ServerMessage<T>,
-            ),
+          sendSocketMessage(
+            {
+              type: "FetchUserProfileResult",
+              requestId: request.requestId,
+              userProfile: await this.db.getUserProfileViewData(
+                request.userId,
+              ),
+            } satisfies ServerMessage<T>,
           );
           break;
         case "UpdateAccountUserProfile":
@@ -441,7 +624,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
                 break;
               }
             }
-            console.error("Failed to update account user profile", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to update account user profile error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             sendDisplayError("Unable to update account user profile.");
           }
           break;
@@ -489,7 +678,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
               userId,
             );
           } catch (err) {
-            console.error("Failed to subscribe room socket", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to subscribe room socket error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             await this.socketStore.unsubscribe(socket, request.subscriptionId);
             sendDisplayError("Unable to subscribe to room.");
           }
@@ -497,9 +692,12 @@ export class ServerController<T extends GameTypes> implements Server<T> {
         case "JoinQueue": {
           const queue = this.game.queues[request.queueId];
           if (queue == null) {
-            console.log(
-              "Attempted to join non-existant queue",
-              request.queueId,
+            logServer(
+              SOCKET_LOG_MODULE,
+              "WARN",
+              `Attempted to join missing queue payload=${
+                serializeLogValue({ queueId: request.queueId, request })
+              }`,
             );
             break;
           }
@@ -527,7 +725,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
               request.assignmentSubscriptionId,
             );
           } catch (err) {
-            console.error("Failed to join queue", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to join queue error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             sendDisplayError("Unable to join queue.");
           }
           break;
@@ -568,7 +772,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
               request.assignmentSubscriptionId,
             );
           } catch (err) {
-            console.error("Failed to create and join room", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to create and join room error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             sendDisplayError("Unable to create room.");
           }
           break;
@@ -615,7 +825,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
               request.assignmentSubscriptionId,
             );
           } catch (err) {
-            console.error("Failed to join room", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to join room error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             sendDisplayError("Unable to join room.");
             break;
           }
@@ -628,7 +844,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
           try {
             await this.socketStore.commitRoom(request.roomId, userId);
           } catch (err) {
-            console.error("Failed to commit room", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to commit room error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             sendDisplayError("Unable to commit room.");
           }
           break;
@@ -636,7 +858,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
           try {
             await this.socketStore.leaveQueue(socket, request.queueId);
           } catch (err) {
-            console.error("Failed to leave queue", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to leave queue error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             sendDisplayError("Unable to leave queue.");
           }
           break;
@@ -644,7 +872,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
           try {
             await this.socketStore.leaveRoom(socket, request.roomId, userId);
           } catch (err) {
-            console.error("Failed to leave room", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to leave room error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             sendDisplayError("Unable to leave room.");
           }
           break;
@@ -658,7 +892,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
               playerId,
             );
           } catch (err) {
-            console.error("Failed to subscribe match socket", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to subscribe match socket error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             await this.socketStore.unsubscribe(socket, request.subscriptionId);
             sendDisplayError("Unable to subscribe to match.");
           }
@@ -679,7 +919,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
               request.move,
             );
           } catch (err) {
-            console.error("Failed to process move", err);
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to process move error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
             sendDisplayError("Unable to process move.");
           }
           break;
@@ -696,6 +942,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
   public async resolveToken(
     token: string | undefined,
   ): Promise<string> {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `resolveToken request=${
+        serializeLogValue({ hasToken: token != null && token !== "" })
+      }`,
+    );
     if (token != null && token !== "") {
       const tokenData = await this.db.getToken(token);
       if (tokenData != null && tokenData.expiration > new Date()) {
@@ -704,6 +957,11 @@ export class ServerController<T extends GameTypes> implements Server<T> {
           this.db.getUserMatchmakingStorageData(tokenData.userId),
         ]);
         if (storedUser != null && storedMatchmaking != null) {
+          logServer(
+            SERVER_CONTROLLER_LOG_MODULE,
+            "INFO",
+            `resolveToken reused token for userId=${tokenData.userId}`,
+          );
           return tokenData.userId;
         }
       }
@@ -722,6 +980,13 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       joinedRooms: [],
       queueEntries: [],
     });
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `resolveToken created guest user=${
+        serializeLogValue({ userId, username: user.username })
+      }`,
+    );
     return userId;
   }
 

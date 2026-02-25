@@ -31,6 +31,36 @@ To get started, it's recommended to start with
 If you want to use the library directly, it's available at
 [jsr:@brandonhorst/yourturn](https://jsr.io/@brandonhorst/yourturn).
 
+## Server Logging
+
+Server-side logging is centralized in `server/logging.ts` and is only used by
+`server` components.
+
+- `YOURTURN_SERVER_LOG_LEVEL` controls minimum log level. Supported values:
+  `DEBUG`, `INFO`, `WARN`, `ERROR`. Default is `INFO`.
+- `YOURTURN_SERVER_LOG_MODULE` filters logs by module name. Default is `*` (all
+  modules). `*` is the only wildcard supported and can appear anywhere in the
+  filter.
+
+All server logs include ISO-8601 timestamps and use module names such as:
+
+- `server.initialize`
+- `server.controller`
+- `server.socket`
+- `server.sockets`
+- `server.db`
+- `server.gamestate`
+
+Examples:
+
+```sh
+# Show INFO/WARN/ERROR logs only for DB calls.
+YOURTURN_SERVER_LOG_LEVEL=INFO YOURTURN_SERVER_LOG_MODULE="server.db"
+
+# Show DEBUG+ logs for socket-related modules.
+YOURTURN_SERVER_LOG_LEVEL=DEBUG YOURTURN_SERVER_LOG_MODULE="server.socket*"
+```
+
 ## Fetching User Profiles
 
 Use `fetchUserProfile(socket, userId)` from `@brandonhorst/yourturn/hooks` to

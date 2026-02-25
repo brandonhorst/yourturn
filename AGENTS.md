@@ -54,6 +54,8 @@ subscribe to multiple channels:
   `["availablepublicrooms", roomId]`, and `["activepublicusers", userId]`)
 - `server/gamestateservice.ts` - Match state projection and move processing,
   including outcome handling and ranked rating updates
+- `server/logging.ts` - Shared server-side logger with timestamped output, level
+  gating, and module-name wildcard filtering via env vars
 
 ### Client Architecture
 
@@ -63,7 +65,9 @@ Client-side hooks are organized by functionality:
   hooks, including active public matches/users and available room list hooks
 - `client/fetchers.ts` - One-shot socket request helpers, including
   `fetchUserProfile(socket, userId)`
-- `client/socket.ts` - Shared socket connection utilities
+- `client/socket.ts` - Shared socket connection utilities with
+  reconnect-on-close behavior and listener registries that survive socket
+  recreation
 
 ### Game Interface
 
@@ -156,6 +160,10 @@ A single socket supports these channel subscriptions:
 
 Message protocol types are defined in `common/sockettypes.ts`.
 
+Server socket handling logs connection/disconnection events and inbound/outbound
+payloads with `server/logging.ts`, gated by env vars. Client socket logging
+remains in `client/socket.ts`.
+
 `FetchUserProfile` is a one-shot request (not a subscription) that returns a
 single canonical profile snapshot for any requested user ID.
 
@@ -186,6 +194,18 @@ Active public matches channel payloads (`ActivePublicMatchesViewData`) contain
 stored match metadata plus serve-time per-match `publicState` projections
 computed from the latest stored `gameState` via the game's `publicState()`
 method.
+
+### Server Logging
+
+Server components use `server/logging.ts` for all runtime logs.
+
+- `YOURTURN_SERVER_LOG_LEVEL` sets the minimum emitted level
+  (`DEBUG`/`INFO`/`WARN`/`ERROR`, default `INFO`)
+- `YOURTURN_SERVER_LOG_MODULE` filters by module name, with `*` as the only
+  wildcard (default `*`)
+- Log lines are always timestamped (`new Date().toISOString()`)
+- Current module names include `server.initialize`, `server.controller`,
+  `server.socket`, `server.sockets`, `server.db`, and `server.gamestate`
 
 ## Agent Instructions
 
