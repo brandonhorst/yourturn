@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import type {
   AccountUserProfileProps,
-  ActivePublicGamesViewData,
+  ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
-  GameProps,
-  GameViewData,
+  MatchProps,
+  MatchViewData,
   RoomEntry,
   RoomProps,
   Socket,
@@ -16,8 +16,8 @@ import type {
   UserProfileViewData,
 } from "../types.ts";
 
-// Subscribes to a specific game on an already-open socket.
-export function useGameChannel<
+// Subscribes to a specific match on an already-open socket.
+export function useMatchChannel<
   Move,
   PlayerState,
   PublicState,
@@ -25,19 +25,19 @@ export function useGameChannel<
   Rating,
 >(
   socket: Socket,
-  gameId: string,
-  initialGameProps: GameViewData<PlayerState, PublicState, Outcome, Rating>,
-): GameProps<Move, PlayerState, PublicState, Outcome, Rating> {
-  const playerId = initialGameProps.playerId;
-  const players = initialGameProps.players;
+  matchId: string,
+  initialMatchProps: MatchViewData<PlayerState, PublicState, Outcome, Rating>,
+): MatchProps<Move, PlayerState, PublicState, Outcome, Rating> {
+  const playerId = initialMatchProps.playerId;
+  const players = initialMatchProps.players;
   const [playerState, setPlayerState] = useState<PlayerState | undefined>(
-    initialGameProps.playerState,
+    initialMatchProps.playerState,
   );
   const [publicState, setPublicState] = useState<PublicState>(
-    initialGameProps.publicState,
+    initialMatchProps.publicState,
   );
   const [outcome, setOutcome] = useState<Outcome | undefined>(
-    initialGameProps.outcome,
+    initialMatchProps.outcome,
   );
   const outcomeRef = useRef(outcome);
 
@@ -47,7 +47,7 @@ export function useGameChannel<
     const subscriptionId = crypto.randomUUID();
     let didUnsubscribe = false;
 
-    // Sends a game subscription request for this hook instance.
+    // Sends a match subscription request for this hook instance.
     function sendSubscribe() {
       if (outcomeRef.current !== undefined || didUnsubscribe) {
         return;
@@ -60,9 +60,9 @@ export function useGameChannel<
         PlayerState,
         PublicState
       > = {
-        type: "SubscribeGame",
+        type: "SubscribeMatch",
         subscriptionId,
-        gameId,
+        matchId,
       };
       socket.send(JSON.stringify(request));
     }
@@ -105,15 +105,15 @@ export function useGameChannel<
         Outcome
       >;
       switch (response.type) {
-        case "UpdateGameState":
+        case "UpdateMatchState":
           if (response.subscriptionId !== subscriptionId) {
             break;
           }
 
-          setOutcome(response.gameViewData.outcome);
-          setPublicState(response.gameViewData.publicState);
-          setPlayerState(response.gameViewData.playerState);
-          if (response.gameViewData.outcome !== undefined) {
+          setOutcome(response.matchViewData.outcome);
+          setPublicState(response.matchViewData.publicState);
+          setPlayerState(response.matchViewData.playerState);
+          if (response.matchViewData.outcome !== undefined) {
             sendUnsubscribe();
           }
           break;
@@ -135,7 +135,7 @@ export function useGameChannel<
       socket.removeMessageListener(onMessage);
       socket.removeOpenListener(onOpen);
     };
-  }, [gameId, socket]);
+  }, [matchId, socket]);
 
   const send = useCallback(
     (
@@ -161,39 +161,39 @@ export function useGameChannel<
       PublicState
     > = {
       type: "Move",
-      gameId,
+      matchId,
       move,
     };
     send(request);
-  }, [gameId, send]);
+  }, [matchId, send]);
   const perform = playerId == null ? undefined : performCallback;
 
   return {
     players: players,
     publicState: publicState,
-    playerId: initialGameProps.playerId,
+    playerId: initialMatchProps.playerId,
     playerState: playerState,
     perform,
     outcome: outcome,
-  } as GameProps<Move, PlayerState, PublicState, Outcome, Rating>;
+  } as MatchProps<Move, PlayerState, PublicState, Outcome, Rating>;
 }
 
-// Subscribes to the global active public games channel on an open socket.
-export function useActivePublicGamesChannel<Config, Rating>({
+// Subscribes to the global active public matches channel on an open socket.
+export function useActivePublicMatchesChannel<Config, Rating>({
   socket,
-  initialActivePublicGamesProps,
+  initialActivePublicMatchesProps,
 }: {
   socket: Socket;
-  initialActivePublicGamesProps: ActivePublicGamesViewData<Config, Rating>;
-}): ActivePublicGamesViewData<Config, Rating> {
-  const [allActiveGames, setActiveGames] = useState(
-    initialActivePublicGamesProps.allActiveGames,
+  initialActivePublicMatchesProps: ActivePublicMatchesViewData<Config, Rating>;
+}): ActivePublicMatchesViewData<Config, Rating> {
+  const [allActiveMatches, setActiveMatches] = useState(
+    initialActivePublicMatchesProps.allActiveMatches,
   );
 
   useEffect(() => {
     const subscriptionId = crypto.randomUUID();
 
-    // Sends the active public games subscription request for this hook.
+    // Sends the active public matches subscription request for this hook.
     function sendSubscribe() {
       const request: ClientMessage<
         Config,
@@ -202,7 +202,7 @@ export function useActivePublicGamesChannel<Config, Rating>({
         never,
         never
       > = {
-        type: "SubscribeActivePublicGames",
+        type: "SubscribeActivePublicMatches",
         subscriptionId,
       };
       socket.send(JSON.stringify(request));
@@ -222,12 +222,12 @@ export function useActivePublicGamesChannel<Config, Rating>({
         never
       >;
       switch (response.type) {
-        case "UpdateActivePublicGames":
+        case "UpdateActivePublicMatches":
           if (response.subscriptionId !== subscriptionId) {
             break;
           }
 
-          setActiveGames(response.activePublicGamesProps.allActiveGames);
+          setActiveMatches(response.activePublicMatchesProps.allActiveMatches);
           break;
       }
     }
@@ -261,7 +261,7 @@ export function useActivePublicGamesChannel<Config, Rating>({
     };
   }, [socket]);
 
-  return { allActiveGames };
+  return { allActiveMatches };
 }
 
 // Subscribes to the global active public users channel on an open socket.
@@ -554,11 +554,11 @@ export function useUserMatchmakingChannel<Config, Loadout, Rating>({
 }: {
   socket: Socket;
   initialUserMatchmakingProps: UserMatchmakingViewData<Config, Loadout, Rating>;
-  navigate: (gameId: string) => void;
+  navigate: (matchId: string) => void;
   displayError: (message: string) => void;
 }): UserMatchmakingProps<Config, Loadout, Rating> {
-  const [userActiveGames, setUserActiveGames] = useState(
-    initialUserMatchmakingProps.userActiveGames,
+  const [userActiveMatches, setUserActiveMatches] = useState(
+    initialUserMatchmakingProps.userActiveMatches,
   );
   const [roomIds, setRoomIds] = useState(
     initialUserMatchmakingProps.roomIds,
@@ -604,16 +604,16 @@ export function useUserMatchmakingChannel<Config, Loadout, Rating>({
             break;
           }
 
-          setUserActiveGames(response.userMatchmakingProps.userActiveGames);
+          setUserActiveMatches(response.userMatchmakingProps.userActiveMatches);
           setRoomIds(response.userMatchmakingProps.roomIds);
           setQueueEntries(response.userMatchmakingProps.queueEntries);
           break;
-        case "GameAssignment":
+        case "MatchAssignment":
           if (response.subscriptionId !== subscriptionId) {
             break;
           }
 
-          navigate(response.gameId);
+          navigate(response.matchId);
           break;
         case "DisplayError":
           displayError(response.message);
@@ -703,7 +703,7 @@ export function useUserMatchmakingChannel<Config, Loadout, Rating>({
   }, [send]);
 
   return {
-    userActiveGames,
+    userActiveMatches,
     roomIds,
     queueEntries,
     joinQueue,
@@ -724,7 +724,7 @@ export function useRoomChannel<Config, Loadout, Rating>({
   socket: Socket;
   roomId: string;
   initialRoomEntry: RoomEntry<Config, Loadout, Rating>;
-  navigate: (gameId: string) => void;
+  navigate: (matchId: string) => void;
   displayError: (message: string) => void;
 }): RoomProps<Config, Loadout, Rating> {
   const [roomEntry, setRoomEntry] = useState<
@@ -785,12 +785,12 @@ export function useRoomChannel<Config, Loadout, Rating>({
 
           // Keep the last room snapshot in state; room UI teardown is caller-controlled.
           break;
-        case "GameAssignment":
+        case "MatchAssignment":
           if (response.subscriptionId !== subscriptionId) {
             break;
           }
 
-          navigate(response.gameId);
+          navigate(response.matchId);
           break;
         case "DisplayError":
           displayError(response.message);

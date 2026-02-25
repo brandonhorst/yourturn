@@ -1,9 +1,9 @@
 import { ulid } from "@std/ulid";
 import type {
-  ActiveGame,
+  ActiveMatch,
   AvailableRoom,
-  CompletedGameSnapshot,
-  Game,
+  CompletedMatchSnapshot,
+  GameDefinition,
   PlayerSnapshot,
   QueueConfig,
   QueueEntry,
@@ -39,7 +39,7 @@ type RoomMember<Loadout, Rating> = {
   assignmentSubscriptionId?: string;
 };
 
-export type GameStorageData<Config, GameState, Outcome, Rating> = {
+export type MatchStorageData<Config, GameState, Outcome, Rating> = {
   config: Config;
   queueId?: string;
   gameState: GameState;
@@ -48,8 +48,8 @@ export type GameStorageData<Config, GameState, Outcome, Rating> = {
   outcome: Outcome | undefined;
 };
 
-export type GameAssignmentNotification = {
-  gameId: string;
+export type MatchAssignmentNotification = {
+  matchId: string;
   subscriptionId?: string;
 };
 
@@ -66,7 +66,7 @@ export type UserStorageData<Rating> = {
 };
 
 export type UserMatchmakingStorageData<Config, Loadout, Rating> = {
-  activeGames: ActiveGame<Config, Rating>[];
+  activeMatches: ActiveMatch<Config, Rating>[];
   joinedRooms: JoinedRoom<Loadout>[];
   queueEntries: QueueEntry<Loadout>[];
 };
@@ -86,7 +86,7 @@ export function userStorageDataToUserProfileViewData<
 >(
   userId: string,
   userStorageData: UserStorageData<Rating>,
-  completedGames: CompletedGameSnapshot<Config, Outcome, Rating>[],
+  completedMatches: CompletedMatchSnapshot<Config, Outcome, Rating>[],
 ): UserProfileViewData<Config, Outcome, Rating> {
   return {
     userId,
@@ -94,7 +94,7 @@ export function userStorageDataToUserProfileViewData<
     isGuest: userStorageData.isGuest,
     description: userStorageData.description,
     rating: userStorageData.ratings,
-    completedGames,
+    completedMatches,
   };
 }
 
@@ -128,11 +128,11 @@ function getAvailablePublicRoomsKey() {
 function getAvailablePublicRoomKey(roomId: string) {
   return ["availablepublicrooms", roomId];
 }
-function getActivePublicGamesKey() {
-  return ["activepublicgames"];
+function getActivePublicMatchesKey() {
+  return ["activepublicmatches"];
 }
-function getActivePublicGameKey(gameId: string) {
-  return ["activepublicgames", gameId];
+function getActivePublicMatchKey(matchId: string) {
+  return ["activepublicmatches", matchId];
 }
 function getActivePublicUsersKey() {
   return ["activepublicusers"];
@@ -140,17 +140,17 @@ function getActivePublicUsersKey() {
 function getActivePublicUserKey(userId: string) {
   return ["activepublicusers", userId];
 }
-function getGameKey(gameId: string) {
-  return ["games", gameId];
+function getMatchKey(matchId: string) {
+  return ["matches", matchId];
 }
 function getUserKey(userId: string) {
   return ["users", userId];
 }
-function getUserCompletedGamesKey(userId: string) {
-  return ["completedgamesbyuser", userId];
+function getUserCompletedMatchesKey(userId: string) {
+  return ["completedmatchesbyuser", userId];
 }
-function getUserCompletedGameKey(userId: string, completedGameId: string) {
-  return ["completedgamesbyuser", userId, completedGameId];
+function getUserCompletedMatchKey(userId: string, completedMatchId: string) {
+  return ["completedmatchesbyuser", userId, completedMatchId];
 }
 function getUserMatchmakingKey(userId: string) {
   return ["usermatchmakings", userId];
@@ -164,8 +164,8 @@ function getTokenKey(token: string) {
 
 const PUBLIC_LIST_READ_LIMIT = 500;
 const PUBLIC_LIST_BATCH_SIZE = 500;
-const USER_COMPLETED_GAMES_READ_LIMIT = 500;
-const USER_COMPLETED_GAMES_BATCH_SIZE = 500;
+const USER_COMPLETED_MATCHES_READ_LIMIT = 500;
+const USER_COMPLETED_MATCHES_BATCH_SIZE = 500;
 const ACTIVE_PUBLIC_USER_TTL_MS = 10 * 60 * 1000;
 const U64_MAX = (1n << 64n) - 1n;
 
@@ -180,7 +180,7 @@ export class DB<
   Loadout,
 > {
   private kv: Deno.Kv;
-  private game: Game<
+  private game: GameDefinition<
     Config,
     GameState,
     Move,
@@ -193,7 +193,7 @@ export class DB<
 
   constructor(
     kv: Deno.Kv,
-    game: Game<
+    game: GameDefinition<
       Config,
       GameState,
       Move,
@@ -273,15 +273,15 @@ export class DB<
   }
 
   /**
-   * Mutates the active public games root count.
+   * Mutates the active public matches root count.
    */
-  private mutateActivePublicGamesRootCountOnOperation(
+  private mutateActivePublicMatchesRootCountOnOperation(
     transaction: Deno.AtomicOperation,
     delta: -1 | 0 | 1,
   ): void {
     this.mutateIndexedListRootCountOnOperation(
       transaction,
-      getActivePublicGamesKey(),
+      getActivePublicMatchesKey(),
       delta,
     );
   }
@@ -317,14 +317,14 @@ export class DB<
   /**
    * Mutates one user's completed-games history root ticker.
    */
-  private mutateUserCompletedGamesRootCountOnOperation(
+  private mutateUserCompletedMatchesRootCountOnOperation(
     transaction: Deno.AtomicOperation,
     userId: string,
     delta: -1 | 0 | 1,
   ): void {
     this.mutateIndexedListRootCountOnOperation(
       transaction,
-      getUserCompletedGamesKey(userId),
+      getUserCompletedMatchesKey(userId),
       delta,
     );
   }
@@ -336,7 +336,7 @@ export class DB<
     playerSnapshot: PlayerSnapshot<Rating>,
     loadout: Loadout,
     assignmentSubscriptionId?: string,
-  ): Promise<GameAssignmentNotification[]> {
+  ): Promise<MatchAssignmentNotification[]> {
     const queueConfig = this.getQueueConfig(queueId);
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entryKey = getQueueEntryKey(queueId, entryId);
@@ -634,19 +634,19 @@ export class DB<
 
   // Creates a new game record and updates global and user-specific active game lists
   // by mutating the provided transaction.
-  private async createNewGameOnOperation(
+  private async createNewMatchOnOperation(
     transaction: Deno.AtomicOperation,
     options: {
       config: Config;
-      gameId: string;
+      matchId: string;
       loadouts: Loadout[];
       playerSnapshots: PlayerSnapshot<Rating>[];
       queueId?: string;
       userIds: string[];
     },
   ): Promise<void> {
-    const activePublicGameKey = getActivePublicGameKey(options.gameId);
-    const gameKey = getGameKey(options.gameId);
+    const activePublicMatchKey = getActivePublicMatchKey(options.matchId);
+    const gameKey = getMatchKey(options.matchId);
     const timestamp = new Date();
     const userMatchmakingKeys = options.userIds.map((userId) =>
       getUserMatchmakingKey(userId)
@@ -672,18 +672,22 @@ export class DB<
       loadouts: options.loadouts,
     };
     const gameState = this.game.setup(setupObject);
-    const gameStorageData: GameStorageData<Config, GameState, Outcome, Rating> =
-      {
-        config: options.config,
-        queueId: options.queueId,
-        gameState,
-        userIds: options.userIds,
-        players: options.playerSnapshots,
-        outcome: undefined,
-      };
+    const gameStorageData: MatchStorageData<
+      Config,
+      GameState,
+      Outcome,
+      Rating
+    > = {
+      config: options.config,
+      queueId: options.queueId,
+      gameState,
+      userIds: options.userIds,
+      players: options.playerSnapshots,
+      outcome: undefined,
+    };
 
-    const activePublicGame: ActiveGame<Config, Rating> = {
-      gameId: options.gameId,
+    const activePublicMatch: ActiveMatch<Config, Rating> = {
+      matchId: options.matchId,
       players: options.playerSnapshots,
       config: options.config,
       created: timestamp,
@@ -691,16 +695,16 @@ export class DB<
 
     // Mutate the provided transaction with game + active list index + user updates.
     transaction
-      .check({ key: activePublicGameKey, versionstamp: null })
-      .set(activePublicGameKey, activePublicGame)
+      .check({ key: activePublicMatchKey, versionstamp: null })
+      .set(activePublicMatchKey, activePublicMatch)
       .check({ key: gameKey, versionstamp: null })
       .set(gameKey, gameStorageData);
-    this.mutateActivePublicGamesRootCountOnOperation(transaction, 1);
+    this.mutateActivePublicMatchesRootCountOnOperation(transaction, 1);
 
     for (const userMatchmakingEntry of userMatchmakingEntries) {
-      const userActiveGamesNext = [
-        ...userMatchmakingEntry.value!.activeGames ?? [],
-        activePublicGame,
+      const userActiveMatchesNext = [
+        ...userMatchmakingEntry.value!.activeMatches ?? [],
+        activePublicMatch,
       ];
 
       const updatedUserMatchmaking: UserMatchmakingStorageData<
@@ -709,7 +713,7 @@ export class DB<
         Rating
       > = {
         ...userMatchmakingEntry.value!,
-        activeGames: userActiveGamesNext,
+        activeMatches: userActiveMatchesNext,
       };
 
       transaction
@@ -773,9 +777,9 @@ export class DB<
 
   public async commitRoom(
     roomId: string,
-  ): Promise<GameAssignmentNotification[]> {
+  ): Promise<MatchAssignmentNotification[]> {
     const roomKey = getRoomKey(roomId);
-    let gameAssignments: GameAssignmentNotification[] = [];
+    let matchAssignments: MatchAssignmentNotification[] = [];
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const roomEntry = await this.kv.get<
@@ -799,16 +803,16 @@ export class DB<
       );
 
       const config = roomEntry.value.config;
-      const gameId = ulid();
-      gameAssignments = assignedMembers.map((member) => ({
-        gameId,
+      const matchId = ulid();
+      matchAssignments = assignedMembers.map((member) => ({
+        matchId,
         subscriptionId: member.assignmentSubscriptionId,
       }));
-      await this.createNewGameOnOperation(
+      await this.createNewMatchOnOperation(
         transaction,
         {
           config,
-          gameId,
+          matchId,
           loadouts,
           playerSnapshots,
           userIds,
@@ -856,15 +860,15 @@ export class DB<
       }
     });
 
-    return gameAssignments;
+    return matchAssignments;
   }
 
   private async maybeGraduateFromQueue(
     queueId: string,
     queueConfig: QueueConfig<Config>,
-  ): Promise<GameAssignmentNotification[]> {
+  ): Promise<MatchAssignmentNotification[]> {
     const queuePrefix = getQueuePrefix(queueId);
-    let gameAssignments: GameAssignmentNotification[] = [];
+    let matchAssignments: MatchAssignmentNotification[] = [];
 
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       // Get desired queue entries, if they exist
@@ -876,11 +880,11 @@ export class DB<
       );
       // If the queue doesn't have enough entrants, stop
       if (queueEntries.length < queueConfig.numPlayers) {
-        gameAssignments = [];
+        matchAssignments = [];
         return; // Nothing to do
       }
 
-      // Initialize Game Storage Data
+      // Initialize Match Storage Data
       const userIds: string[] = [];
 
       for (let i = 0; i < queueConfig.numPlayers; i++) {
@@ -892,16 +896,16 @@ export class DB<
         loadouts[i] = queueEntries[i].value.loadout;
         playerSnapshots[i] = queueEntries[i].value.playerSnapshot;
       }
-      const gameId = ulid();
-      gameAssignments = queueEntries.map((entry) => ({
-        gameId,
+      const matchId = ulid();
+      matchAssignments = queueEntries.map((entry) => ({
+        matchId,
         subscriptionId: entry.value.assignmentSubscriptionId,
       }));
-      await this.createNewGameOnOperation(
+      await this.createNewMatchOnOperation(
         transaction,
         {
           config: queueConfig.config,
-          gameId,
+          matchId,
           loadouts,
           playerSnapshots,
           queueId,
@@ -948,29 +952,29 @@ export class DB<
       }
     });
 
-    return gameAssignments;
+    return matchAssignments;
   }
 
   /**
-   * Updates game storage data and persists per-user completion history snapshots
-   * when a game first reaches an outcome.
-   * @param gameId The ID of the game to update
-   * @param gameData The updated game data
+   * Updates match storage data and persists per-user completion history
+   * snapshots when a match first reaches an outcome.
+   * @param matchId The ID of the match to update
+   * @param gameData The updated match data
    */
-  public async updateGameStorageData(
-    gameId: string,
-    gameData: GameStorageData<Config, GameState, Outcome, Rating>,
+  public async updateMatchStorageData(
+    matchId: string,
+    gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
   ): Promise<void> {
-    const gameKey = getGameKey(gameId);
-    const activePublicGameKey = getActivePublicGameKey(gameId);
+    const gameKey = getMatchKey(matchId);
+    const activePublicMatchKey = getActivePublicMatchKey(matchId);
 
     const entry = await this.kv.get<
-      GameStorageData<Config, GameState, Outcome, Rating>
+      MatchStorageData<Config, GameState, Outcome, Rating>
     >(
       gameKey,
     );
     if (entry.value == null) {
-      throw new Error(`Appending moves to unstored ${gameId}`);
+      throw new Error(`Appending moves to unstored ${matchId}`);
     }
 
     const outcome = gameData.outcome;
@@ -980,22 +984,22 @@ export class DB<
       .set(gameKey, gameData);
 
     if (outcome != null) {
-      // If the game is over, remove it from the active public game index.
-      const activePublicGameEntry = await this.kv.get<
-        ActiveGame<Config, Rating>
+      // If the match is over, remove it from the active public match index.
+      const activePublicMatchEntry = await this.kv.get<
+        ActiveMatch<Config, Rating>
       >(
-        activePublicGameKey,
+        activePublicMatchKey,
       );
-      if (activePublicGameEntry.value != null) {
+      if (activePublicMatchEntry.value != null) {
         transaction = transaction
-          .check(activePublicGameEntry)
-          .delete(activePublicGameKey);
-        this.mutateActivePublicGamesRootCountOnOperation(transaction, -1);
+          .check(activePublicMatchEntry)
+          .delete(activePublicMatchKey);
+        this.mutateActivePublicMatchesRootCountOnOperation(transaction, -1);
       }
 
-      const completedGameEntryId = ulid();
-      const completedGame: CompletedGameSnapshot<Config, Outcome, Rating> = {
-        gameId,
+      const completedMatchEntryId = ulid();
+      const completedMatch: CompletedMatchSnapshot<Config, Outcome, Rating> = {
+        matchId,
         queueId: gameData.queueId,
         players: gameData.players,
         config: gameData.config,
@@ -1006,14 +1010,14 @@ export class DB<
       // Persist one denormalized completion snapshot per player profile feed.
       const userIds = [...new Set(gameData.userIds)];
       for (const userId of userIds) {
-        const completedGameKey = getUserCompletedGameKey(
+        const completedMatchKey = getUserCompletedMatchKey(
           userId,
-          completedGameEntryId,
+          completedMatchEntryId,
         );
         transaction = transaction
-          .check({ key: completedGameKey, versionstamp: null })
-          .set(completedGameKey, completedGame);
-        this.mutateUserCompletedGamesRootCountOnOperation(
+          .check({ key: completedMatchKey, versionstamp: null })
+          .set(completedMatchKey, completedMatch);
+        this.mutateUserCompletedMatchesRootCountOnOperation(
           transaction,
           userId,
           1,
@@ -1024,21 +1028,21 @@ export class DB<
     const res = await transaction.commit();
 
     if (!res.ok) {
-      throw new Error(`Failed to update game ${gameId}`);
+      throw new Error(`Failed to update match ${matchId}`);
     }
   }
 
-  public async getGameStorageData(
-    gameId: string,
-  ): Promise<GameStorageData<Config, GameState, Outcome, Rating>> {
-    const gameKey = getGameKey(gameId);
+  public async getMatchStorageData(
+    matchId: string,
+  ): Promise<MatchStorageData<Config, GameState, Outcome, Rating>> {
+    const gameKey = getMatchKey(matchId);
     const entry = await this.kv.get<
-      GameStorageData<Config, GameState, Outcome, Rating>
+      MatchStorageData<Config, GameState, Outcome, Rating>
     >(
       gameKey,
     );
     if (entry.value == null) {
-      throw new Error(`Game ${gameId} not found`);
+      throw new Error(`Match ${matchId} not found`);
     } else {
       return entry.value;
     }
@@ -1154,24 +1158,24 @@ export class DB<
     );
   }
 
-  // Returns all currently active public games.
-  public async getAllActivePublicGames(): Promise<
-    ActiveGame<Config, Rating>[]
+  // Returns all currently active public matches.
+  public async getAllActivePublicMatches(): Promise<
+    ActiveMatch<Config, Rating>[]
   > {
-    const activePublicGameEntries = await this.listSingleBatch<
-      ActiveGame<Config, Rating>
+    const activePublicMatchEntries = await this.listSingleBatch<
+      ActiveMatch<Config, Rating>
     >(
-      getActivePublicGamesKey(),
+      getActivePublicMatchesKey(),
     );
-    return activePublicGameEntries.map((entry) => entry.value);
+    return activePublicMatchEntries.map((entry) => entry.value);
   }
 
-  public watchForGameChanges(
-    gameId: string,
-  ): ReadableStream<GameStorageData<Config, GameState, Outcome, Rating>> {
-    const gameKey = getGameKey(gameId);
+  public watchForMatchChanges(
+    matchId: string,
+  ): ReadableStream<MatchStorageData<Config, GameState, Outcome, Rating>> {
+    const gameKey = getMatchKey(matchId);
     const stream = this.kv.watch<
-      GameStorageData<Config, GameState, Outcome, Rating>[]
+      MatchStorageData<Config, GameState, Outcome, Rating>[]
     >(
       [gameKey],
     );
@@ -1187,16 +1191,16 @@ export class DB<
     );
   }
 
-  // Watches the active public games root key and emits full indexed snapshots.
-  public watchForActivePublicGamesListChanges(): ReadableStream<
-    ActiveGame<Config, Rating>[]
+  // Watches the active public matches root key and emits full indexed snapshots.
+  public watchForActivePublicMatchesListChanges(): ReadableStream<
+    ActiveMatch<Config, Rating>[]
   > {
-    const activePublicGamesKey = getActivePublicGamesKey();
-    const stream = this.kv.watch<[Deno.KvU64]>([activePublicGamesKey]);
+    const activePublicMatchesKey = getActivePublicMatchesKey();
+    const stream = this.kv.watch<[Deno.KvU64]>([activePublicMatchesKey]);
     return stream.pipeThrough(
       new TransformStream({
         transform: async (_events, controller) => {
-          const data = await this.getAllActivePublicGames();
+          const data = await this.getAllActivePublicMatches();
           controller.enqueue(data);
         },
       }),
@@ -1342,23 +1346,23 @@ export class DB<
   /**
    * Fetches one user's completed games in reverse chronological order.
    */
-  private async getUserCompletedGames(
+  private async getUserCompletedMatches(
     userId: string,
-  ): Promise<CompletedGameSnapshot<Config, Outcome, Rating>[]> {
-    const completedGamesKey = getUserCompletedGamesKey(userId);
-    const completedGameEntries = await Array.fromAsync(
-      this.kv.list<CompletedGameSnapshot<Config, Outcome, Rating>>(
-        { prefix: completedGamesKey },
+  ): Promise<CompletedMatchSnapshot<Config, Outcome, Rating>[]> {
+    const completedMatchesKey = getUserCompletedMatchesKey(userId);
+    const completedMatchEntries = await Array.fromAsync(
+      this.kv.list<CompletedMatchSnapshot<Config, Outcome, Rating>>(
+        { prefix: completedMatchesKey },
         {
-          limit: USER_COMPLETED_GAMES_READ_LIMIT,
-          batchSize: USER_COMPLETED_GAMES_BATCH_SIZE,
+          limit: USER_COMPLETED_MATCHES_READ_LIMIT,
+          batchSize: USER_COMPLETED_MATCHES_BATCH_SIZE,
           reverse: true,
         },
       ),
     );
 
-    return completedGameEntries
-      .filter((entry) => entry.key.length === completedGamesKey.length + 1)
+    return completedMatchEntries
+      .filter((entry) => entry.key.length === completedMatchesKey.length + 1)
       .map((entry) => entry.value);
   }
 
@@ -1372,11 +1376,11 @@ export class DB<
     if (userStorageData == null) {
       return null;
     }
-    const completedGames = await this.getUserCompletedGames(userId);
+    const completedMatches = await this.getUserCompletedMatches(userId);
     return userStorageDataToUserProfileViewData(
       userId,
       userStorageData,
-      completedGames,
+      completedMatches,
     );
   }
 
@@ -1388,10 +1392,10 @@ export class DB<
     userId: string,
   ): ReadableStream<UserProfileViewData<Config, Outcome, Rating>> {
     const userKey = getUserKey(userId);
-    const completedGamesKey = getUserCompletedGamesKey(userId);
+    const completedMatchesKey = getUserCompletedMatchesKey(userId);
     const stream = this.kv.watch<[UserStorageData<Rating>, Deno.KvU64]>([
       userKey,
-      completedGamesKey,
+      completedMatchesKey,
     ]);
     return stream.pipeThrough(
       new TransformStream({

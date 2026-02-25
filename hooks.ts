@@ -1,9 +1,9 @@
 export {
   useAccountUserProfileChannel,
-  useActivePublicGamesChannel,
+  useActivePublicMatchesChannel,
   useActivePublicUsersChannel,
   useAvailablePublicRoomsChannel,
-  useGameChannel,
+  useMatchChannel,
   useRoomChannel,
   useUserMatchmakingChannel,
 } from "./client/channels.ts";

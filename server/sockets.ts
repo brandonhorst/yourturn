@@ -1,17 +1,17 @@
 import type {
   DB,
-  GameAssignmentNotification,
-  GameStorageData,
+  MatchAssignmentNotification,
+  MatchStorageData,
   RoomWatchEvent,
   UserMatchmakingStorageData,
 } from "./db.ts";
 import type {
-  ActiveGame,
-  ActivePublicGamesViewData,
+  ActiveMatch,
+  ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
   AvailableRoom,
-  GameViewData,
+  MatchViewData,
   PlayerSnapshot,
   RoomEntry,
   UserMatchmakingViewData,
@@ -60,9 +60,9 @@ type AccountUserProfileConnectionState<Config, Outcome, Rating> = {
 };
 
 /**
- * One websocket subscriber within a game channel.
+ * One websocket subscriber within a match channel.
  */
-type GameSocketSubscription = {
+type MatchSocketSubscription = {
   subscriptionId: string;
   socket: WebSocket;
   playerId: number | undefined;
@@ -71,10 +71,10 @@ type GameSocketSubscription = {
 /**
  * Shared stream and subscriber state for a single game.
  */
-type GameConnection<Config, GameState, Outcome, Rating> = {
-  gameSubscriptions: Map<string, GameSocketSubscription>;
+type MatchConnection<Config, GameState, Outcome, Rating> = {
+  matchSubscriptions: Map<string, MatchSocketSubscription>;
   changesReader: ReadableStreamDefaultReader<
-    GameStorageData<Config, GameState, Outcome, Rating>
+    MatchStorageData<Config, GameState, Outcome, Rating>
   >;
 };
 
@@ -82,14 +82,14 @@ type SocketSubscription =
   | { type: "AccountUserProfile"; userId: string }
   | { type: "UserMatchmaking" }
   | { type: "Room"; roomId: string }
-  | { type: "ActivePublicGames" }
+  | { type: "ActivePublicMatches" }
   | { type: "ActivePublicUsers" }
   | { type: "AvailablePublicRooms" }
-  | { type: "Game"; gameId: string };
+  | { type: "Match"; matchId: string };
 
 /**
  * Combined state for a websocket across account profile, UserMatchmaking,
- * room, and game subscriptions.
+ * room, and match subscriptions.
  */
 type SocketConnectionState<Config, Loadout, Outcome, Rating> = {
   subscriptions: Map<string, SocketSubscription>;
@@ -142,9 +142,9 @@ function closeReader<T>(reader: ReadableStreamDefaultReader<T>): void {
 }
 
 /**
- * Creates a strongly-typed game view payload for one subscriber update.
+ * Creates a strongly-typed match view payload for one subscriber update.
  */
-function buildGameViewData<PlayerState, PublicState, Outcome, Rating>(
+function buildMatchViewData<PlayerState, PublicState, Outcome, Rating>(
   players: PlayerSnapshot<Rating>[],
   playerId: number | undefined,
   gameStateUpdate: {
@@ -152,7 +152,7 @@ function buildGameViewData<PlayerState, PublicState, Outcome, Rating>(
     publicState: PublicState;
     outcome: Outcome | undefined;
   },
-): GameViewData<PlayerState, PublicState, Outcome, Rating> {
+): MatchViewData<PlayerState, PublicState, Outcome, Rating> {
   if (playerId == null) {
     if (gameStateUpdate.outcome === undefined) {
       return {
@@ -222,12 +222,12 @@ export class SocketStore<
     Rating,
     Loadout
   >;
-  private activePublicGamesSubscriptions: Map<string, WebSocket> = new Map();
+  private activePublicMatchesSubscriptions: Map<string, WebSocket> = new Map();
   private activePublicUsersSubscriptions: Map<string, WebSocket> = new Map();
   private availablePublicRoomsSubscriptions: Map<string, WebSocket> = new Map();
-  private gameConnections: Map<
+  private matchConnections: Map<
     string,
-    GameConnection<Config, GameState, Outcome, Rating>
+    MatchConnection<Config, GameState, Outcome, Rating>
   > = new Map();
 
   constructor(
@@ -241,17 +241,17 @@ export class SocketStore<
       Rating,
       Loadout
     >,
-    activeGamesStream: ReadableStream<ActiveGame<Config, Rating>[]>,
+    activeMatchesStream: ReadableStream<ActiveMatch<Config, Rating>[]>,
     activeUsersStream: ReadableStream<PlayerSnapshot<Rating>[]>,
     availableRoomsStream: ReadableStream<AvailableRoom<Config, Rating>[]>,
   ) {
-    this.streamActivePublicGamesToSockets(activeGamesStream);
+    this.streamActivePublicMatchesToSockets(activeMatchesStream);
     this.streamActivePublicUsersToSockets(activeUsersStream);
     this.streamAvailablePublicRoomsToSockets(availableRoomsStream);
   }
 
   /**
-   * Registers game-derived state helpers shared by game subscriptions.
+   * Registers game-derived state helpers shared by match subscriptions.
    */
   setGameStateService(
     gameStateService: GameStateService<
@@ -367,9 +367,9 @@ export class SocketStore<
   }
 
   /**
-   * Subscribes one logical active public games channel instance.
+   * Subscribes one logical active public matches channel instance.
    */
-  async subscribeActivePublicGames(
+  async subscribeActivePublicMatches(
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
@@ -377,10 +377,10 @@ export class SocketStore<
 
     const connectionState = this.getOrCreateSocketConnection(socket);
     connectionState.subscriptions.set(subscriptionId, {
-      type: "ActivePublicGames",
+      type: "ActivePublicMatches",
     });
-    this.activePublicGamesSubscriptions.set(subscriptionId, socket);
-    await this.sendActivePublicGamesSnapshot(socket, subscriptionId);
+    this.activePublicMatchesSubscriptions.set(subscriptionId, socket);
+    await this.sendActivePublicMatchesSnapshot(socket, subscriptionId);
   }
 
   /**
@@ -522,8 +522,8 @@ export class SocketStore<
           subscription.roomId,
         );
         break;
-      case "ActivePublicGames":
-        this.activePublicGamesSubscriptions.delete(subscriptionId);
+      case "ActivePublicMatches":
+        this.activePublicMatchesSubscriptions.delete(subscriptionId);
         break;
       case "ActivePublicUsers":
         this.activePublicUsersSubscriptions.delete(subscriptionId);
@@ -531,8 +531,8 @@ export class SocketStore<
       case "AvailablePublicRooms":
         this.availablePublicRoomsSubscriptions.delete(subscriptionId);
         break;
-      case "Game":
-        this.unsubscribeGameSubscription(subscriptionId, subscription.gameId);
+      case "Match":
+        this.unsubscribeMatchSubscription(subscriptionId, subscription.matchId);
         break;
     }
 
@@ -556,7 +556,7 @@ export class SocketStore<
   }
 
   /**
-   * Adds a user to a queue and dispatches any immediate game assignments.
+   * Adds a user to a queue and dispatches any immediate match assignments.
    */
   async joinQueue(
     socket: WebSocket,
@@ -575,7 +575,7 @@ export class SocketStore<
     }
 
     const entryId = ulid();
-    const gameAssignments = await this.db.addToQueue(
+    const matchAssignments = await this.db.addToQueue(
       queueId,
       entryId,
       userId,
@@ -584,7 +584,7 @@ export class SocketStore<
       assignmentSubscriptionId,
     );
 
-    if (gameAssignments.length === 0) {
+    if (matchAssignments.length === 0) {
       userMatchmakingState.queueSubscriptions.set(queueId, {
         queueId,
         entryId,
@@ -593,7 +593,7 @@ export class SocketStore<
       userMatchmakingState.queueSubscriptions.delete(queueId);
     }
 
-    this.sendGameAssignmentsToStoredSubscriptions(gameAssignments);
+    this.sendMatchAssignmentsToStoredSubscriptions(matchAssignments);
   }
 
   /**
@@ -658,7 +658,7 @@ export class SocketStore<
   }
 
   /**
-   * Commits one room to a game when the user is an active member.
+   * Commits one room to a match when the user is an active member.
    */
   async commitRoom(roomId: string, userId: string): Promise<void> {
     const room = await this.db.getRoom(roomId);
@@ -673,8 +673,8 @@ export class SocketStore<
       throw new Error(`User ${userId} is not in room ${roomId}`);
     }
 
-    const gameAssignments = await this.db.commitRoom(roomId);
-    this.sendGameAssignmentsToStoredSubscriptions(gameAssignments);
+    const matchAssignments = await this.db.commitRoom(roomId);
+    this.sendMatchAssignmentsToStoredSubscriptions(matchAssignments);
   }
 
   /**
@@ -702,12 +702,12 @@ export class SocketStore<
   }
 
   /**
-   * Subscribes one logical game channel instance on a websocket.
+   * Subscribes one logical match channel instance on a websocket.
    */
-  async subscribeGame(
+  async subscribeMatch(
     socket: WebSocket,
     subscriptionId: string,
-    gameId: string,
+    matchId: string,
     playerId?: number,
   ): Promise<void> {
     await this.unsubscribe(socket, subscriptionId);
@@ -715,26 +715,26 @@ export class SocketStore<
     const gameStateService = this.requireGameStateService();
     const connectionState = this.getOrCreateSocketConnection(socket);
 
-    if (!this.gameConnections.has(gameId)) {
-      this.createGameConnection(gameId);
+    if (!this.matchConnections.has(matchId)) {
+      this.createMatchConnection(matchId);
     }
 
-    const gameConnection = this.gameConnections.get(gameId);
-    if (gameConnection == null) {
-      throw new Error(`Game connection ${gameId} not found`);
+    const matchConnection = this.matchConnections.get(matchId);
+    if (matchConnection == null) {
+      throw new Error(`Match connection ${matchId} not found`);
     }
 
-    gameConnection.gameSubscriptions.set(subscriptionId, {
+    matchConnection.matchSubscriptions.set(subscriptionId, {
       subscriptionId,
       socket,
       playerId,
     });
     connectionState.subscriptions.set(subscriptionId, {
-      type: "Game",
-      gameId,
+      type: "Match",
+      matchId,
     });
 
-    const gameData = await this.db.getGameStorageData(gameId);
+    const gameData = await this.db.getMatchStorageData(matchId);
     const gameStateUpdate = gameStateService.buildGameStateUpdate(
       gameData,
       playerId,
@@ -748,9 +748,9 @@ export class SocketStore<
       PublicState,
       Outcome
     >(socket, {
-      type: "UpdateGameState",
+      type: "UpdateMatchState",
       subscriptionId,
-      gameViewData: buildGameViewData(
+      matchViewData: buildMatchViewData(
         gameData.players,
         playerId,
         gameStateUpdate,
@@ -862,25 +862,27 @@ export class SocketStore<
   }
 
   /**
-   * Removes one game subscription from its game stream.
+   * Removes one match subscription from its match stream.
    */
-  private unsubscribeGameSubscription(
+  private unsubscribeMatchSubscription(
     subscriptionId: string,
-    gameId: string,
+    matchId: string,
   ): void {
-    const gameConnection = this.gameConnections.get(gameId);
-    if (gameConnection == null) {
+    const matchConnection = this.matchConnections.get(matchId);
+    if (matchConnection == null) {
       return;
     }
 
-    const wasRemoved = gameConnection.gameSubscriptions.delete(subscriptionId);
+    const wasRemoved = matchConnection.matchSubscriptions.delete(
+      subscriptionId,
+    );
     if (!wasRemoved) {
       return;
     }
 
-    if (gameConnection.gameSubscriptions.size === 0) {
-      closeReader(gameConnection.changesReader);
-      this.gameConnections.delete(gameId);
+    if (matchConnection.matchSubscriptions.size === 0) {
+      closeReader(matchConnection.changesReader);
+      this.matchConnections.delete(matchId);
     }
   }
 
@@ -1016,7 +1018,7 @@ export class SocketStore<
       Loadout,
       Rating
     > = {
-      userActiveGames: userData.activeGames,
+      userActiveMatches: userData.activeMatches,
       roomIds: userData.joinedRooms.map((joinedRoom) => joinedRoom.roomId),
       queueEntries: userData.queueEntries,
     };
@@ -1122,30 +1124,30 @@ export class SocketStore<
   }
 
   /**
-   * Sends game assignment messages for each stored assignment target.
+   * Sends match assignment messages for each stored assignment target.
    */
-  private sendGameAssignmentsToStoredSubscriptions(
-    assignments: GameAssignmentNotification[],
+  private sendMatchAssignmentsToStoredSubscriptions(
+    assignments: MatchAssignmentNotification[],
   ): void {
     for (const assignment of assignments) {
       if (assignment.subscriptionId == null) {
         continue;
       }
 
-      this.sendGameAssignmentToMatchingSubscriptions(
+      this.sendMatchAssignmentToMatchingSubscriptions(
         assignment.subscriptionId,
-        assignment.gameId,
+        assignment.matchId,
       );
     }
   }
 
   /**
-   * Sends one game assignment message to sockets currently holding the
+   * Sends one match assignment message to sockets currently holding the
    * referenced subscription ID.
    */
-  private sendGameAssignmentToMatchingSubscriptions(
+  private sendMatchAssignmentToMatchingSubscriptions(
     subscriptionId: string,
-    gameId: string,
+    matchId: string,
   ): void {
     for (const [socket, connectionState] of this.sockets.entries()) {
       if (!connectionState.subscriptions.has(subscriptionId)) {
@@ -1153,9 +1155,9 @@ export class SocketStore<
       }
 
       sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
-        type: "GameAssignment",
+        type: "MatchAssignment",
         subscriptionId,
-        gameId,
+        matchId,
       });
     }
   }
@@ -1208,57 +1210,64 @@ export class SocketStore<
   }
 
   /**
-   * Sends the latest active public games snapshot to one subscription.
+   * Sends the latest active public matches snapshot to one subscription.
    */
-  private async sendActivePublicGamesSnapshot(
+  private async sendActivePublicMatchesSnapshot(
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
-    const allActiveGames = await this.db.getAllActivePublicGames();
-    this.sendActivePublicGamesUpdate(socket, subscriptionId, allActiveGames);
+    const allActiveMatches = await this.db.getAllActivePublicMatches();
+    this.sendActivePublicMatchesUpdate(
+      socket,
+      subscriptionId,
+      allActiveMatches,
+    );
   }
 
   /**
-   * Sends one active public games update payload to one subscription.
+   * Sends one active public matches update payload to one subscription.
    */
-  private sendActivePublicGamesUpdate(
+  private sendActivePublicMatchesUpdate(
     socket: WebSocket,
     subscriptionId: string,
-    allActiveGames: ActiveGame<Config, Rating>[],
+    allActiveMatches: ActiveMatch<Config, Rating>[],
   ): void {
-    const activePublicGamesProps: ActivePublicGamesViewData<Config, Rating> = {
-      allActiveGames,
+    const activePublicMatchesProps: ActivePublicMatchesViewData<
+      Config,
+      Rating
+    > = {
+      allActiveMatches,
     };
     sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
-      type: "UpdateActivePublicGames",
+      type: "UpdateActivePublicMatches",
       subscriptionId,
-      activePublicGamesProps,
+      activePublicMatchesProps,
     });
   }
 
   /**
-   * Broadcasts active game list updates to all active public game subscriptions.
+   * Broadcasts active match list updates to all active public match subscriptions.
    */
-  private streamActivePublicGamesToSockets(
-    activeGamesStream: ReadableStream<ActiveGame<Config, Rating>[]>,
+  private streamActivePublicMatchesToSockets(
+    activeMatchesStream: ReadableStream<ActiveMatch<Config, Rating>[]>,
   ): void {
-    activeGamesStream.pipeTo(
+    activeMatchesStream.pipeTo(
       new WritableStream({
-        write: (allActiveGames: ActiveGame<Config, Rating>[]) => {
+        write: (allActiveMatches: ActiveMatch<Config, Rating>[]) => {
           for (
             const [subscriptionId, socket] of this
-              .activePublicGamesSubscriptions.entries()
+              .activePublicMatchesSubscriptions.entries()
           ) {
-            this.sendActivePublicGamesUpdate(
+            this.sendActivePublicMatchesUpdate(
               socket,
               subscriptionId,
-              allActiveGames,
+              allActiveMatches,
             );
           }
         },
       }),
     ).catch((err) => {
-      console.error("Failed to broadcast active game updates", err);
+      console.error("Failed to broadcast active match updates", err);
     });
   }
 
@@ -1479,28 +1488,28 @@ export class SocketStore<
   }
 
   /**
-   * Creates and registers one game connection stream.
+   * Creates and registers one match connection stream.
    */
-  private createGameConnection(
-    gameId: string,
+  private createMatchConnection(
+    matchId: string,
   ): void {
-    const changesReader = this.db.watchForGameChanges(gameId).getReader();
+    const changesReader = this.db.watchForMatchChanges(matchId).getReader();
 
-    this.gameConnections.set(gameId, {
-      gameSubscriptions: new Map(),
+    this.matchConnections.set(matchId, {
+      matchSubscriptions: new Map(),
       changesReader,
     });
 
-    void this.streamGameChangesToSockets(gameId, changesReader);
+    void this.streamMatchChangesToSockets(matchId, changesReader);
   }
 
   /**
-   * Streams one game channel's updates to all subscribed sockets.
+   * Streams one match channel's updates to all subscribed sockets.
    */
-  private async streamGameChangesToSockets(
-    gameId: string,
+  private async streamMatchChangesToSockets(
+    matchId: string,
     changesReader: ReadableStreamDefaultReader<
-      GameStorageData<Config, GameState, Outcome, Rating>
+      MatchStorageData<Config, GameState, Outcome, Rating>
     >,
   ): Promise<void> {
     const gameStateService = this.requireGameStateService();
@@ -1511,8 +1520,8 @@ export class SocketStore<
           break;
         }
 
-        const gameConnection = this.gameConnections.get(gameId);
-        if (gameConnection == null) {
+        const matchConnection = this.matchConnections.get(matchId);
+        if (matchConnection == null) {
           break;
         }
 
@@ -1525,7 +1534,7 @@ export class SocketStore<
         );
 
         for (
-          const gameSubscription of gameConnection.gameSubscriptions.values()
+          const gameSubscription of matchConnection.matchSubscriptions.values()
         ) {
           const gameStateUpdate = gameStateService.buildGameStateUpdate(
             gameData,
@@ -1546,9 +1555,9 @@ export class SocketStore<
           >(
             gameSubscription.socket,
             {
-              type: "UpdateGameState",
+              type: "UpdateMatchState",
               subscriptionId: gameSubscription.subscriptionId,
-              gameViewData: buildGameViewData(
+              matchViewData: buildMatchViewData(
                 gameData.players,
                 gameSubscription.playerId,
                 gameStateUpdate,
@@ -1563,7 +1572,7 @@ export class SocketStore<
   }
 
   /**
-   * Returns the configured game helpers or throws when missing.
+   * Returns the configured match helpers or throws when missing.
    */
   private requireGameStateService(): GameStateService<
     Config,
@@ -1576,7 +1585,7 @@ export class SocketStore<
     Loadout
   > {
     if (this.gameStateService == null) {
-      throw new Error("SocketStore game state service is not configured");
+      throw new Error("SocketStore match state service is not configured");
     }
     return this.gameStateService;
   }

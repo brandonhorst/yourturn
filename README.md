@@ -45,7 +45,7 @@ const profile = await fetchUserProfile(socket, "some-user-id");
 ```
 
 `profile` is `UserProfileViewData<Config, Outcome, Rating> | null`, including
-canonical user fields plus a reverse-chronological `completedGames` snapshot
+canonical user fields plus a reverse-chronological `completedMatches` snapshot
 list.
 
 ## Designing Game and UI Logic
@@ -97,6 +97,9 @@ not need to be) the same type.
 
 ### `game`
 
+This object should satisfy
+`GameDefinition<Config, GameState, Move, PlayerState, PublicState, Outcome, Rating, Loadout>`.
+
 ```ts
 export const game: {
   queues: { [id: string]: {numPlayers: number, config: Config} };
@@ -125,8 +128,8 @@ export const game: {
 };
 ```
 
-An object with functions which determine the Game's behavior. These functions
-are only executed on the server.
+A `GameDefinition` object with functions which determine the game's behavior.
+These functions are only executed on the server.
 
 - `setup` is used to create the initial `GameState` object.
 - `isValidMove` is used to determine if a `Move` sent from the client is

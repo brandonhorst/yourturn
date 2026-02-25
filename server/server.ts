@@ -1,9 +1,9 @@
 import type {
-  ActivePublicGamesViewData,
+  ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
-  Game,
-  GameViewData,
+  GameDefinition,
+  MatchViewData,
   PlayerSnapshot,
   Server,
   UserMatchmakingViewData,
@@ -13,7 +13,7 @@ import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import { GameStateService } from "./gamestateservice.ts";
 import {
   type DB,
-  type GameStorageData,
+  type MatchStorageData,
   userProfileViewDataToPlayerSnapshot,
 } from "./db.ts";
 import type { SocketStore } from "./sockets.ts";
@@ -52,7 +52,7 @@ export class ServerController<
   >;
 
   constructor(
-    private game: Game<
+    private game: GameDefinition<
       Config,
       GameState,
       Move,
@@ -115,7 +115,7 @@ export class ServerController<
 
     return {
       props: {
-        userActiveGames: userMatchmakingData.activeGames,
+        userActiveMatches: userMatchmakingData.activeMatches,
         roomIds: userMatchmakingData.joinedRooms.map((joinedRoom) =>
           joinedRoom.roomId
         ),
@@ -126,14 +126,14 @@ export class ServerController<
   }
 
   /**
-   * Builds view data for the active public games channel.
+   * Builds view data for the active public matches channel.
    */
-  async getActivePublicGamesViewData(): Promise<
-    ActivePublicGamesViewData<Config, Rating>
+  async getActivePublicMatchesViewData(): Promise<
+    ActivePublicMatchesViewData<Config, Rating>
   > {
-    const allActiveGames = await this.db.getAllActivePublicGames();
+    const allActiveMatches = await this.db.getAllActivePublicMatches();
     return {
-      allActiveGames,
+      allActiveMatches,
     };
   }
 
@@ -179,29 +179,29 @@ export class ServerController<
   }
 
   /**
-   * Builds game view data for a viewer or player.
+   * Builds match view data for a viewer or player.
    */
-  async getGameViewData(
-    gameId: string,
+  async getMatchViewData(
+    matchId: string,
     userId: string,
-  ): Promise<GameViewData<PlayerState, PublicState, Outcome, Rating>> {
+  ): Promise<MatchViewData<PlayerState, PublicState, Outcome, Rating>> {
     if (userId === "") {
-      throw new Error("Missing game user id");
+      throw new Error("Missing match user id");
     }
 
-    const gameData = await this.db.getGameStorageData(gameId);
+    const gameData = await this.db.getMatchStorageData(matchId);
 
     const playerId = this.gameStateService.getPlayerId(gameData, userId);
-    return this.buildGameViewData(gameData, playerId);
+    return this.buildMatchViewData(gameData, playerId);
   }
 
   /**
-   * Builds the initial game view payload for a specific player or observer.
+   * Builds the initial match view payload for a specific player or observer.
    */
-  private buildGameViewData(
-    gameData: GameStorageData<Config, GameState, Outcome, Rating>,
+  private buildMatchViewData(
+    gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
     playerId: number | undefined,
-  ): GameViewData<PlayerState, PublicState, Outcome, Rating> {
+  ): MatchViewData<PlayerState, PublicState, Outcome, Rating> {
     const gameStateUpdate = this.gameStateService.buildGameStateUpdate(
       gameData,
       playerId,
@@ -212,7 +212,7 @@ export class ServerController<
       playerState: gameStateUpdate.playerState,
       publicState: gameStateUpdate.publicState,
       outcome: gameStateUpdate.outcome,
-    } as GameViewData<PlayerState, PublicState, Outcome, Rating>;
+    } as MatchViewData<PlayerState, PublicState, Outcome, Rating>;
   }
 
   /**
@@ -230,7 +230,7 @@ export class ServerController<
 
   /**
    * Configures one websocket to handle account profile, matchmaking, list,
-   * room, and game channel messages, plus one-shot profile fetch requests.
+   * room, and match channel messages, plus one-shot profile fetch requests.
    */
   configureSocket(
     socket: WebSocket,
@@ -290,10 +290,10 @@ export class ServerController<
     /**
      * Resolves the user's player ID for a specific game.
      */
-    const getPlayerIdForGame = async (
-      gameId: string,
+    const getPlayerIdForMatch = async (
+      matchId: string,
     ): Promise<number | undefined> => {
-      const gameData = await this.db.getGameStorageData(gameId);
+      const gameData = await this.db.getMatchStorageData(matchId);
       return this.gameStateService.getPlayerId(gameData, userId);
     };
 
@@ -327,7 +327,7 @@ export class ServerController<
         request.type === "FetchUserProfile" ||
         request.type === "UpdateAccountUserProfile" ||
         request.type === "SubscribeUserMatchmaking" ||
-        request.type === "SubscribeActivePublicGames" ||
+        request.type === "SubscribeActivePublicMatches" ||
         request.type === "SubscribeActivePublicUsers" ||
         request.type === "SubscribeAvailablePublicRooms" ||
         request.type === "SubscribeRoom" ||
@@ -337,7 +337,7 @@ export class ServerController<
         request.type === "CommitRoom" ||
         request.type === "LeaveQueue" ||
         request.type === "LeaveRoom" ||
-        request.type === "SubscribeGame" ||
+        request.type === "SubscribeMatch" ||
         request.type === "Move"
       ) {
         await touchSocketPresence();
@@ -417,8 +417,8 @@ export class ServerController<
           );
           break;
         }
-        case "SubscribeActivePublicGames":
-          await this.socketStore.subscribeActivePublicGames(
+        case "SubscribeActivePublicMatches":
+          await this.socketStore.subscribeActivePublicMatches(
             socket,
             request.subscriptionId,
           );
@@ -603,19 +603,19 @@ export class ServerController<
             sendDisplayError("Unable to leave room.");
           }
           break;
-        case "SubscribeGame":
+        case "SubscribeMatch":
           try {
-            const playerId = await getPlayerIdForGame(request.gameId);
-            await this.socketStore.subscribeGame(
+            const playerId = await getPlayerIdForMatch(request.matchId);
+            await this.socketStore.subscribeMatch(
               socket,
               request.subscriptionId,
-              request.gameId,
+              request.matchId,
               playerId,
             );
           } catch (err) {
-            console.error("Failed to subscribe game socket", err);
+            console.error("Failed to subscribe match socket", err);
             await this.socketStore.unsubscribe(socket, request.subscriptionId);
-            sendDisplayError("Unable to subscribe to game.");
+            sendDisplayError("Unable to subscribe to match.");
           }
           break;
         case "Unsubscribe":
@@ -623,13 +623,13 @@ export class ServerController<
           break;
         case "Move":
           try {
-            const playerId = await getPlayerIdForGame(request.gameId);
+            const playerId = await getPlayerIdForMatch(request.matchId);
             if (playerId == null) {
               break;
             }
             await this.gameStateService.handleMove(
               this.db,
-              request.gameId,
+              request.matchId,
               playerId,
               request.move,
             );
@@ -673,7 +673,7 @@ export class ServerController<
       ratings: this.buildInitialRatings(),
     });
     await this.db.createNewUserMatchmakingStorageData(userId, {
-      activeGames: [],
+      activeMatches: [],
       joinedRooms: [],
       queueEntries: [],
     });

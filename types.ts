@@ -51,8 +51,8 @@ export type PlayerSnapshot<Rating> = {
   rating: Record<string, Rating>;
 };
 
-export type CompletedGameSnapshot<Config, Outcome, Rating> = {
-  gameId: string;
+export type CompletedMatchSnapshot<Config, Outcome, Rating> = {
+  matchId: string;
   queueId?: string;
   players: PlayerSnapshot<Rating>[];
   config: Config;
@@ -66,7 +66,7 @@ export type UserProfileViewData<Config, Outcome, Rating> = {
   isGuest: boolean;
   rating: Record<string, Rating>;
   description: string;
-  completedGames: CompletedGameSnapshot<Config, Outcome, Rating>[];
+  completedMatches: CompletedMatchSnapshot<Config, Outcome, Rating>[];
 };
 
 export type UserProfileUpdate = {
@@ -113,8 +113,8 @@ export interface Server<
   ): Promise<
     { props: UserMatchmakingViewData<Config, Loadout, Rating>; token: string }
   >;
-  getActivePublicGamesViewData(): Promise<
-    ActivePublicGamesViewData<Config, Rating>
+  getActivePublicMatchesViewData(): Promise<
+    ActivePublicMatchesViewData<Config, Rating>
   >;
   getActivePublicUsersViewData(): Promise<ActiveUsersViewData<Rating>>;
   getAvailablePublicRoomsViewData(): Promise<
@@ -123,10 +123,10 @@ export interface Server<
   getUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<Config, Outcome, Rating>>;
-  getGameViewData(
-    gameId: string,
+  getMatchViewData(
+    matchId: string,
     userId: string,
-  ): Promise<GameViewData<PlayerState, PublicState, Outcome, Rating>>;
+  ): Promise<MatchViewData<PlayerState, PublicState, Outcome, Rating>>;
   configureSocket(socket: WebSocket, userId: string): void;
   resolveToken(token: string | undefined): Promise<string>;
 }
@@ -187,7 +187,7 @@ export type QueueConfig<Config> = {
  * @template Rating - Rating type representing a player's ranking (must be JSON serializable)
  * @template Loadout - Player loadout data provided during queue join (must be JSON serializable)
  */
-export interface Game<
+export interface GameDefinition<
   Config extends StructuredCloneValue,
   GameState extends StructuredCloneValue,
   Move extends JSONValue,
@@ -319,8 +319,8 @@ export interface Game<
 
 // ViewData and Props
 
-export type ActiveGame<Config, Rating> = {
-  gameId: string;
+export type ActiveMatch<Config, Rating> = {
+  matchId: string;
   players: PlayerSnapshot<Rating>[];
   config: Config;
   created: Date;
@@ -346,8 +346,8 @@ export type QueueEntry<Loadout> = {
   loadout: Loadout;
 };
 
-export type ActivePublicGamesViewData<Config, Rating> = {
-  allActiveGames: ActiveGame<Config, Rating>[];
+export type ActivePublicMatchesViewData<Config, Rating> = {
+  allActiveMatches: ActiveMatch<Config, Rating>[];
 };
 
 export type ActiveUsersViewData<Rating> = {
@@ -359,7 +359,7 @@ export type AvailablePublicRoomsViewData<Config, Rating> = {
 };
 
 export type UserMatchmakingViewData<Config, Loadout, Rating> = {
-  userActiveGames: ActiveGame<Config, Rating>[];
+  userActiveMatches: ActiveMatch<Config, Rating>[];
   roomIds: string[];
   queueEntries: QueueEntry<Loadout>[];
 };
@@ -396,7 +396,7 @@ type IncompleteObserverViewData<PublicState, Rating> = {
   outcome: undefined;
 };
 
-export type GameViewData<PlayerState, PublicState, Outcome, Rating> =
+export type MatchViewData<PlayerState, PublicState, Outcome, Rating> =
   | CompletePlayerViewData<PlayerState, PublicState, Outcome, Rating>
   | IncompletePlayerViewData<PlayerState, PublicState, Rating>
   | CompleteObserverViewData<PublicState, Outcome, Rating>
@@ -420,7 +420,7 @@ type ObserveProps<PublicState, Outcome, Rating> =
   )
   & { perform: undefined };
 
-export type GameProps<Move, PlayerState, PublicState, Outcome, Rating> =
+export type MatchProps<Move, PlayerState, PublicState, Outcome, Rating> =
   | CompletePlayerProps<PlayerState, PublicState, Outcome, Rating>
   | IncompletePlayerProps<Move, PlayerState, PublicState, Rating>
   | ObserveProps<PublicState, Outcome, Rating>;

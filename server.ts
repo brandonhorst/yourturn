@@ -1,4 +1,9 @@
-import type { ActiveGame, Game, PlayerSnapshot, Server } from "./types.ts";
+import type {
+  ActiveMatch,
+  GameDefinition,
+  PlayerSnapshot,
+  Server,
+} from "./types.ts";
 import { DB } from "./server/db.ts";
 import { SocketStore } from "./server/sockets.ts";
 import { ServerController } from "./server/server.ts";
@@ -13,7 +18,7 @@ export async function initializeServer<
   Rating,
   Loadout,
 >(
-  game: Game<
+  game: GameDefinition<
     Config,
     GameState,
     Move,
@@ -46,9 +51,10 @@ export async function initializeServer<
     Loadout
   >(kv, game);
 
-  const activePublicGamesStream: ReadableStream<ActiveGame<Config, Rating>[]> =
-    db
-      .watchForActivePublicGamesListChanges();
+  const activePublicMatchesStream: ReadableStream<
+    ActiveMatch<Config, Rating>[]
+  > = db
+    .watchForActivePublicMatchesListChanges();
   const activePublicUsersStream: ReadableStream<PlayerSnapshot<Rating>[]> = db
     .watchForActivePublicUsersListChanges();
   const availableRoomsStream = db.watchForAvailablePublicRoomListChanges();
@@ -64,7 +70,7 @@ export async function initializeServer<
     Loadout
   >(
     db,
-    activePublicGamesStream,
+    activePublicMatchesStream,
     activePublicUsersStream,
     availableRoomsStream,
   );

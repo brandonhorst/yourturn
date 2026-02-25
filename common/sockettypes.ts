@@ -1,8 +1,8 @@
 import type {
-  ActivePublicGamesViewData,
+  ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
-  GameViewData,
+  MatchViewData,
   RoomEntry,
   UserMatchmakingViewData,
   UserProfileViewData,
@@ -10,7 +10,7 @@ import type {
 
 export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   // Active Public Games Channel
-  | { type: "SubscribeActivePublicGames"; subscriptionId: string }
+  | { type: "SubscribeActivePublicMatches"; subscriptionId: string }
   // Active Public Users Channel
   | { type: "SubscribeActivePublicUsers"; subscriptionId: string }
   // Available Public Rooms Channel
@@ -50,9 +50,9 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "SubscribeRoom"; subscriptionId: string; roomId: string }
   | { type: "CommitRoom"; roomId: string }
   | { type: "LeaveRoom"; roomId: string }
-  // Game Channel
-  | { type: "SubscribeGame"; subscriptionId: string; gameId: string }
-  | { type: "Move"; gameId: string; move: Move }
+  // Match Channel
+  | { type: "SubscribeMatch"; subscriptionId: string; matchId: string }
+  | { type: "Move"; matchId: string; move: Move }
   | { type: "Unsubscribe"; subscriptionId: string };
 
 export type ServerMessage<
@@ -79,9 +79,9 @@ export type ServerMessage<
     userMatchmakingProps: UserMatchmakingViewData<Config, Loadout, Rating>;
   }
   | {
-    type: "UpdateActivePublicGames";
+    type: "UpdateActivePublicMatches";
     subscriptionId: string;
-    activePublicGamesProps: ActivePublicGamesViewData<Config, Rating>;
+    activePublicMatchesProps: ActivePublicMatchesViewData<Config, Rating>;
   }
   | {
     type: "UpdateActivePublicUsers";
@@ -99,10 +99,10 @@ export type ServerMessage<
     roomEntry: RoomEntry<Config, Loadout, Rating>;
   }
   | { type: "RemoveRoomEntry"; subscriptionId: string; roomId: string }
-  | { type: "GameAssignment"; subscriptionId: string; gameId: string }
+  | { type: "MatchAssignment"; subscriptionId: string; matchId: string }
   | { type: "DisplayError"; message: string }
   | {
-    type: "UpdateGameState";
+    type: "UpdateMatchState";
     subscriptionId: string;
-    gameViewData: GameViewData<PlayerState, PublicState, Outcome, Rating>;
+    matchViewData: MatchViewData<PlayerState, PublicState, Outcome, Rating>;
   };

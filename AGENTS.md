@@ -45,21 +45,21 @@ subscribe to multiple channels:
 - `server/server.ts` - `ServerController` implementation for token/user setup
   and client message routing, including initial channel payload assembly
 - `server/sockets.ts` - Subscription lifecycle and stream fan-out for
-  AccountUserProfile, UserMatchmaking, room, queue, global lists, and per-game
+  AccountUserProfile, UserMatchmaking, room, queue, global lists, and per-match
   updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, user
-  matchmakings, active games, active users, tokens, and indexed global list
-  snapshots (`["activepublicgames", gameId]`,
+  matchmakings, active matches, active users, tokens, and indexed global list
+  snapshots (`["activepublicmatches", matchId]`,
   `["availablepublicrooms", roomId]`, and `["activepublicusers", userId]`)
-- `server/gamestateservice.ts` - Game state projection and move processing,
+- `server/gamestateservice.ts` - Match state projection and move processing,
   including outcome handling and ranked rating updates
 
 ### Client Architecture
 
 Client-side hooks are organized by functionality:
 
-- `client/channels.ts` - UserMatchmaking, room, and game channel subscription
-  hooks, including active public games/users and available room list hooks
+- `client/channels.ts` - UserMatchmaking, room, and match channel subscription
+  hooks, including active public matches/users and available room list hooks
 - `client/fetchers.ts` - One-shot socket request helpers, including
   `fetchUserProfile(socket, userId)`
 - `client/socket.ts` - Shared socket connection utilities
@@ -67,7 +67,7 @@ Client-side hooks are organized by functionality:
 ### Game Interface
 
 Games must implement the
-`Game<Config, GameState, Move, PlayerState, PublicState, Outcome, Rating, Loadout>`
+`GameDefinition<Config, GameState, Move, PlayerState, PublicState, Outcome, Rating, Loadout>`
 interface defined in `types.ts`:
 
 - `Config` - Configuration type (structured clone compatible)
@@ -99,26 +99,26 @@ Key methods:
 
 Uses Deno KV for:
 
-- Game state persistence
+- Match state persistence at `["matches", matchId]`
 - Queue matchmaking and room-based matchmaking
 - Queue entries and room members that optionally persist assignment subscription
-  IDs used for direct `GameAssignment` socket delivery
+  IDs used for direct `MatchAssignment` socket delivery
 - User records (`["users", userId]`) for canonical profile fields (`username`,
   `isGuest`, `description`) and per-queue `ratings`
-- Completed-game profile history at
-  `["completedgamesbyuser", userId, completedGameEntryId]` with
-  `CompletedGameSnapshot<Config, Outcome, Rating>` payloads (`gameId`, optional
-  `queueId`, frozen `players`, frozen `config`, `outcome`, and `completed`
-  timestamp)
-- Per-user completed-game history root tickers at
-  `["completedgamesbyuser", userId]` stored as `Deno.KvU64` counters so account
-  profile watchers can react to history writes
-- User matchmaking records (`["usermatchmakings", userId]`) for `activeGames`,
+- Completed-match profile history at
+  `["completedmatchesbyuser", userId, completedMatchEntryId]` with
+  `CompletedMatchSnapshot<Config, Outcome, Rating>` payloads (`matchId`,
+  optional `queueId`, frozen `players`, frozen `config`, `outcome`, and
+  `completed` timestamp)
+- Per-user completed-match history root tickers at
+  `["completedmatchesbyuser", userId]` stored as `Deno.KvU64` counters so
+  account profile watchers can react to history writes
+- User matchmaking records (`["usermatchmakings", userId]`) for `activeMatches`,
   `joinedRooms`, and `queueEntries`
 - Auth tokens
-- Global list indexes store one entry per room/game and are read as snapshots
+- Global list indexes store one entry per room/match and are read as snapshots
   via `kv.list` (single batch, `limit=500`, `batchSize=500`)
-- Root invalidation keys (`["activepublicgames"]` and
+- Root invalidation keys (`["activepublicmatches"]` and
   `["availablepublicrooms"]`) are stored as `Deno.KvU64` counters and mutated
   with atomic `sum` operations (`+1` insert, `-1` delete, `0` update) so list
   watchers can track updates without scanning
@@ -130,7 +130,7 @@ Uses Deno KV for:
 - Presence uses a 10-minute TTL with no heartbeat loop; TTL is pushed on socket
   setup plus subscribe/mutating requests
 - `PlayerSnapshot<Rating>` values are frozen at queue/room join time and stored
-  in queue entries, room members, games, active public games, and available
+  in queue entries, room members, games, active public matches, and available
   public rooms; they are intentionally not updated after join
 
 ### WebSocket Communication
@@ -142,8 +142,8 @@ A single socket supports these channel subscriptions:
 2. **UserMatchmaking channel** - Matchmaking actions and user matchmaking
    updates
 3. **Room channel** - Per-room lifecycle updates and room-specific actions
-4. **Game channel** - Moves and game state updates for players/observers
-5. **Active public games channel** - Global list of active games
+4. **Match channel** - Moves and match state updates for players/observers
+5. **Active public matches channel** - Global list of active matches
 6. **Active public users channel** - Global list of currently active users
 7. **Available public rooms channel** - Global list of joinable public rooms
 
@@ -154,7 +154,7 @@ single canonical profile snapshot for any requested user ID.
 
 `JoinQueue`, `CreateAndJoinRoom`, and `JoinRoom` requests can include
 `assignmentSubscriptionId` so queue graduation and committed rooms can emit
-targeted `GameAssignment` messages without a dedicated assignment KV key/watch
+targeted `MatchAssignment` messages without a dedicated assignment KV key/watch
 stream.
 
 `UpdateAccountUserProfile` requests can include `description` only, and persist
@@ -162,12 +162,12 @@ that canonical profile change to `["users", userId]` for the authenticated
 socket user.
 
 UserMatchmaking channel payloads (`UserMatchmakingViewData`) contain matchmaking
-data only: `userActiveGames`, `roomIds`, and `queueEntries`. Player profile and
-ratings are not part of UserMatchmaking channel view data.
+data only: `userActiveMatches`, `roomIds`, and `queueEntries`. Player profile
+and ratings are not part of UserMatchmaking channel view data.
 
 AccountUserProfile payloads and `FetchUserProfile` results
 (`UserProfileViewData<Config, Outcome, Rating>`) contain canonical user profile
-data plus `completedGames` history snapshots. Display-facing game and room
+data plus `completedMatches` history snapshots. Display-facing match and room
 payloads use `PlayerSnapshot<Rating>` instead.
 
 Active public users channel payloads (`ActiveUsersViewData<Rating>`) contain
