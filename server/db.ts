@@ -1,6 +1,8 @@
 import { ulid } from "@std/ulid";
 import type {
   ActiveMatch,
+  AuditLogEntry,
+  AuditLogEntryPayload,
   AvailableRoom,
   CompletedMatchSnapshot,
   GameDefinition,
@@ -160,6 +162,9 @@ function getUserByUsernameKey(username: string) {
 }
 function getTokenKey(token: string) {
   return ["tokens", token];
+}
+function getAuditLogEntryKey(id: string) {
+  return ["auditlogentries", id];
 }
 
 const PUBLIC_LIST_READ_LIMIT = 500;
@@ -329,6 +334,21 @@ export class DB<
     );
   }
 
+  /**
+   * Appends one audit log entry to the provided transaction.
+   */
+  private setAuditLogEntryOnOperation(
+    transaction: Deno.AtomicOperation,
+    payload: AuditLogEntryPayload,
+  ): void {
+    const id = ulid();
+    const logEntryKey = getAuditLogEntryKey(id);
+    const logEntry: AuditLogEntry = { id, payload };
+    transaction
+      .check({ key: logEntryKey, versionstamp: null })
+      .set(logEntryKey, logEntry);
+  }
+
   public async addToQueue(
     queueId: string,
     entryId: string,
@@ -373,9 +393,15 @@ export class DB<
         })
         .check(userMatchmakingEntry)
         .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "AddToQueue",
+        userId,
+        queueId,
+        entryId,
+      });
     });
 
-    return await this.maybeGraduateFromQueue(queueId, queueConfig);
+    return await this.maybeGraduateFromQueue(queueId, queueConfig, userId);
   }
 
   public async removeFromQueue(
@@ -419,11 +445,18 @@ export class DB<
         .delete(entryKey)
         .check(userMatchmakingEntry)
         .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "RemoveFromQueue",
+        userId,
+        queueId,
+        entryId,
+      });
     });
   }
 
   public async createRoom(
     roomId: string,
+    userId: string,
     roomConfig: {
       numPlayers: number;
       config: Config;
@@ -446,6 +479,12 @@ export class DB<
         transaction,
         { roomId, room: roomData },
       );
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "CreateRoom",
+        userId,
+        roomId,
+        private: roomConfig.private,
+      });
     });
   }
 
@@ -552,6 +591,12 @@ export class DB<
         transaction,
         { roomId, room: updatedRoom },
       );
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "AddToRoom",
+        userId,
+        roomId,
+        entryId,
+      });
     });
   }
 
@@ -629,6 +674,12 @@ export class DB<
           wasPrivate: roomEntry.value.private,
         },
       );
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "RemoveFromRoom",
+        userId,
+        roomId,
+        entryId,
+      });
     });
   }
 
@@ -777,6 +828,7 @@ export class DB<
 
   public async commitRoom(
     roomId: string,
+    userId: string,
   ): Promise<MatchAssignmentNotification[]> {
     const roomKey = getRoomKey(roomId);
     let matchAssignments: MatchAssignmentNotification[] = [];
@@ -858,6 +910,12 @@ export class DB<
           .check(userMatchmakingEntry)
           .set(userMatchmakingKeys[i], updatedUserMatchmaking);
       }
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "CommitRoom",
+        userId,
+        roomId,
+        matchId,
+      });
     });
 
     return matchAssignments;
@@ -866,6 +924,7 @@ export class DB<
   private async maybeGraduateFromQueue(
     queueId: string,
     queueConfig: QueueConfig<Config>,
+    userId: string,
   ): Promise<MatchAssignmentNotification[]> {
     const queuePrefix = getQueuePrefix(queueId);
     let matchAssignments: MatchAssignmentNotification[] = [];
@@ -950,6 +1009,12 @@ export class DB<
           .check(userMatchmakingEntry)
           .set(userMatchmakingKeys[i], updatedUserMatchmaking);
       }
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "GraduateQueue",
+        userId,
+        queueId,
+        matchId,
+      });
     });
 
     return matchAssignments;
@@ -960,10 +1025,12 @@ export class DB<
    * snapshots when a match first reaches an outcome.
    * @param matchId The ID of the match to update
    * @param gameData The updated match data
+   * @param userId The actor performing the match mutation
    */
   public async updateMatchStorageData(
     matchId: string,
     gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
+    userId: string,
   ): Promise<void> {
     const gameKey = getMatchKey(matchId);
     const activePublicMatchKey = getActivePublicMatchKey(matchId);
@@ -978,6 +1045,7 @@ export class DB<
     }
 
     const outcome = gameData.outcome;
+    let completedMatchEntryId: string | undefined;
 
     let transaction = this.kv.atomic()
       .check(entry)
@@ -997,7 +1065,7 @@ export class DB<
         this.mutateActivePublicMatchesRootCountOnOperation(transaction, -1);
       }
 
-      const completedMatchEntryId = ulid();
+      completedMatchEntryId = ulid();
       const completedMatch: CompletedMatchSnapshot<Config, Outcome, Rating> = {
         matchId,
         queueId: gameData.queueId,
@@ -1024,6 +1092,13 @@ export class DB<
         );
       }
     }
+
+    this.setAuditLogEntryOnOperation(transaction, {
+      type: "UpdateMatchStorageData",
+      userId,
+      matchId,
+      completedMatchEntryId,
+    });
 
     const res = await transaction.commit();
 
@@ -1242,12 +1317,18 @@ export class DB<
   ): Promise<void> {
     const userKey = getUserKey(userId);
     const usernameKey = getUserByUsernameKey(data.username);
-    const res = await this.kv.atomic()
+    const transaction = this.kv.atomic()
       .check({ key: userKey, versionstamp: null })
       .check({ key: usernameKey, versionstamp: null })
       .set(userKey, data)
-      .set(usernameKey, userId)
-      .commit();
+      .set(usernameKey, userId);
+    this.setAuditLogEntryOnOperation(transaction, {
+      type: "CreateNewUserStorageData",
+      userId,
+      username: data.username,
+      isGuest: data.isGuest,
+    });
+    const res = await transaction.commit();
     if (!res.ok) {
       throw new Error(
         `User ${userId} or username ${data.username} already exists`,
@@ -1261,7 +1342,9 @@ export class DB<
   public async updateUserStorageData(
     userId: string,
     data: Partial<UserStorageData<Rating>>,
+    options?: { actorUserId?: string },
   ): Promise<void> {
+    const actorUserId = options?.actorUserId ?? userId;
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entry = await this.kv.get<UserStorageData<Rating>>(
         getUserKey(userId),
@@ -1312,6 +1395,10 @@ export class DB<
           .check(previousUsernameEntry)
           .set(getUserByUsernameKey(previousUsername), userId);
       }
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "UpdateUserStorageData",
+        userId: actorUserId,
+      });
     });
   }
 
@@ -1416,12 +1503,18 @@ export class DB<
   public async createNewUserMatchmakingStorageData(
     userId: string,
     data: UserMatchmakingStorageData<Config, Loadout, Rating>,
+    options?: { actorUserId?: string },
   ): Promise<void> {
+    const actorUserId = options?.actorUserId ?? userId;
     const userMatchmakingKey = getUserMatchmakingKey(userId);
-    const res = await this.kv.atomic()
+    const transaction = this.kv.atomic()
       .check({ key: userMatchmakingKey, versionstamp: null })
-      .set(userMatchmakingKey, data)
-      .commit();
+      .set(userMatchmakingKey, data);
+    this.setAuditLogEntryOnOperation(transaction, {
+      type: "UpdateUserMatchmakingStorageData",
+      userId: actorUserId,
+    });
+    const res = await transaction.commit();
     if (!res.ok) {
       throw new Error(`User matchmaking ${userId} already exists`);
     }
@@ -1433,7 +1526,9 @@ export class DB<
   public async updateUserMatchmakingStorageData(
     userId: string,
     data: Partial<UserMatchmakingStorageData<Config, Loadout, Rating>>,
+    options?: { actorUserId?: string },
   ): Promise<void> {
+    const actorUserId = options?.actorUserId ?? userId;
     await this.repeatUntilTransactionSucceeds(async (transaction) => {
       const entry = await this.kv.get<
         UserMatchmakingStorageData<Config, Loadout, Rating>
@@ -1452,6 +1547,10 @@ export class DB<
       transaction
         .check(entry)
         .set(getUserMatchmakingKey(userId), updatedData);
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "UpdateUserMatchmakingStorageData",
+        userId: actorUserId,
+      });
     });
   }
 

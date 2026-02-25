@@ -608,7 +608,7 @@ export class SocketStore<
     assignmentSubscriptionId?: string,
   ): Promise<void> {
     const roomId = ulid();
-    await this.db.createRoom(roomId, roomConfig);
+    await this.db.createRoom(roomId, userId, roomConfig);
     await this.joinRoom(
       socket,
       roomId,
@@ -673,7 +673,7 @@ export class SocketStore<
       throw new Error(`User ${userId} is not in room ${roomId}`);
     }
 
-    const matchAssignments = await this.db.commitRoom(roomId);
+    const matchAssignments = await this.db.commitRoom(roomId, userId);
     this.sendMatchAssignmentsToStoredSubscriptions(matchAssignments);
   }
 

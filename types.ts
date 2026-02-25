@@ -78,6 +78,82 @@ export type TokenData = {
   expiration: Date;
 };
 
+/**
+ * Compact audit payload written alongside DB mutation transactions.
+ * `userId` identifies the actor that initiated the mutation.
+ */
+export type AuditLogEntryPayload =
+  | {
+    type: "AddToQueue";
+    userId: string;
+    queueId: string;
+    entryId: string;
+  }
+  | {
+    type: "RemoveFromQueue";
+    userId: string;
+    queueId: string;
+    entryId: string;
+  }
+  | {
+    type: "CreateRoom";
+    userId: string;
+    roomId: string;
+    private: boolean;
+  }
+  | {
+    type: "AddToRoom";
+    userId: string;
+    roomId: string;
+    entryId: string;
+  }
+  | {
+    type: "RemoveFromRoom";
+    userId: string;
+    roomId: string;
+    entryId: string;
+  }
+  | {
+    type: "CommitRoom";
+    userId: string;
+    roomId: string;
+    matchId: string;
+  }
+  | {
+    type: "GraduateQueue";
+    userId: string;
+    queueId: string;
+    matchId: string;
+  }
+  | {
+    type: "UpdateMatchStorageData";
+    userId: string;
+    matchId: string;
+    completedMatchEntryId?: string;
+  }
+  | {
+    type: "CreateNewUserStorageData";
+    userId: string;
+    username: string;
+    isGuest: boolean;
+  }
+  | {
+    type: "UpdateUserStorageData";
+    userId: string;
+  }
+  | {
+    type: "UpdateUserMatchmakingStorageData";
+    userId: string;
+  };
+
+/**
+ * Audit log entry persisted under one KV key.
+ */
+export type AuditLogEntry = {
+  id: string;
+  payload: AuditLogEntryPayload;
+};
+
 export type SocketMessageListener = (message: string) => void;
 export type SocketOpenListener = () => void;
 

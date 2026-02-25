@@ -136,7 +136,7 @@ export class GameStateService<
     playerId: number,
     move: Move,
   ): Promise<void> {
-    await this.updateGameState(db, matchId, (gameData) => {
+    await this.updateGameState(db, matchId, playerId, (gameData) => {
       const moveData = {
         playerId,
         timestamp: new Date(),
@@ -169,6 +169,7 @@ export class GameStateService<
       Loadout
     >,
     matchId: string,
+    actorPlayerId: number,
     computeNewState: (
       gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
     ) => GameState | undefined,
@@ -195,7 +196,12 @@ export class GameStateService<
       outcome,
     };
 
-    await db.updateMatchStorageData(matchId, newGameData);
+    const actorUserId = gameData.userIds[actorPlayerId];
+    if (actorUserId == null) {
+      throw new Error(`Player ${actorPlayerId} is not in match ${matchId}`);
+    }
+
+    await db.updateMatchStorageData(matchId, newGameData, actorUserId);
 
     if (outcome == null) {
       return;
@@ -232,7 +238,11 @@ export class GameStateService<
           return Promise.resolve();
         }
         const ratings = { ...entry.ratings, [queueId]: updatedRatings[index] };
-        return db.updateUserStorageData(userId, { ratings });
+        return db.updateUserStorageData(
+          userId,
+          { ratings },
+          { actorUserId },
+        );
       }),
     );
   }

@@ -21,7 +21,8 @@ The hooks manage connections to Websockets (those configured in `server`), as
 well as some internal state.
 
 `types` contains definitions of types used by both sides, including the public
-`Server` interface returned by `initializeServer`.
+`Server` interface returned by `initializeServer` and the `AuditLogEntry` audit
+union used for DB mutation logging.
 
 ## Architecture
 
@@ -48,8 +49,8 @@ subscribe to multiple channels:
   AccountUserProfile, UserMatchmaking, room, queue, global lists, and per-match
   updates
 - `server/db.ts` - Deno KV persistence for users, queues, rooms, user
-  matchmakings, active matches, active users, tokens, and indexed global list
-  snapshots (`["activepublicmatches", matchId]`,
+  matchmakings, active matches, active users, tokens, mutation log entries, and
+  indexed global list snapshots (`["activepublicmatches", matchId]`,
   `["availablepublicrooms", roomId]`, and `["activepublicusers", userId]`)
 - `server/gamestateservice.ts` - Match state projection and move processing,
   including outcome handling and ranked rating updates
@@ -116,6 +117,10 @@ Uses Deno KV for:
 - User matchmaking records (`["usermatchmakings", userId]`) for `activeMatches`,
   `joinedRooms`, and `queueEntries`
 - Auth tokens
+- Mutation log entries at `["auditlogentries", id]` with `AuditLogEntry` records
+  (`id` plus `payload`, where payload includes actor `userId`, event `type`, and
+  compact event-specific IDs such as `queueId`, `roomId`, `entryId`, and
+  `matchId`)
 - Global list indexes store one entry per room/match and are read as snapshots
   via `kv.list` (single batch, `limit=500`, `batchSize=500`)
 - Root invalidation keys (`["activepublicmatches"]` and
