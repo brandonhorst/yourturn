@@ -2,13 +2,14 @@ import type {
   ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
+  GameTypes,
   MatchViewData,
   RoomEntry,
   UserMatchmakingViewData,
   UserProfileViewData,
 } from "../types.ts";
 
-export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
+export type ClientMessage<T extends GameTypes> =
   // Active Public Games Channel
   | { type: "SubscribeActivePublicMatches"; subscriptionId: string }
   // Active Public Users Channel
@@ -28,21 +29,21 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | {
     type: "JoinQueue";
     queueId: string;
-    loadout: Loadout;
+    loadout: T["Loadout"];
     assignmentSubscriptionId?: string;
   }
   | {
     type: "CreateAndJoinRoom";
-    config: Config;
+    config: T["Config"];
     numPlayers: number;
     private: boolean;
-    loadout: Loadout;
+    loadout: T["Loadout"];
     assignmentSubscriptionId?: string;
   }
   | {
     type: "JoinRoom";
     roomId: string;
-    loadout: Loadout;
+    loadout: T["Loadout"];
     assignmentSubscriptionId?: string;
   }
   | { type: "LeaveQueue"; queueId: string }
@@ -52,61 +53,44 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
   | { type: "LeaveRoom"; roomId: string }
   // Match Channel
   | { type: "SubscribeMatch"; subscriptionId: string; matchId: string }
-  | { type: "Move"; matchId: string; move: Move }
+  | { type: "Move"; matchId: string; move: T["Move"] }
   | { type: "Unsubscribe"; subscriptionId: string };
 
-export type ServerMessage<
-  Config,
-  Loadout,
-  Rating,
-  PlayerState,
-  PublicState,
-  Outcome,
-> =
+export type ServerMessage<T extends GameTypes> =
   | {
     type: "UpdateAccountUserProfileProps";
     subscriptionId: string;
-    accountUserProfileProps: UserProfileViewData<Config, Outcome, Rating>;
+    accountUserProfileProps: UserProfileViewData<T>;
   }
   | {
     type: "FetchUserProfileResult";
     requestId: string;
-    userProfile: UserProfileViewData<Config, Outcome, Rating> | null;
+    userProfile: UserProfileViewData<T> | null;
   }
   | {
     type: "UpdateUserMatchmakingProps";
     subscriptionId: string;
-    userMatchmakingProps: UserMatchmakingViewData<
-      Config,
-      Loadout,
-      PlayerState,
-      PublicState,
-      Rating
-    >;
+    userMatchmakingProps: UserMatchmakingViewData<T>;
   }
   | {
     type: "UpdateActivePublicMatches";
     subscriptionId: string;
-    activePublicMatchesProps: ActivePublicMatchesViewData<
-      Config,
-      PublicState,
-      Rating
-    >;
+    activePublicMatchesProps: ActivePublicMatchesViewData<T>;
   }
   | {
     type: "UpdateActivePublicUsers";
     subscriptionId: string;
-    activePublicUsersProps: ActiveUsersViewData<Rating>;
+    activePublicUsersProps: ActiveUsersViewData<T>;
   }
   | {
     type: "UpdateAvailablePublicRooms";
     subscriptionId: string;
-    availablePublicRoomsProps: AvailablePublicRoomsViewData<Config, Rating>;
+    availablePublicRoomsProps: AvailablePublicRoomsViewData<T>;
   }
   | {
     type: "UpdateRoomEntry";
     subscriptionId: string;
-    roomEntry: RoomEntry<Config, Loadout, Rating>;
+    roomEntry: RoomEntry<T>;
   }
   | { type: "RemoveRoomEntry"; subscriptionId: string; roomId: string }
   | { type: "MatchAssignment"; subscriptionId: string; matchId: string }
@@ -114,5 +98,5 @@ export type ServerMessage<
   | {
     type: "UpdateMatchState";
     subscriptionId: string;
-    matchViewData: MatchViewData<PlayerState, PublicState, Outcome, Rating>;
+    matchViewData: MatchViewData<T>;
   };

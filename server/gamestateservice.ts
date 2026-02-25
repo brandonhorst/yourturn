@@ -1,48 +1,33 @@
 import type { DB, MatchStorageData } from "./db.ts";
 import type {
   GameDefinition,
+  GameTypes,
   OutcomeObject,
   PlayerStateObject,
   PublicStateObject,
 } from "../types.ts";
 
-type GameStateUpdate<PlayerState, PublicState, Outcome> = {
-  playerState: PlayerState | undefined;
-  publicState: PublicState;
-  outcome: Outcome | undefined;
+type GameStateUpdate<T extends GameTypes> = {
+  playerState: T["PlayerState"] | undefined;
+  publicState: T["PublicState"];
+  outcome: T["Outcome"] | undefined;
 };
 
 /**
  * Encapsulates game-derived state projection and move processing helpers.
  */
 export class GameStateService<
-  Config,
-  GameState,
-  Move,
-  PlayerState,
-  PublicState,
-  Outcome,
-  Rating,
-  Loadout,
+  T extends GameTypes,
 > {
   constructor(
-    private readonly game: GameDefinition<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
+    private readonly game: GameDefinition<T>,
   ) {}
 
   /**
    * Resolves a user's player index for a game, if they are a participant.
    */
   getPlayerId(
-    gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
+    gameData: MatchStorageData<T>,
     userId: string,
   ): number | undefined {
     const playerId = gameData.userIds.indexOf(userId);
@@ -56,13 +41,13 @@ export class GameStateService<
    * Produces a player-scoped view of game state for one participant.
    */
   getPlayerState(
-    gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
+    gameData: MatchStorageData<T>,
     playerId: number,
     timestamp: Date = new Date(),
-  ): PlayerState {
+  ): T["PlayerState"] {
     const state = gameData.gameState;
     const numPlayers = gameData.userIds.length;
-    const playerStateObject: PlayerStateObject<Config> = {
+    const playerStateObject: PlayerStateObject<T> = {
       config: gameData.config,
       playerId,
       numPlayers,
@@ -75,12 +60,12 @@ export class GameStateService<
    * Produces the observer-visible view of game state.
    */
   getPublicState(
-    gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
+    gameData: MatchStorageData<T>,
     timestamp: Date = new Date(),
-  ): PublicState {
+  ): T["PublicState"] {
     const state = gameData.gameState;
     const numPlayers = gameData.userIds.length;
-    const publicStateObject: PublicStateObject<Config> = {
+    const publicStateObject: PublicStateObject<T> = {
       config: gameData.config,
       numPlayers,
       timestamp,
@@ -92,10 +77,10 @@ export class GameStateService<
    * Builds update payload fields for one game's public and player-specific view.
    */
   buildGameStateUpdate(
-    gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
+    gameData: MatchStorageData<T>,
     playerId: number | undefined,
-    options?: { timestamp?: Date; publicState?: PublicState },
-  ): GameStateUpdate<PlayerState, PublicState, Outcome> {
+    options?: { timestamp?: Date; publicState?: T["PublicState"] },
+  ): GameStateUpdate<T> {
     const timestamp = options?.timestamp ?? new Date();
     const publicState = options?.publicState ??
       this.getPublicState(gameData, timestamp);
@@ -114,7 +99,10 @@ export class GameStateService<
    * Validates a loadout for a config using the game's loadout validator.
    * When a game omits isValidLoadout, every loadout is treated as valid.
    */
-  isValidLoadout(loadout: Loadout, config: Config): boolean {
+  isValidLoadout(
+    loadout: T["Loadout"],
+    config: T["Config"],
+  ): boolean {
     return this.game.isValidLoadout?.(loadout, config) ?? true;
   }
 
@@ -122,19 +110,10 @@ export class GameStateService<
    * Validates and applies one move for a player in an active game.
    */
   async handleMove(
-    db: DB<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
+    db: DB<T>,
     matchId: string,
     playerId: number,
-    move: Move,
+    move: T["Move"],
   ): Promise<void> {
     await this.updateGameState(db, matchId, playerId, (gameData) => {
       const moveData = {
@@ -158,21 +137,12 @@ export class GameStateService<
    * Applies a state transition and persists post-game ranked rating updates.
    */
   private async updateGameState(
-    db: DB<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
+    db: DB<T>,
     matchId: string,
     actorPlayerId: number,
     computeNewState: (
-      gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
-    ) => GameState | undefined,
+      gameData: MatchStorageData<T>,
+    ) => T["GameState"] | undefined,
   ): Promise<void> {
     const gameData = await db.getMatchStorageData(matchId);
     if (gameData.outcome !== undefined) {
@@ -184,7 +154,7 @@ export class GameStateService<
       return;
     }
 
-    const outcomeObject: OutcomeObject<Config> = {
+    const outcomeObject: OutcomeObject<T> = {
       config: gameData.config,
       numPlayers: gameData.userIds.length,
     };

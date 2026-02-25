@@ -67,9 +67,8 @@ Client-side hooks are organized by functionality:
 
 ### Game Interface
 
-Games must implement the
-`GameDefinition<Config, GameState, Move, PlayerState, PublicState, Outcome, Rating, Loadout>`
-interface defined in `types.ts`:
+Games must implement the `GameDefinition<GameTypesBundle>` interface defined in
+`types.ts`, where `GameTypesBundle` is an object type containing:
 
 - `Config` - Configuration type (structured clone compatible)
 - `GameState` - Game state type (structured clone compatible)
@@ -137,8 +136,8 @@ Uses Deno KV for:
   public user snapshots because snapshots only store player-facing fields
 - Presence uses a 10-minute TTL with no heartbeat loop; TTL is pushed on socket
   setup plus subscribe/mutating requests
-- `PlayerSnapshot<Rating>` values are frozen at queue/room join time and stored
-  in queue entries, room members, games, active public matches, and available
+- `PlayerSnapshot<T>` values are frozen at queue/room join time and stored in
+  queue entries, room members, games, active public matches, and available
   public rooms; they are intentionally not updated after join
 
 ### WebSocket Communication
@@ -176,12 +175,12 @@ entry contains stored match metadata plus serve-time `publicState` and
 game's `publicState()` and `playerState()` methods.
 
 AccountUserProfile payloads and `FetchUserProfile` results
-(`UserProfileViewData<Config, Outcome, Rating>`) contain canonical user profile
-data plus `completedMatches` history snapshots. Display-facing match and room
-payloads use `PlayerSnapshot<Rating>` instead.
+(`UserProfileViewData<GameTypesBundle>`) contain canonical user profile data
+plus `completedMatches` history snapshots. Display-facing match and room
+payloads use `PlayerSnapshot<T>` instead.
 
-Active public users channel payloads (`ActiveUsersViewData<Rating>`) contain
-only `PlayerSnapshot<Rating>[]` (`allActiveUsers`).
+Active public users channel payloads (`ActiveUsersViewData<GameTypesBundle>`)
+contain only `PlayerSnapshot<T>[]` (`allActiveUsers`).
 
 Active public matches channel payloads (`ActivePublicMatchesViewData`) contain
 stored match metadata plus serve-time per-match `publicState` projections

@@ -44,9 +44,25 @@ const socket = useSocket("/api/socket");
 const profile = await fetchUserProfile(socket, "some-user-id");
 ```
 
-`profile` is `UserProfileViewData<Config, Outcome, Rating> | null`, including
-canonical user fields plus a reverse-chronological `completedMatches` snapshot
-list.
+`profile` is `UserProfileViewData<MyGameTypes> | null`, including canonical user
+fields plus a reverse-chronological `completedMatches` snapshot list.
+
+All exported framework types now take a single bundled generic. Define your
+game's bundle once and reuse it across `GameDefinition`, server APIs, and hook
+props.
+
+```ts
+type MyGameTypes = {
+  Config: Config;
+  GameState: GameState;
+  Move: Move;
+  PlayerState: PlayerState;
+  PublicState: PublicState;
+  Outcome: Outcome;
+  Rating: Rating;
+  Loadout: Loadout;
+};
+```
 
 ## Designing Game and UI Logic
 
@@ -97,8 +113,7 @@ not need to be) the same type.
 
 ### `game`
 
-This object should satisfy
-`GameDefinition<Config, GameState, Move, PlayerState, PublicState, Outcome, Rating, Loadout>`.
+This object should satisfy `GameDefinition<MyGameTypes>`.
 
 ```ts
 export const game: {

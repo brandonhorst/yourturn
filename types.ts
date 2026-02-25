@@ -44,29 +44,44 @@ export type JSONValue = AsJson<any>;
 // deno-lint-ignore no-explicit-any
 type StructuredCloneValue = AsStructuredClone<any>;
 
-export type PlayerSnapshot<Rating> = {
+/**
+ * Game-specific type bundle shared across server, socket messages, and hooks.
+ * Consumers provide one concrete object type and reuse it everywhere.
+ */
+export type GameTypes = {
+  Config: StructuredCloneValue;
+  GameState: StructuredCloneValue;
+  Move: JSONValue;
+  PlayerState: JSONValue;
+  PublicState: JSONValue;
+  Outcome: JSONValue;
+  Rating: JSONValue;
+  Loadout: JSONValue;
+};
+
+export type PlayerSnapshot<T extends GameTypes> = {
   userId: string;
   username: string;
   isGuest: boolean;
-  rating: Record<string, Rating>;
+  rating: Record<string, T["Rating"]>;
 };
 
-export type CompletedMatchSnapshot<Config, Outcome, Rating> = {
+export type CompletedMatchSnapshot<T extends GameTypes> = {
   matchId: string;
   queueId?: string;
-  players: PlayerSnapshot<Rating>[];
-  config: Config;
-  outcome: Outcome;
+  players: PlayerSnapshot<T>[];
+  config: T["Config"];
+  outcome: T["Outcome"];
   completed: Date;
 };
 
-export type UserProfileViewData<Config, Outcome, Rating> = {
+export type UserProfileViewData<T extends GameTypes> = {
   userId: string;
   username: string;
   isGuest: boolean;
-  rating: Record<string, Rating>;
+  rating: Record<string, T["Rating"]>;
   description: string;
-  completedMatches: CompletedMatchSnapshot<Config, Outcome, Rating>[];
+  completedMatches: CompletedMatchSnapshot<T>[];
 };
 
 export type UserProfileUpdate = {
@@ -175,118 +190,89 @@ export interface Socket {
  * Exposes methods for bootstrapping socket subscriptions and fetching initial
  * channel payloads used by client hooks.
  */
-export interface Server<
-  Config,
-  Move,
-  PlayerState,
-  PublicState,
-  Outcome,
-  Rating,
-  Loadout,
-> {
+export interface Server<T extends GameTypes> {
   getUserMatchmakingViewData(
     userId: string,
   ): Promise<
     {
-      props: UserMatchmakingViewData<
-        Config,
-        Loadout,
-        PlayerState,
-        PublicState,
-        Rating
-      >;
+      props: UserMatchmakingViewData<T>;
       token: string;
     }
   >;
   getActivePublicMatchesViewData(): Promise<
-    ActivePublicMatchesViewData<Config, PublicState, Rating>
+    ActivePublicMatchesViewData<T>
   >;
-  getActivePublicUsersViewData(): Promise<ActiveUsersViewData<Rating>>;
+  getActivePublicUsersViewData(): Promise<ActiveUsersViewData<T>>;
   getAvailablePublicRoomsViewData(): Promise<
-    AvailablePublicRoomsViewData<Config, Rating>
+    AvailablePublicRoomsViewData<T>
   >;
   getUserProfileViewData(
     userId: string,
-  ): Promise<UserProfileViewData<Config, Outcome, Rating>>;
+  ): Promise<UserProfileViewData<T>>;
   getMatchViewData(
     matchId: string,
     userId: string,
-  ): Promise<MatchViewData<PlayerState, PublicState, Outcome, Rating>>;
+  ): Promise<MatchViewData<T>>;
   configureSocket(socket: WebSocket, userId: string): void;
   resolveToken(token: string | undefined): Promise<string>;
 }
 
-export type SetupObject<Config, Loadout> = {
+export type SetupObject<T extends GameTypes> = {
   timestamp: Date;
   numPlayers: number;
-  config: Config;
-  loadouts: Loadout[];
+  config: T["Config"];
+  loadouts: T["Loadout"][];
 };
 
-export type MoveObject<Config, Move> = {
-  config: Config;
-  move: Move;
+export type MoveObject<T extends GameTypes> = {
+  config: T["Config"];
+  move: T["Move"];
   playerId: number;
   timestamp: Date;
   numPlayers: number;
 };
 
-export type RefreshObject<Config> = {
-  config: Config;
+export type RefreshObject<T extends GameTypes> = {
+  config: T["Config"];
   timestamp: Date;
   numPlayers: number;
 };
 
-export type PlayerStateObject<Config> = {
-  config: Config;
+export type PlayerStateObject<T extends GameTypes> = {
+  config: T["Config"];
   playerId: number;
   numPlayers: number;
   timestamp: Date;
 };
-export type PublicStateObject<Config> = {
-  config: Config;
+export type PublicStateObject<T extends GameTypes> = {
+  config: T["Config"];
   numPlayers: number;
   timestamp: Date;
 };
 
-export type OutcomeObject<Config> = {
-  config: Config;
+export type OutcomeObject<T extends GameTypes> = {
+  config: T["Config"];
   numPlayers: number;
 };
 
-export type QueueConfig<Config> = {
+export type QueueConfig<T extends GameTypes> = {
   numPlayers: number;
-  config: Config;
+  config: T["Config"];
   queueType: "ranked" | "unranked";
 };
 
 /**
  * Core interface for implementing turn-based multiplayer games.
  *
- * @template Config - Configuration type that defines game setup parameters (must be compatible with structured clone algorithm)
- * @template GameState - Game state type representing the complete state of the game (must be compatible with structured clone algorithm)
- * @template Move - Move type representing actions players can take (must be JSON serializable)
- * @template PlayerState - Player state type representing game state visible to a specific player (must be JSON serializable)
- * @template PublicState - Observer state type representing game state visible to observers (must be JSON serializable)
- * @template Outcome - Outcome type representing game results (must be JSON serializable)
- * @template Rating - Rating type representing a player's ranking (must be JSON serializable)
- * @template Loadout - Player loadout data provided during queue join (must be JSON serializable)
+ * @template T - Bundle containing Config, GameState, Move, PlayerState,
+ * PublicState, Outcome, Rating, and Loadout.
  */
-export interface GameDefinition<
-  Config extends StructuredCloneValue,
-  GameState extends StructuredCloneValue,
-  Move extends JSONValue,
-  PlayerState extends JSONValue,
-  PublicState extends JSONValue,
-  Outcome extends JSONValue,
-  Rating extends JSONValue,
-  Loadout extends JSONValue,
-> {
+export interface GameDefinition<T extends GameTypes> {
   /**
    * Defines the available game queues with their configurations.
    * Used for game initialization.
    */
-  queues: { [id: string]: QueueConfig<Config> };
+  queues: { [id: string]: QueueConfig<T> };
 
   /**
    * Creates the initial game state when a new game is started.
@@ -294,7 +280,7 @@ export interface GameDefinition<
    * @param o - Setup object containing configuration, player count, and timestamp
    * @returns Immutable initial game state
    */
-  setup(o: SetupObject<Config, Loadout>): Readonly<GameState>;
+  setup(o: SetupObject<T>): Readonly<T["GameState"]>;
 
   /**
    * Validates whether a move is legitimate based on current game state.
@@ -304,7 +290,10 @@ export interface GameDefinition<
    * @param o - Move object containing the move, player ID, configuration, timestamp, and player count
    * @returns True if the move is valid, false otherwise
    */
-  isValidMove(state: Readonly<GameState>, o: MoveObject<Config, Move>): boolean;
+  isValidMove(
+    state: Readonly<T["GameState"]>,
+    o: MoveObject<T>,
+  ): boolean;
 
   /**
    * Validates whether a loadout is acceptable for the given game configuration.
@@ -314,7 +303,7 @@ export interface GameDefinition<
    * @param config - Configuration for the selected mode
    * @returns True if the loadout is valid, false otherwise
    */
-  isValidLoadout?(loadout: Loadout, config: Config): boolean;
+  isValidLoadout?(loadout: T["Loadout"], config: T["Config"]): boolean;
 
   /**
    * Validates whether a room configuration is acceptable.
@@ -323,7 +312,7 @@ export interface GameDefinition<
    * @param config - Configuration for the room being created or joined
    * @returns True if the room configuration is valid, false otherwise
    */
-  isValidRoom?(config: Config): boolean;
+  isValidRoom?(config: T["Config"]): boolean;
 
   /**
    * Processes a player's move and updates the game state accordingly.
@@ -334,9 +323,9 @@ export interface GameDefinition<
    * @returns Updated immutable game state
    */
   processMove(
-    state: Readonly<GameState>,
-    o: MoveObject<Config, Move>,
-  ): Readonly<GameState>;
+    state: Readonly<T["GameState"]>,
+    o: MoveObject<T>,
+  ): Readonly<T["GameState"]>;
 
   /**
    * Reserved for future time-based mechanics.
@@ -346,8 +335,8 @@ export interface GameDefinition<
    * @returns Timeout in milliseconds or undefined
    */
   refreshTimeout?(
-    state: Readonly<GameState>,
-    o: RefreshObject<Config>,
+    state: Readonly<T["GameState"]>,
+    o: RefreshObject<T>,
   ): number | undefined;
 
   /**
@@ -359,9 +348,9 @@ export interface GameDefinition<
    * @returns Player-specific state representation
    */
   playerState(
-    state: Readonly<GameState>,
-    o: PlayerStateObject<Config>,
-  ): PlayerState;
+    state: Readonly<T["GameState"]>,
+    o: PlayerStateObject<T>,
+  ): T["PlayerState"];
 
   /**
    * Creates an observer-specific view of the game state.
@@ -371,9 +360,9 @@ export interface GameDefinition<
    * @returns Observer-specific state representation
    */
   publicState(
-    state: Readonly<GameState>,
-    o: PublicStateObject<Config>,
-  ): PublicState;
+    state: Readonly<T["GameState"]>,
+    o: PublicStateObject<T>,
+  ): T["PublicState"];
 
   /**
    * Determines the game outcome.
@@ -383,14 +372,14 @@ export interface GameDefinition<
    * @param o - Outcome check object containing configuration and player count
    * @returns Outcome value or undefined if the game is still in progress
    */
-  outcome(state: Readonly<GameState>, o: OutcomeObject<Config>):
-    | Outcome
+  outcome(state: Readonly<T["GameState"]>, o: OutcomeObject<T>):
+    | T["Outcome"]
     | undefined;
 
   /**
    * Returns the initial rating for a new player.
    */
-  initialRating(): Rating;
+  initialRating(): T["Rating"];
 
   /**
    * Processes the game outcome and returns updated ratings for all players.
@@ -399,168 +388,155 @@ export interface GameDefinition<
    * @param currentRatings - Current ratings for each player, in player order
    * @returns Updated ratings for each player, in player order
    */
-  processOutcome(outcome: Outcome, currentRatings: Rating[]): Rating[];
+  processOutcome(
+    outcome: T["Outcome"],
+    currentRatings: T["Rating"][],
+  ): T["Rating"][];
 }
 
 // ViewData and Props
 
-export type ActiveMatch<Config, Rating> = {
+export type ActiveMatch<T extends GameTypes> = {
   matchId: string;
-  players: PlayerSnapshot<Rating>[];
-  config: Config;
+  players: PlayerSnapshot<T>[];
+  config: T["Config"];
   created: Date;
 };
 
-export type ActivePublicMatch<Config, PublicState, Rating> =
-  & ActiveMatch<Config, Rating>
-  & { publicState: PublicState };
+export type ActivePublicMatch<T extends GameTypes> =
+  & ActiveMatch<T>
+  & { publicState: T["PublicState"] };
 
-export type UserActiveMatch<Config, PrivateState, PublicState, Rating> =
-  & ActivePublicMatch<Config, PublicState, Rating>
-  & { privateState: PrivateState };
+export type UserActiveMatch<T extends GameTypes> =
+  & ActivePublicMatch<T>
+  & { privateState: T["PlayerState"] };
 
-export type AvailableRoom<Config, Rating> = {
+export type AvailableRoom<T extends GameTypes> = {
   roomId: string;
   numPlayers: number;
-  players: PlayerSnapshot<Rating>[];
-  config: Config;
+  players: PlayerSnapshot<T>[];
+  config: T["Config"];
 };
 
-export type RoomEntry<Config, Loadout, Rating> = {
+export type RoomEntry<T extends GameTypes> = {
   roomId: string;
   numPlayers: number;
-  players: PlayerSnapshot<Rating>[];
-  config: Config;
-  loadout: Loadout;
+  players: PlayerSnapshot<T>[];
+  config: T["Config"];
+  loadout: T["Loadout"];
 };
 
-export type QueueEntry<Loadout> = {
+export type QueueEntry<T extends GameTypes> = {
   queueId: string;
-  loadout: Loadout;
+  loadout: T["Loadout"];
 };
 
-export type ActivePublicMatchesViewData<Config, PublicState, Rating> = {
-  allActiveMatches: ActivePublicMatch<Config, PublicState, Rating>[];
+export type ActivePublicMatchesViewData<T extends GameTypes> = {
+  allActiveMatches: ActivePublicMatch<T>[];
 };
 
-export type ActiveUsersViewData<Rating> = {
-  allActiveUsers: PlayerSnapshot<Rating>[];
+export type ActiveUsersViewData<T extends GameTypes> = {
+  allActiveUsers: PlayerSnapshot<T>[];
 };
 
-export type AvailablePublicRoomsViewData<Config, Rating> = {
-  allAvailableRooms: AvailableRoom<Config, Rating>[];
+export type AvailablePublicRoomsViewData<T extends GameTypes> = {
+  allAvailableRooms: AvailableRoom<T>[];
 };
 
-export type UserMatchmakingViewData<
-  Config,
-  Loadout,
-  PrivateState,
-  PublicState,
-  Rating,
-> = {
-  userActiveMatches: UserActiveMatch<
-    Config,
-    PrivateState,
-    PublicState,
-    Rating
-  >[];
+export type UserMatchmakingViewData<T extends GameTypes> = {
+  userActiveMatches: UserActiveMatch<T>[];
   roomIds: string[];
-  queueEntries: QueueEntry<Loadout>[];
+  queueEntries: QueueEntry<T>[];
 };
 
-type CompletePlayerViewData<PlayerState, PublicState, Outcome, Rating> = {
-  players: PlayerSnapshot<Rating>[];
-  publicState: PublicState;
+type CompletePlayerViewData<T extends GameTypes> = {
+  players: PlayerSnapshot<T>[];
+  publicState: T["PublicState"];
   playerId: number;
-  playerState: PlayerState;
-  outcome: Outcome;
+  playerState: T["PlayerState"];
+  outcome: T["Outcome"];
 };
 
-type IncompletePlayerViewData<PlayerState, PublicState, Rating> = {
-  players: PlayerSnapshot<Rating>[];
-  publicState: PublicState;
+type IncompletePlayerViewData<T extends GameTypes> = {
+  players: PlayerSnapshot<T>[];
+  publicState: T["PublicState"];
   playerId: number;
-  playerState: PlayerState;
+  playerState: T["PlayerState"];
   outcome: undefined;
 };
 
-type CompleteObserverViewData<PublicState, Outcome, Rating> = {
-  players: PlayerSnapshot<Rating>[];
-  publicState: PublicState;
+type CompleteObserverViewData<T extends GameTypes> = {
+  players: PlayerSnapshot<T>[];
+  publicState: T["PublicState"];
   playerId: undefined;
   playerState: undefined;
-  outcome: Outcome;
+  outcome: T["Outcome"];
 };
 
-type IncompleteObserverViewData<PublicState, Rating> = {
-  players: PlayerSnapshot<Rating>[];
-  publicState: PublicState;
+type IncompleteObserverViewData<T extends GameTypes> = {
+  players: PlayerSnapshot<T>[];
+  publicState: T["PublicState"];
   playerId: undefined;
   playerState: undefined;
   outcome: undefined;
 };
 
-export type MatchViewData<PlayerState, PublicState, Outcome, Rating> =
-  | CompletePlayerViewData<PlayerState, PublicState, Outcome, Rating>
-  | IncompletePlayerViewData<PlayerState, PublicState, Rating>
-  | CompleteObserverViewData<PublicState, Outcome, Rating>
-  | IncompleteObserverViewData<PublicState, Rating>;
+export type MatchViewData<T extends GameTypes> =
+  | CompletePlayerViewData<T>
+  | IncompletePlayerViewData<T>
+  | CompleteObserverViewData<T>
+  | IncompleteObserverViewData<T>;
 
-type IncompletePlayerProps<Move, PlayerState, PublicState, Rating> =
-  & IncompletePlayerViewData<PlayerState, PublicState, Rating>
-  & { perform: (move: Move) => void };
+type IncompletePlayerProps<T extends GameTypes> =
+  & IncompletePlayerViewData<T>
+  & { perform: (move: T["Move"]) => void };
 
-type CompletePlayerProps<PlayerState, PublicState, Outcome, Rating> =
-  & CompletePlayerViewData<PlayerState, PublicState, Outcome, Rating>
+type CompletePlayerProps<T extends GameTypes> =
+  & CompletePlayerViewData<T>
   & { perform: undefined };
 
-type ObserveProps<PublicState, Outcome, Rating> =
+type ObserveProps<T extends GameTypes> =
   & (
-    | CompleteObserverViewData<PublicState, Outcome, Rating>
-    | IncompleteObserverViewData<
-      PublicState,
-      Rating
-    >
+    | CompleteObserverViewData<T>
+    | IncompleteObserverViewData<T>
   )
   & { perform: undefined };
 
-export type MatchProps<Move, PlayerState, PublicState, Outcome, Rating> =
-  | CompletePlayerProps<PlayerState, PublicState, Outcome, Rating>
-  | IncompletePlayerProps<Move, PlayerState, PublicState, Rating>
-  | ObserveProps<PublicState, Outcome, Rating>;
+export type MatchProps<T extends GameTypes> =
+  | CompletePlayerProps<T>
+  | IncompletePlayerProps<T>
+  | ObserveProps<T>;
 
-export type UserMatchmakingProps<
-  Config,
-  Loadout,
-  PrivateState,
-  PublicState,
-  Rating,
-> =
-  & UserMatchmakingViewData<
-    Config,
-    Loadout,
-    PrivateState,
-    PublicState,
-    Rating
-  >
+export type UserMatchmakingProps<T extends GameTypes> =
+  & UserMatchmakingViewData<T>
   & {
-    joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
+    joinQueue: (
+      queueId: string,
+      options: { loadout: T["Loadout"] },
+    ) => void;
     leaveQueue: (queueId: string) => void;
     createAndJoinRoom: (
-      options: { config: Config; numPlayers: number; private: boolean },
-      player: { loadout: Loadout },
+      options: {
+        config: T["Config"];
+        numPlayers: number;
+        private: boolean;
+      },
+      player: { loadout: T["Loadout"] },
     ) => void;
-    joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
+    joinRoom: (
+      roomId: string,
+      options: { loadout: T["Loadout"] },
+    ) => void;
   };
 
-export type AccountUserProfileProps<Config, Outcome, Rating> =
-  & UserProfileViewData<Config, Outcome, Rating>
+export type AccountUserProfileProps<T extends GameTypes> =
+  & UserProfileViewData<T>
   & {
     update: (changes: UserProfileUpdate) => void;
   };
 
-export type RoomProps<Config, Loadout, Rating> =
-  & RoomEntry<Config, Loadout, Rating>
+export type RoomProps<T extends GameTypes> =
+  & RoomEntry<T>
   & {
     commitRoom: () => void;
     leaveRoom: () => void;

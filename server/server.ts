@@ -5,6 +5,7 @@ import type {
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
   GameDefinition,
+  GameTypes,
   MatchViewData,
   PlayerSnapshot,
   Server,
@@ -24,67 +25,13 @@ import { ulid } from "@std/ulid";
 
 const tokenTtlMs = 1000 * 60 * 60 * 24 * 30;
 
-export class ServerController<
-  Config,
-  GameState,
-  Move,
-  PlayerState,
-  PublicState,
-  Outcome,
-  Rating,
-  Loadout,
-> implements
-  Server<
-    Config,
-    Move,
-    PlayerState,
-    PublicState,
-    Outcome,
-    Rating,
-    Loadout
-  > {
-  private gameStateService: GameStateService<
-    Config,
-    GameState,
-    Move,
-    PlayerState,
-    PublicState,
-    Outcome,
-    Rating,
-    Loadout
-  >;
+export class ServerController<T extends GameTypes> implements Server<T> {
+  private gameStateService: GameStateService<T>;
 
   constructor(
-    private game: GameDefinition<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
-    private db: DB<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
-    private socketStore: SocketStore<
-      Config,
-      GameState,
-      Move,
-      PlayerState,
-      PublicState,
-      Outcome,
-      Rating,
-      Loadout
-    >,
+    private game: GameDefinition<T>,
+    private db: DB<T>,
+    private socketStore: SocketStore<T>,
   ) {
     this.gameStateService = new GameStateService(this.game);
     this.socketStore.setGameStateService(this.gameStateService);
@@ -98,13 +45,7 @@ export class ServerController<
     userId: string,
   ): Promise<
     {
-      props: UserMatchmakingViewData<
-        Config,
-        Loadout,
-        PlayerState,
-        PublicState,
-        Rating
-      >;
+      props: UserMatchmakingViewData<T>;
       token: string;
     }
   > {
@@ -146,7 +87,7 @@ export class ServerController<
    * Builds view data for the active public matches channel.
    */
   async getActivePublicMatchesViewData(): Promise<
-    ActivePublicMatchesViewData<Config, PublicState, Rating>
+    ActivePublicMatchesViewData<T>
   > {
     const allActiveMatches = await this.db.getAllActivePublicMatches();
     const projectedMatches = await this.buildActivePublicMatchViews(
@@ -161,7 +102,7 @@ export class ServerController<
    * Builds view data for the active public users channel.
    */
   async getActivePublicUsersViewData(): Promise<
-    ActiveUsersViewData<Rating>
+    ActiveUsersViewData<T>
   > {
     const allActiveUsers = await this.db.getAllActivePublicUsers();
     return {
@@ -173,7 +114,7 @@ export class ServerController<
    * Builds view data for the available public rooms channel.
    */
   async getAvailablePublicRoomsViewData(): Promise<
-    AvailablePublicRoomsViewData<Config, Rating>
+    AvailablePublicRoomsViewData<T>
   > {
     const allAvailableRooms = await this.db.getAllAvailablePublicRooms();
     return {
@@ -186,7 +127,7 @@ export class ServerController<
    */
   async getUserProfileViewData(
     userId: string,
-  ): Promise<UserProfileViewData<Config, Outcome, Rating>> {
+  ): Promise<UserProfileViewData<T>> {
     if (userId === "") {
       throw new Error("Missing UserProfile user ID");
     }
@@ -204,7 +145,7 @@ export class ServerController<
   async getMatchViewData(
     matchId: string,
     userId: string,
-  ): Promise<MatchViewData<PlayerState, PublicState, Outcome, Rating>> {
+  ): Promise<MatchViewData<T>> {
     if (userId === "") {
       throw new Error("Missing match user id");
     }
@@ -219,9 +160,9 @@ export class ServerController<
    * Builds the initial match view payload for a specific player or observer.
    */
   private buildMatchViewData(
-    gameData: MatchStorageData<Config, GameState, Outcome, Rating>,
+    gameData: MatchStorageData<T>,
     playerId: number | undefined,
-  ): MatchViewData<PlayerState, PublicState, Outcome, Rating> {
+  ): MatchViewData<T> {
     const gameStateUpdate = this.gameStateService.buildGameStateUpdate(
       gameData,
       playerId,
@@ -232,7 +173,7 @@ export class ServerController<
       playerState: gameStateUpdate.playerState,
       publicState: gameStateUpdate.publicState,
       outcome: gameStateUpdate.outcome,
-    } as MatchViewData<PlayerState, PublicState, Outcome, Rating>;
+    } as MatchViewData<T>;
   }
 
   /**
@@ -241,7 +182,7 @@ export class ServerController<
   private async getMatchDataById(
     matchIds: string[],
   ): Promise<
-    Map<string, MatchStorageData<Config, GameState, Outcome, Rating>>
+    Map<string, MatchStorageData<T>>
   > {
     const uniqueMatchIds = [...new Set(matchIds)];
     const matchEntries = await Promise.all(
@@ -256,7 +197,7 @@ export class ServerController<
     );
     const matchDataById = new Map<
       string,
-      MatchStorageData<Config, GameState, Outcome, Rating>
+      MatchStorageData<T>
     >();
     for (const matchEntry of matchEntries) {
       if (matchEntry == null) {
@@ -271,14 +212,13 @@ export class ServerController<
    * Projects active public matches using the latest match game state.
    */
   private async buildActivePublicMatchViews(
-    activeMatches: ActiveMatch<Config, Rating>[],
-  ): Promise<ActivePublicMatch<Config, PublicState, Rating>[]> {
+    activeMatches: ActiveMatch<T>[],
+  ): Promise<ActivePublicMatch<T>[]> {
     const timestamp = new Date();
     const matchDataById = await this.getMatchDataById(
       activeMatches.map((activeMatch) => activeMatch.matchId),
     );
-    const projectedMatches: ActivePublicMatch<Config, PublicState, Rating>[] =
-      [];
+    const projectedMatches: ActivePublicMatch<T>[] = [];
 
     for (const activeMatch of activeMatches) {
       const gameData = matchDataById.get(activeMatch.matchId);
@@ -300,18 +240,13 @@ export class ServerController<
    */
   private async buildUserActiveMatchViews(
     userId: string,
-    activeMatches: ActiveMatch<Config, Rating>[],
-  ): Promise<UserActiveMatch<Config, PlayerState, PublicState, Rating>[]> {
+    activeMatches: ActiveMatch<T>[],
+  ): Promise<UserActiveMatch<T>[]> {
     const timestamp = new Date();
     const matchDataById = await this.getMatchDataById(
       activeMatches.map((activeMatch) => activeMatch.matchId),
     );
-    const projectedMatches: UserActiveMatch<
-      Config,
-      PlayerState,
-      PublicState,
-      Rating
-    >[] = [];
+    const projectedMatches: UserActiveMatch<T>[] = [];
 
     for (const activeMatch of activeMatches) {
       const gameData = matchDataById.get(activeMatch.matchId);
@@ -374,7 +309,7 @@ export class ServerController<
      * Fetches the latest player snapshot for room and queue actions.
      */
     const getPlayerSnapshot = async (): Promise<
-      PlayerSnapshot<Rating> | null
+      PlayerSnapshot<T> | null
     > => {
       const userProfileViewData = await this.db.getUserProfileViewData(userId);
       if (userProfileViewData == null) {
@@ -437,13 +372,7 @@ export class ServerController<
      * Routes any client message to the matching channel handler.
      */
     const handleSocketMessage = async (event: MessageEvent) => {
-      const request: ClientMessage<
-        Config,
-        Loadout,
-        Move,
-        PlayerState,
-        PublicState
-      > = JSON.parse(event.data);
+      const request: ClientMessage<T> = JSON.parse(event.data);
 
       if (
         request.type === "SubscribeAccountUserProfile" ||
@@ -493,14 +422,7 @@ export class ServerController<
                 userProfile: await this.db.getUserProfileViewData(
                   request.userId,
                 ),
-              } satisfies ServerMessage<
-                Config,
-                Loadout,
-                Rating,
-                PlayerState,
-                PublicState,
-                Outcome
-              >,
+              } satisfies ServerMessage<T>,
             ),
           );
           break;
@@ -806,7 +728,7 @@ export class ServerController<
   /**
    * Builds initial ratings for every configured ranked queue.
    */
-  private buildInitialRatings(): Record<string, Rating> {
+  private buildInitialRatings(): Record<string, T["Rating"]> {
     return this.normalizeRatings({}).ratings;
   }
 
@@ -814,8 +736,8 @@ export class ServerController<
    * Ensures ratings exist for every configured ranked queue.
    */
   private normalizeRatings(
-    ratings: Record<string, Rating>,
-  ): { ratings: Record<string, Rating>; didChange: boolean } {
+    ratings: Record<string, T["Rating"]>,
+  ): { ratings: Record<string, T["Rating"]>; didChange: boolean } {
     const merged = { ...ratings };
     let didChange = false;
     for (const [queueId, queueConfig] of Object.entries(this.game.queues)) {

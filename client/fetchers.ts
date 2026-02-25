@@ -1,5 +1,5 @@
 import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
-import type { Socket, UserProfileViewData } from "../types.ts";
+import type { GameTypes, Socket, UserProfileViewData } from "../types.ts";
 
 const fetchUserProfileTimeoutMs = 10000;
 
@@ -7,12 +7,12 @@ const fetchUserProfileTimeoutMs = 10000;
  * Fetches one canonical user profile snapshot for a target user ID.
  * Returns `null` when the requested user does not exist.
  */
-export function fetchUserProfile<Config, Outcome, Rating>(
+export function fetchUserProfile<T extends GameTypes>(
   socket: Socket,
   userId: string,
-): Promise<UserProfileViewData<Config, Outcome, Rating> | null> {
+): Promise<UserProfileViewData<T> | null> {
   const requestId = crypto.randomUUID();
-  const request: ClientMessage<never, never, never, never, never> = {
+  const request: ClientMessage<T> = {
     type: "FetchUserProfile",
     requestId,
     userId,
@@ -21,14 +21,7 @@ export function fetchUserProfile<Config, Outcome, Rating>(
   return new Promise((resolve, reject) => {
     // Resolves only for this request ID and then detaches request listeners.
     const onMessage = (message: string) => {
-      const response = JSON.parse(message) as ServerMessage<
-        Config,
-        never,
-        Rating,
-        never,
-        never,
-        Outcome
-      >;
+      const response = JSON.parse(message) as ServerMessage<T>;
       if (
         response.type !== "FetchUserProfileResult" ||
         response.requestId !== requestId
