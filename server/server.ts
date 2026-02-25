@@ -162,23 +162,6 @@ export class ServerController<
   }
 
   /**
-   * Builds view data for one AccountUserProfile channel subscription.
-   */
-  async getAccountUserProfileViewData(
-    userId: string,
-  ): Promise<UserProfileViewData<Rating>> {
-    if (userId === "") {
-      throw new Error("Missing AccountUserProfile user ID");
-    }
-
-    const userProfile = await this.db.getUserProfileViewData(userId);
-    if (userProfile == null) {
-      throw new Error("Unknown AccountUserProfile user");
-    }
-    return userProfile;
-  }
-
-  /**
    * Builds view data for one canonical user profile fetch.
    */
   async getUserProfileViewData(

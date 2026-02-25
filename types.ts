@@ -110,9 +110,6 @@ export interface Server<
   getAvailablePublicRoomsViewData(): Promise<
     AvailablePublicRoomsViewData<Config, Rating>
   >;
-  getAccountUserProfileViewData(
-    userId: string,
-  ): Promise<UserProfileViewData<Rating>>;
   getUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<Rating>>;
