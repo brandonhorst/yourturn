@@ -51,10 +51,12 @@ type UserMatchmakingConnectionState<Config, Loadout, Rating> = {
 /**
  * AccountUserProfile-specific state tracked for one websocket and user ID.
  */
-type AccountUserProfileConnectionState<Rating> = {
+type AccountUserProfileConnectionState<Config, Outcome, Rating> = {
   userId: string;
   subscriptionIds: Set<string>;
-  userChangesReader: ReadableStreamDefaultReader<UserProfileViewData<Rating>>;
+  userChangesReader: ReadableStreamDefaultReader<
+    UserProfileViewData<Config, Outcome, Rating>
+  >;
 };
 
 /**
@@ -89,12 +91,12 @@ type SocketSubscription =
  * Combined state for a websocket across account profile, UserMatchmaking,
  * room, and game subscriptions.
  */
-type SocketConnectionState<Config, Loadout, Rating> = {
+type SocketConnectionState<Config, Loadout, Outcome, Rating> = {
   subscriptions: Map<string, SocketSubscription>;
   roomConnections: Map<string, RoomConnectionState<Config, Loadout, Rating>>;
   accountUserProfileConnections: Map<
     string,
-    AccountUserProfileConnectionState<Rating>
+    AccountUserProfileConnectionState<Config, Outcome, Rating>
   >;
   userMatchmaking?: UserMatchmakingConnectionState<Config, Loadout, Rating>;
 };
@@ -208,7 +210,7 @@ export class SocketStore<
 > {
   private sockets: Map<
     WebSocket,
-    SocketConnectionState<Config, Loadout, Rating>
+    SocketConnectionState<Config, Loadout, Outcome, Rating>
   > = new Map();
   private gameStateService?: GameStateService<
     Config,
@@ -273,7 +275,7 @@ export class SocketStore<
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
-    userProfile: UserProfileViewData<Rating>,
+    userProfile: UserProfileViewData<Config, Outcome, Rating>,
   ): Promise<void> {
     await this.unsubscribe(socket, subscriptionId);
 
@@ -912,7 +914,9 @@ export class SocketStore<
   private async streamAccountUserProfileChangesToSocket(
     socket: WebSocket,
     userId: string,
-    userChangesReader: ReadableStreamDefaultReader<UserProfileViewData<Rating>>,
+    userChangesReader: ReadableStreamDefaultReader<
+      UserProfileViewData<Config, Outcome, Rating>
+    >,
   ): Promise<void> {
     try {
       while (true) {
@@ -1045,9 +1049,9 @@ export class SocketStore<
   private sendAccountUserProfileSnapshot(
     socket: WebSocket,
     subscriptionId: string,
-    userProfile: UserProfileViewData<Rating>,
+    userProfile: UserProfileViewData<Config, Outcome, Rating>,
   ): void {
-    sendServerMessage<never, never, Rating, never, never, never>(socket, {
+    sendServerMessage<Config, never, Rating, never, never, Outcome>(socket, {
       type: "UpdateAccountUserProfileProps",
       subscriptionId,
       accountUserProfileProps: userProfile,
@@ -1061,7 +1065,7 @@ export class SocketStore<
   private sendAccountUserProfileSnapshotToSubscriptions(
     socket: WebSocket,
     userId: string,
-    userProfile: UserProfileViewData<Rating>,
+    userProfile: UserProfileViewData<Config, Outcome, Rating>,
   ): void {
     for (
       const subscriptionId of this.getAccountUserProfileSubscriptionIds(
@@ -1597,13 +1601,18 @@ export class SocketStore<
    */
   private getOrCreateSocketConnection(
     socket: WebSocket,
-  ): SocketConnectionState<Config, Loadout, Rating> {
+  ): SocketConnectionState<Config, Loadout, Outcome, Rating> {
     const existing = this.sockets.get(socket);
     if (existing != null) {
       return existing;
     }
 
-    const connectionState: SocketConnectionState<Config, Loadout, Rating> = {
+    const connectionState: SocketConnectionState<
+      Config,
+      Loadout,
+      Outcome,
+      Rating
+    > = {
       subscriptions: new Map(),
       roomConnections: new Map(),
       accountUserProfileConnections: new Map(),

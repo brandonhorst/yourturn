@@ -51,12 +51,22 @@ export type PlayerSnapshot<Rating> = {
   rating: Record<string, Rating>;
 };
 
-export type UserProfileViewData<Rating> = {
+export type CompletedGameSnapshot<Config, Outcome, Rating> = {
+  gameId: string;
+  queueId?: string;
+  players: PlayerSnapshot<Rating>[];
+  config: Config;
+  outcome: Outcome;
+  completed: Date;
+};
+
+export type UserProfileViewData<Config, Outcome, Rating> = {
   userId: string;
   username: string;
   isGuest: boolean;
   rating: Record<string, Rating>;
   description: string;
+  completedGames: CompletedGameSnapshot<Config, Outcome, Rating>[];
 };
 
 export type UserProfileUpdate = {
@@ -112,7 +122,7 @@ export interface Server<
   >;
   getUserProfileViewData(
     userId: string,
-  ): Promise<UserProfileViewData<Rating>>;
+  ): Promise<UserProfileViewData<Config, Outcome, Rating>>;
   getGameViewData(
     gameId: string,
     userId: string,
@@ -427,8 +437,8 @@ export type UserMatchmakingProps<Config, Loadout, Rating> =
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
   };
 
-export type AccountUserProfileProps<Rating> =
-  & UserProfileViewData<Rating>
+export type AccountUserProfileProps<Config, Outcome, Rating> =
+  & UserProfileViewData<Config, Outcome, Rating>
   & {
     update: (changes: UserProfileUpdate) => void;
   };

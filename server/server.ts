@@ -166,7 +166,7 @@ export class ServerController<
    */
   async getUserProfileViewData(
     userId: string,
-  ): Promise<UserProfileViewData<Rating>> {
+  ): Promise<UserProfileViewData<Config, Outcome, Rating>> {
     if (userId === "") {
       throw new Error("Missing UserProfile user ID");
     }

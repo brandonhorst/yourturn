@@ -105,6 +105,14 @@ Uses Deno KV for:
   IDs used for direct `GameAssignment` socket delivery
 - User records (`["users", userId]`) for canonical profile fields (`username`,
   `isGuest`, `description`) and per-queue `ratings`
+- Completed-game profile history at
+  `["completedgamesbyuser", userId, completedGameEntryId]` with
+  `CompletedGameSnapshot<Config, Outcome, Rating>` payloads (`gameId`, optional
+  `queueId`, frozen `players`, frozen `config`, `outcome`, and `completed`
+  timestamp)
+- Per-user completed-game history root tickers at
+  `["completedgamesbyuser", userId]` stored as `Deno.KvU64` counters so account
+  profile watchers can react to history writes
 - User matchmaking records (`["usermatchmakings", userId]`) for `activeGames`,
   `joinedRooms`, and `queueEntries`
 - Auth tokens
@@ -158,8 +166,9 @@ data only: `userActiveGames`, `roomIds`, and `queueEntries`. Player profile and
 ratings are not part of UserMatchmaking channel view data.
 
 AccountUserProfile payloads and `FetchUserProfile` results
-(`UserProfileViewData<Rating>`) contain canonical user profile data.
-Display-facing game and room payloads use `PlayerSnapshot<Rating>` instead.
+(`UserProfileViewData<Config, Outcome, Rating>`) contain canonical user profile
+data plus `completedGames` history snapshots. Display-facing game and room
+payloads use `PlayerSnapshot<Rating>` instead.
 
 Active public users channel payloads (`ActiveUsersViewData<Rating>`) contain
 only `PlayerSnapshot<Rating>[]` (`allActiveUsers`).

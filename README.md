@@ -44,7 +44,9 @@ const socket = useSocket("/api/socket");
 const profile = await fetchUserProfile(socket, "some-user-id");
 ```
 
-`profile` is `UserProfileViewData<Rating> | null`.
+`profile` is `UserProfileViewData<Config, Outcome, Rating> | null`, including
+canonical user fields plus a reverse-chronological `completedGames` snapshot
+list.
 
 ## Designing Game and UI Logic
 

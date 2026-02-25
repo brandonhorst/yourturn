@@ -7,10 +7,10 @@ const fetchUserProfileTimeoutMs = 10000;
  * Fetches one canonical user profile snapshot for a target user ID.
  * Returns `null` when the requested user does not exist.
  */
-export function fetchUserProfile<Rating>(
+export function fetchUserProfile<Config, Outcome, Rating>(
   socket: Socket,
   userId: string,
-): Promise<UserProfileViewData<Rating> | null> {
+): Promise<UserProfileViewData<Config, Outcome, Rating> | null> {
   const requestId = crypto.randomUUID();
   const request: ClientMessage<never, never, never, never, never> = {
     type: "FetchUserProfile",
@@ -22,12 +22,12 @@ export function fetchUserProfile<Rating>(
     // Resolves only for this request ID and then detaches request listeners.
     const onMessage = (message: string) => {
       const response = JSON.parse(message) as ServerMessage<
-        never,
+        Config,
         never,
         Rating,
         never,
         never,
-        never
+        Outcome
       >;
       if (
         response.type !== "FetchUserProfileResult" ||

@@ -2,6 +2,7 @@ import { ulid } from "@std/ulid";
 import type {
   ActiveGame,
   AvailableRoom,
+  CompletedGameSnapshot,
   Game,
   PlayerSnapshot,
   QueueConfig,
@@ -78,30 +79,36 @@ export type ActiveUserStorageData<Rating> = {
 /**
  * Converts canonical stored user data into socket-safe user profile view data.
  */
-export function userStorageDataToUserProfileViewData<Rating>(
+export function userStorageDataToUserProfileViewData<
+  Config,
+  Outcome,
+  Rating,
+>(
   userId: string,
   userStorageData: UserStorageData<Rating>,
-): UserProfileViewData<Rating> {
+  completedGames: CompletedGameSnapshot<Config, Outcome, Rating>[],
+): UserProfileViewData<Config, Outcome, Rating> {
   return {
     userId,
     username: userStorageData.username,
     isGuest: userStorageData.isGuest,
     description: userStorageData.description,
-    rating: structuredClone(userStorageData.ratings),
+    rating: userStorageData.ratings,
+    completedGames,
   };
 }
 
 /**
  * Converts user profile view data into a frozen player snapshot.
  */
-export function userProfileViewDataToPlayerSnapshot<Rating>(
-  userProfileViewData: UserProfileViewData<Rating>,
+export function userProfileViewDataToPlayerSnapshot<Config, Outcome, Rating>(
+  userProfileViewData: UserProfileViewData<Config, Outcome, Rating>,
 ): PlayerSnapshot<Rating> {
   return {
     userId: userProfileViewData.userId,
     username: userProfileViewData.username,
     isGuest: userProfileViewData.isGuest,
-    rating: structuredClone(userProfileViewData.rating),
+    rating: userProfileViewData.rating,
   };
 }
 
@@ -139,6 +146,12 @@ function getGameKey(gameId: string) {
 function getUserKey(userId: string) {
   return ["users", userId];
 }
+function getUserCompletedGamesKey(userId: string) {
+  return ["completedgamesbyuser", userId];
+}
+function getUserCompletedGameKey(userId: string, completedGameId: string) {
+  return ["completedgamesbyuser", userId, completedGameId];
+}
 function getUserMatchmakingKey(userId: string) {
   return ["usermatchmakings", userId];
 }
@@ -151,6 +164,8 @@ function getTokenKey(token: string) {
 
 const PUBLIC_LIST_READ_LIMIT = 500;
 const PUBLIC_LIST_BATCH_SIZE = 500;
+const USER_COMPLETED_GAMES_READ_LIMIT = 500;
+const USER_COMPLETED_GAMES_BATCH_SIZE = 500;
 const ACTIVE_PUBLIC_USER_TTL_MS = 10 * 60 * 1000;
 const U64_MAX = (1n << 64n) - 1n;
 
@@ -295,6 +310,21 @@ export class DB<
     this.mutateIndexedListRootCountOnOperation(
       transaction,
       getAvailablePublicRoomsKey(),
+      delta,
+    );
+  }
+
+  /**
+   * Mutates one user's completed-games history root ticker.
+   */
+  private mutateUserCompletedGamesRootCountOnOperation(
+    transaction: Deno.AtomicOperation,
+    userId: string,
+    delta: -1 | 0 | 1,
+  ): void {
+    this.mutateIndexedListRootCountOnOperation(
+      transaction,
+      getUserCompletedGamesKey(userId),
       delta,
     );
   }
@@ -922,7 +952,8 @@ export class DB<
   }
 
   /**
-   * Updates game storage data.
+   * Updates game storage data and persists per-user completion history snapshots
+   * when a game first reaches an outcome.
    * @param gameId The ID of the game to update
    * @param gameData The updated game data
    */
@@ -942,11 +973,13 @@ export class DB<
       throw new Error(`Appending moves to unstored ${gameId}`);
     }
 
+    const outcome = gameData.outcome;
+
     let transaction = this.kv.atomic()
       .check(entry)
       .set(gameKey, gameData);
 
-    if (gameData.outcome !== undefined) {
+    if (outcome != null) {
       // If the game is over, remove it from the active public game index.
       const activePublicGameEntry = await this.kv.get<
         ActiveGame<Config, Rating>
@@ -958,6 +991,33 @@ export class DB<
           .check(activePublicGameEntry)
           .delete(activePublicGameKey);
         this.mutateActivePublicGamesRootCountOnOperation(transaction, -1);
+      }
+
+      const completedGameEntryId = ulid();
+      const completedGame: CompletedGameSnapshot<Config, Outcome, Rating> = {
+        gameId,
+        queueId: gameData.queueId,
+        players: gameData.players,
+        config: gameData.config,
+        outcome,
+        completed: new Date(),
+      };
+
+      // Persist one denormalized completion snapshot per player profile feed.
+      const userIds = [...new Set(gameData.userIds)];
+      for (const userId of userIds) {
+        const completedGameKey = getUserCompletedGameKey(
+          userId,
+          completedGameEntryId,
+        );
+        transaction = transaction
+          .check({ key: completedGameKey, versionstamp: null })
+          .set(completedGameKey, completedGame);
+        this.mutateUserCompletedGamesRootCountOnOperation(
+          transaction,
+          userId,
+          1,
+        );
       }
     }
 
@@ -1280,36 +1340,67 @@ export class DB<
   }
 
   /**
+   * Fetches one user's completed games in reverse chronological order.
+   */
+  private async getUserCompletedGames(
+    userId: string,
+  ): Promise<CompletedGameSnapshot<Config, Outcome, Rating>[]> {
+    const completedGamesKey = getUserCompletedGamesKey(userId);
+    const completedGameEntries = await Array.fromAsync(
+      this.kv.list<CompletedGameSnapshot<Config, Outcome, Rating>>(
+        { prefix: completedGamesKey },
+        {
+          limit: USER_COMPLETED_GAMES_READ_LIMIT,
+          batchSize: USER_COMPLETED_GAMES_BATCH_SIZE,
+          reverse: true,
+        },
+      ),
+    );
+
+    return completedGameEntries
+      .filter((entry) => entry.key.length === completedGamesKey.length + 1)
+      .map((entry) => entry.value);
+  }
+
+  /**
    * Fetches the canonical user profile view data for a userId, if present.
    */
   public async getUserProfileViewData(
     userId: string,
-  ): Promise<UserProfileViewData<Rating> | null> {
+  ): Promise<UserProfileViewData<Config, Outcome, Rating> | null> {
     const userStorageData = await this.getUserStorageData(userId);
     if (userStorageData == null) {
       return null;
     }
-    return userStorageDataToUserProfileViewData(userId, userStorageData);
+    const completedGames = await this.getUserCompletedGames(userId);
+    return userStorageDataToUserProfileViewData(
+      userId,
+      userStorageData,
+      completedGames,
+    );
   }
 
   /**
-   * Watches canonical user profile updates for one user.
+   * Watches canonical user profile and completed-game history updates for one
+   * user.
    */
   public watchForUserProfileChanges(
     userId: string,
-  ): ReadableStream<UserProfileViewData<Rating>> {
+  ): ReadableStream<UserProfileViewData<Config, Outcome, Rating>> {
     const userKey = getUserKey(userId);
-    const stream = this.kv.watch<[UserStorageData<Rating>]>([userKey]);
+    const completedGamesKey = getUserCompletedGamesKey(userId);
+    const stream = this.kv.watch<[UserStorageData<Rating>, Deno.KvU64]>([
+      userKey,
+      completedGamesKey,
+    ]);
     return stream.pipeThrough(
       new TransformStream({
-        transform: (events, controller) => {
-          const userStorageData = events[0].value;
-          if (userStorageData == null) {
+        transform: async (_events, controller) => {
+          const userProfile = await this.getUserProfileViewData(userId);
+          if (userProfile == null) {
             return;
           }
-          controller.enqueue(
-            userStorageDataToUserProfileViewData(userId, userStorageData),
-          );
+          controller.enqueue(userProfile);
         },
       }),
     );

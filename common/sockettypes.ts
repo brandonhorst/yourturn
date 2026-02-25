@@ -66,12 +66,12 @@ export type ServerMessage<
   | {
     type: "UpdateAccountUserProfileProps";
     subscriptionId: string;
-    accountUserProfileProps: UserProfileViewData<Rating>;
+    accountUserProfileProps: UserProfileViewData<Config, Outcome, Rating>;
   }
   | {
     type: "FetchUserProfileResult";
     requestId: string;
-    userProfile: UserProfileViewData<Rating> | null;
+    userProfile: UserProfileViewData<Config, Outcome, Rating> | null;
   }
   | {
     type: "UpdateUserMatchmakingProps";

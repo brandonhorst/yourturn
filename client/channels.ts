@@ -442,13 +442,13 @@ export function useAvailablePublicRoomsChannel<Config, Rating>({
 }
 
 // Subscribes to the authenticated user's AccountUserProfile channel.
-export function useAccountUserProfileChannel<Rating>({
+export function useAccountUserProfileChannel<Config, Outcome, Rating>({
   socket,
   initialAccountUserProfileProps,
 }: {
   socket: Socket;
-  initialAccountUserProfileProps: UserProfileViewData<Rating>;
-}): AccountUserProfileProps<Rating> {
+  initialAccountUserProfileProps: UserProfileViewData<Config, Outcome, Rating>;
+}): AccountUserProfileProps<Config, Outcome, Rating> {
   const [accountUserProfile, setAccountUserProfile] = useState(
     initialAccountUserProfileProps,
   );
@@ -481,12 +481,12 @@ export function useAccountUserProfileChannel<Rating>({
 
     function onMessage(message: string) {
       const response = JSON.parse(message) as ServerMessage<
-        never,
+        Config,
         never,
         Rating,
         never,
         never,
-        never
+        Outcome
       >;
       switch (response.type) {
         case "UpdateAccountUserProfileProps":
