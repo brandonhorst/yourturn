@@ -1023,6 +1023,8 @@ export class DB<
   /**
    * Updates match storage data and persists per-user completion history
    * snapshots when a match first reaches an outcome.
+   * Also refreshes per-user matchmaking records so state-derived payloads can
+   * be re-projected by channel subscribers.
    * @param matchId The ID of the match to update
    * @param gameData The updated match data
    * @param userId The actor performing the match mutation
@@ -1034,6 +1036,10 @@ export class DB<
   ): Promise<void> {
     const gameKey = getMatchKey(matchId);
     const activePublicMatchKey = getActivePublicMatchKey(matchId);
+    const participantUserIds = [...new Set(gameData.userIds)];
+    const userMatchmakingKeys = participantUserIds.map((participantUserId) =>
+      getUserMatchmakingKey(participantUserId)
+    );
 
     const entry = await this.kv.get<
       MatchStorageData<Config, GameState, Outcome, Rating>
@@ -1046,18 +1052,44 @@ export class DB<
 
     const outcome = gameData.outcome;
     let completedMatchEntryId: string | undefined;
+    const activePublicMatchEntry = await this.kv.get<
+      ActiveMatch<Config, Rating>
+    >(
+      activePublicMatchKey,
+    );
+    const userMatchmakingEntries = await this.kv.getMany<
+      UserMatchmakingStorageData<Config, Loadout, Rating>[]
+    >(userMatchmakingKeys);
 
     let transaction = this.kv.atomic()
       .check(entry)
       .set(gameKey, gameData);
 
+    for (
+      const [index, userMatchmakingEntry] of userMatchmakingEntries.entries()
+    ) {
+      if (userMatchmakingEntry.value == null) {
+        throw new Error(`User ${participantUserIds[index]} not found`);
+      }
+
+      const updatedUserMatchmaking: UserMatchmakingStorageData<
+        Config,
+        Loadout,
+        Rating
+      > = outcome == null ? userMatchmakingEntry.value : {
+        ...userMatchmakingEntry.value,
+        activeMatches: userMatchmakingEntry.value.activeMatches.filter(
+          (activeMatch) => activeMatch.matchId !== matchId,
+        ),
+      };
+
+      transaction = transaction
+        .check(userMatchmakingEntry)
+        .set(userMatchmakingEntry.key, updatedUserMatchmaking);
+    }
+
     if (outcome != null) {
       // If the match is over, remove it from the active public match index.
-      const activePublicMatchEntry = await this.kv.get<
-        ActiveMatch<Config, Rating>
-      >(
-        activePublicMatchKey,
-      );
       if (activePublicMatchEntry.value != null) {
         transaction = transaction
           .check(activePublicMatchEntry)
@@ -1076,10 +1108,9 @@ export class DB<
       };
 
       // Persist one denormalized completion snapshot per player profile feed.
-      const userIds = [...new Set(gameData.userIds)];
-      for (const userId of userIds) {
+      for (const participantUserId of participantUserIds) {
         const completedMatchKey = getUserCompletedMatchKey(
-          userId,
+          participantUserId,
           completedMatchEntryId,
         );
         transaction = transaction
@@ -1087,10 +1118,13 @@ export class DB<
           .set(completedMatchKey, completedMatch);
         this.mutateUserCompletedMatchesRootCountOnOperation(
           transaction,
-          userId,
+          participantUserId,
           1,
         );
       }
+    } else if (activePublicMatchEntry.value != null) {
+      // Trigger active public match list subscribers to re-project public state.
+      this.mutateActivePublicMatchesRootCountOnOperation(transaction, 0);
     }
 
     this.setAuditLogEntryOnOperation(transaction, {

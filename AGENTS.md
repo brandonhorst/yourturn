@@ -115,7 +115,9 @@ Uses Deno KV for:
   `["completedmatchesbyuser", userId]` stored as `Deno.KvU64` counters so
   account profile watchers can react to history writes
 - User matchmaking records (`["usermatchmakings", userId]`) for `activeMatches`,
-  `joinedRooms`, and `queueEntries`
+  `joinedRooms`, and `queueEntries`; match-state writes touch these keys so
+  UserMatchmaking subscribers can re-project stateful match views, and completed
+  matches are removed from `activeMatches`
 - Auth tokens
 - Mutation log entries at `["auditlogentries", id]` with `AuditLogEntry` records
   (`id` plus `payload`, where payload includes actor `userId`, event `type`, and
@@ -126,7 +128,8 @@ Uses Deno KV for:
 - Root invalidation keys (`["activepublicmatches"]` and
   `["availablepublicrooms"]`) are stored as `Deno.KvU64` counters and mutated
   with atomic `sum` operations (`+1` insert, `-1` delete, `0` update) so list
-  watchers can track updates without scanning
+  watchers can track updates without scanning (`["activepublicmatches"]` uses
+  `0` updates on in-progress match state writes to refresh projections)
 - Active public users at `["activepublicusers", userId]` with
   `ActiveUserStorageData` (`playerSnapshot` and `connectionCount`) and a root
   ticker key at `["activepublicusers"]` that increments on presence writes
@@ -166,9 +169,11 @@ stream.
 that canonical profile change to `["users", userId]` for the authenticated
 socket user.
 
-UserMatchmaking channel payloads (`UserMatchmakingViewData`) contain matchmaking
-data only: `userActiveMatches`, `roomIds`, and `queueEntries`. Player profile
-and ratings are not part of UserMatchmaking channel view data.
+UserMatchmaking channel payloads (`UserMatchmakingViewData`) contain
+`userActiveMatches`, `roomIds`, and `queueEntries`. Each `userActiveMatches`
+entry contains stored match metadata plus serve-time `publicState` and
+`privateState` projections computed from the latest stored `gameState` via the
+game's `publicState()` and `playerState()` methods.
 
 AccountUserProfile payloads and `FetchUserProfile` results
 (`UserProfileViewData<Config, Outcome, Rating>`) contain canonical user profile
@@ -177,6 +182,11 @@ payloads use `PlayerSnapshot<Rating>` instead.
 
 Active public users channel payloads (`ActiveUsersViewData<Rating>`) contain
 only `PlayerSnapshot<Rating>[]` (`allActiveUsers`).
+
+Active public matches channel payloads (`ActivePublicMatchesViewData`) contain
+stored match metadata plus serve-time per-match `publicState` projections
+computed from the latest stored `gameState` via the game's `publicState()`
+method.
 
 ## Agent Instructions
 

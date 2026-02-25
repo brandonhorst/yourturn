@@ -76,12 +76,22 @@ export type ServerMessage<
   | {
     type: "UpdateUserMatchmakingProps";
     subscriptionId: string;
-    userMatchmakingProps: UserMatchmakingViewData<Config, Loadout, Rating>;
+    userMatchmakingProps: UserMatchmakingViewData<
+      Config,
+      Loadout,
+      PlayerState,
+      PublicState,
+      Rating
+    >;
   }
   | {
     type: "UpdateActivePublicMatches";
     subscriptionId: string;
-    activePublicMatchesProps: ActivePublicMatchesViewData<Config, Rating>;
+    activePublicMatchesProps: ActivePublicMatchesViewData<
+      Config,
+      PublicState,
+      Rating
+    >;
   }
   | {
     type: "UpdateActivePublicUsers";

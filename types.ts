@@ -187,10 +187,19 @@ export interface Server<
   getUserMatchmakingViewData(
     userId: string,
   ): Promise<
-    { props: UserMatchmakingViewData<Config, Loadout, Rating>; token: string }
+    {
+      props: UserMatchmakingViewData<
+        Config,
+        Loadout,
+        PlayerState,
+        PublicState,
+        Rating
+      >;
+      token: string;
+    }
   >;
   getActivePublicMatchesViewData(): Promise<
-    ActivePublicMatchesViewData<Config, Rating>
+    ActivePublicMatchesViewData<Config, PublicState, Rating>
   >;
   getActivePublicUsersViewData(): Promise<ActiveUsersViewData<Rating>>;
   getAvailablePublicRoomsViewData(): Promise<
@@ -402,6 +411,14 @@ export type ActiveMatch<Config, Rating> = {
   created: Date;
 };
 
+export type ActivePublicMatch<Config, PublicState, Rating> =
+  & ActiveMatch<Config, Rating>
+  & { publicState: PublicState };
+
+export type UserActiveMatch<Config, PrivateState, PublicState, Rating> =
+  & ActivePublicMatch<Config, PublicState, Rating>
+  & { privateState: PrivateState };
+
 export type AvailableRoom<Config, Rating> = {
   roomId: string;
   numPlayers: number;
@@ -422,8 +439,8 @@ export type QueueEntry<Loadout> = {
   loadout: Loadout;
 };
 
-export type ActivePublicMatchesViewData<Config, Rating> = {
-  allActiveMatches: ActiveMatch<Config, Rating>[];
+export type ActivePublicMatchesViewData<Config, PublicState, Rating> = {
+  allActiveMatches: ActivePublicMatch<Config, PublicState, Rating>[];
 };
 
 export type ActiveUsersViewData<Rating> = {
@@ -434,8 +451,19 @@ export type AvailablePublicRoomsViewData<Config, Rating> = {
   allAvailableRooms: AvailableRoom<Config, Rating>[];
 };
 
-export type UserMatchmakingViewData<Config, Loadout, Rating> = {
-  userActiveMatches: ActiveMatch<Config, Rating>[];
+export type UserMatchmakingViewData<
+  Config,
+  Loadout,
+  PrivateState,
+  PublicState,
+  Rating,
+> = {
+  userActiveMatches: UserActiveMatch<
+    Config,
+    PrivateState,
+    PublicState,
+    Rating
+  >[];
   roomIds: string[];
   queueEntries: QueueEntry<Loadout>[];
 };
@@ -501,8 +529,20 @@ export type MatchProps<Move, PlayerState, PublicState, Outcome, Rating> =
   | IncompletePlayerProps<Move, PlayerState, PublicState, Rating>
   | ObserveProps<PublicState, Outcome, Rating>;
 
-export type UserMatchmakingProps<Config, Loadout, Rating> =
-  & UserMatchmakingViewData<Config, Loadout, Rating>
+export type UserMatchmakingProps<
+  Config,
+  Loadout,
+  PrivateState,
+  PublicState,
+  Rating,
+> =
+  & UserMatchmakingViewData<
+    Config,
+    Loadout,
+    PrivateState,
+    PublicState,
+    Rating
+  >
   & {
     joinQueue: (queueId: string, options: { loadout: Loadout }) => void;
     leaveQueue: (queueId: string) => void;

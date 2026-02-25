@@ -7,6 +7,7 @@ import type {
 } from "./db.ts";
 import type {
   ActiveMatch,
+  ActivePublicMatch,
   ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
@@ -14,6 +15,7 @@ import type {
   MatchViewData,
   PlayerSnapshot,
   RoomEntry,
+  UserActiveMatch,
   UserMatchmakingViewData,
   UserProfileViewData,
 } from "../types.ts";
@@ -41,6 +43,7 @@ type RoomConnectionState<Config, Loadout, Rating> = {
  * UserMatchmaking-specific state tracked for one websocket.
  */
 type UserMatchmakingConnectionState<Config, Loadout, Rating> = {
+  userId: string;
   subscriptionIds: Set<string>;
   userChangesReader: ReadableStreamDefaultReader<
     UserMatchmakingStorageData<Config, Loadout, Rating>
@@ -332,8 +335,14 @@ export class SocketStore<
       existingConnection != null &&
       existingConnection.userMatchmaking != null
     ) {
+      const connectionUserId = existingConnection.userMatchmaking.userId;
       existingConnection.userMatchmaking.subscriptionIds.add(subscriptionId);
-      this.sendUserMatchmakingSnapshot(socket, subscriptionId, userData);
+      await this.sendUserMatchmakingSnapshot(
+        socket,
+        subscriptionId,
+        connectionUserId,
+        userData,
+      );
       return;
     }
 
@@ -346,11 +355,12 @@ export class SocketStore<
         .getReader();
 
       connectionState.userMatchmaking = {
+        userId,
         subscriptionIds: new Set(),
         userChangesReader,
         queueSubscriptions: new Map(),
       };
-      void this.streamUserChangesToSocket(socket, userChangesReader);
+      void this.streamUserChangesToSocket(socket, userId, userChangesReader);
     }
 
     const userMatchmakingState = connectionState.userMatchmaking;
@@ -363,7 +373,12 @@ export class SocketStore<
       type: "UserMatchmaking",
     });
 
-    this.sendUserMatchmakingSnapshot(socket, subscriptionId, userData);
+    await this.sendUserMatchmakingSnapshot(
+      socket,
+      subscriptionId,
+      userId,
+      userData,
+    );
   }
 
   /**
@@ -891,6 +906,7 @@ export class SocketStore<
    */
   private async streamUserChangesToSocket(
     socket: WebSocket,
+    userId: string,
     userChangesReader: ReadableStreamDefaultReader<
       UserMatchmakingStorageData<Config, Loadout, Rating>
     >,
@@ -903,7 +919,11 @@ export class SocketStore<
         }
 
         const userData = data.value;
-        this.sendUserMatchmakingSnapshotToSubscriptions(socket, userData);
+        await this.sendUserMatchmakingSnapshotToSubscriptions(
+          socket,
+          userId,
+          userData,
+        );
       }
     } catch {
       // Reader cancellation is expected during unsubscribe.
@@ -1006,24 +1026,53 @@ export class SocketStore<
   }
 
   /**
-   * Sends one full UserMatchmaking snapshot to one subscription ID.
+   * Builds one full UserMatchmaking payload with derived match state.
    */
-  private sendUserMatchmakingSnapshot(
-    socket: WebSocket,
-    subscriptionId: string,
+  private async buildUserMatchmakingProps(
+    userId: string,
     userData: UserMatchmakingStorageData<Config, Loadout, Rating>,
-  ): void {
-    const userMatchmakingProps: UserMatchmakingViewData<
+  ): Promise<
+    UserMatchmakingViewData<
       Config,
       Loadout,
+      PlayerState,
+      PublicState,
       Rating
-    > = {
-      userActiveMatches: userData.activeMatches,
+    >
+  > {
+    const userActiveMatches = await this.buildUserActiveMatchViews(
+      userId,
+      userData.activeMatches,
+    );
+    return {
+      userActiveMatches,
       roomIds: userData.joinedRooms.map((joinedRoom) => joinedRoom.roomId),
       queueEntries: userData.queueEntries,
     };
+  }
 
-    sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
+  /**
+   * Sends one UserMatchmaking payload update to one subscription.
+   */
+  private sendUserMatchmakingUpdate(
+    socket: WebSocket,
+    subscriptionId: string,
+    userMatchmakingProps: UserMatchmakingViewData<
+      Config,
+      Loadout,
+      PlayerState,
+      PublicState,
+      Rating
+    >,
+  ): void {
+    sendServerMessage<
+      Config,
+      Loadout,
+      Rating,
+      PlayerState,
+      PublicState,
+      never
+    >(socket, {
       type: "UpdateUserMatchmakingProps",
       subscriptionId,
       userMatchmakingProps,
@@ -1031,17 +1080,45 @@ export class SocketStore<
   }
 
   /**
-   * Sends the latest UserMatchmaking snapshot to each active UserMatchmaking
-   * subscription.
+   * Sends one full UserMatchmaking snapshot to one subscription ID.
    */
-  private sendUserMatchmakingSnapshotToSubscriptions(
+  private async sendUserMatchmakingSnapshot(
     socket: WebSocket,
+    subscriptionId: string,
+    userId: string,
     userData: UserMatchmakingStorageData<Config, Loadout, Rating>,
-  ): void {
+  ): Promise<void> {
+    const userMatchmakingProps = await this.buildUserMatchmakingProps(
+      userId,
+      userData,
+    );
+    this.sendUserMatchmakingUpdate(
+      socket,
+      subscriptionId,
+      userMatchmakingProps,
+    );
+  }
+
+  /**
+   * Sends the latest UserMatchmaking snapshot to each active UserMatchmaking subscription.
+   */
+  private async sendUserMatchmakingSnapshotToSubscriptions(
+    socket: WebSocket,
+    userId: string,
+    userData: UserMatchmakingStorageData<Config, Loadout, Rating>,
+  ): Promise<void> {
+    const userMatchmakingProps = await this.buildUserMatchmakingProps(
+      userId,
+      userData,
+    );
     for (
       const subscriptionId of this.getUserMatchmakingSubscriptionIds(socket)
     ) {
-      this.sendUserMatchmakingSnapshot(socket, subscriptionId, userData);
+      this.sendUserMatchmakingUpdate(
+        socket,
+        subscriptionId,
+        userMatchmakingProps,
+      );
     }
   }
 
@@ -1217,10 +1294,13 @@ export class SocketStore<
     subscriptionId: string,
   ): Promise<void> {
     const allActiveMatches = await this.db.getAllActivePublicMatches();
+    const projectedMatches = await this.buildActivePublicMatchViews(
+      allActiveMatches,
+    );
     this.sendActivePublicMatchesUpdate(
       socket,
       subscriptionId,
-      allActiveMatches,
+      projectedMatches,
     );
   }
 
@@ -1230,19 +1310,23 @@ export class SocketStore<
   private sendActivePublicMatchesUpdate(
     socket: WebSocket,
     subscriptionId: string,
-    allActiveMatches: ActiveMatch<Config, Rating>[],
+    allActiveMatches: ActivePublicMatch<Config, PublicState, Rating>[],
   ): void {
     const activePublicMatchesProps: ActivePublicMatchesViewData<
       Config,
+      PublicState,
       Rating
     > = {
       allActiveMatches,
     };
-    sendServerMessage<Config, Loadout, Rating, never, never, never>(socket, {
-      type: "UpdateActivePublicMatches",
-      subscriptionId,
-      activePublicMatchesProps,
-    });
+    sendServerMessage<Config, Loadout, Rating, never, PublicState, never>(
+      socket,
+      {
+        type: "UpdateActivePublicMatches",
+        subscriptionId,
+        activePublicMatchesProps,
+      },
+    );
   }
 
   /**
@@ -1253,7 +1337,13 @@ export class SocketStore<
   ): void {
     activeMatchesStream.pipeTo(
       new WritableStream({
-        write: (allActiveMatches: ActiveMatch<Config, Rating>[]) => {
+        write: async (allActiveMatches: ActiveMatch<Config, Rating>[]) => {
+          if (this.activePublicMatchesSubscriptions.size === 0) {
+            return;
+          }
+          const projectedMatches = await this.buildActivePublicMatchViews(
+            allActiveMatches,
+          );
           for (
             const [subscriptionId, socket] of this
               .activePublicMatchesSubscriptions.entries()
@@ -1261,7 +1351,7 @@ export class SocketStore<
             this.sendActivePublicMatchesUpdate(
               socket,
               subscriptionId,
-              allActiveMatches,
+              projectedMatches,
             );
           }
         },
@@ -1269,6 +1359,111 @@ export class SocketStore<
     ).catch((err) => {
       console.error("Failed to broadcast active match updates", err);
     });
+  }
+
+  /**
+   * Loads match storage records for a set of match IDs.
+   */
+  private async getMatchDataById(
+    matchIds: string[],
+  ): Promise<
+    Map<string, MatchStorageData<Config, GameState, Outcome, Rating>>
+  > {
+    const uniqueMatchIds = [...new Set(matchIds)];
+    const matchEntries = await Promise.all(
+      uniqueMatchIds.map(async (matchId) => {
+        try {
+          const gameData = await this.db.getMatchStorageData(matchId);
+          return [matchId, gameData] as const;
+        } catch {
+          return undefined;
+        }
+      }),
+    );
+    const matchDataById = new Map<
+      string,
+      MatchStorageData<Config, GameState, Outcome, Rating>
+    >();
+    for (const matchEntry of matchEntries) {
+      if (matchEntry == null) {
+        continue;
+      }
+      matchDataById.set(matchEntry[0], matchEntry[1]);
+    }
+    return matchDataById;
+  }
+
+  /**
+   * Projects active public matches with up-to-date public state.
+   */
+  private async buildActivePublicMatchViews(
+    activeMatches: ActiveMatch<Config, Rating>[],
+  ): Promise<ActivePublicMatch<Config, PublicState, Rating>[]> {
+    const gameStateService = this.requireGameStateService();
+    const timestamp = new Date();
+    const matchDataById = await this.getMatchDataById(
+      activeMatches.map((activeMatch) => activeMatch.matchId),
+    );
+    const projectedMatches: ActivePublicMatch<Config, PublicState, Rating>[] =
+      [];
+
+    for (const activeMatch of activeMatches) {
+      const gameData = matchDataById.get(activeMatch.matchId);
+      if (gameData == null) {
+        continue;
+      }
+
+      projectedMatches.push({
+        ...activeMatch,
+        publicState: gameStateService.getPublicState(gameData, timestamp),
+      });
+    }
+
+    return projectedMatches;
+  }
+
+  /**
+   * Projects user-active matches with up-to-date public and private state.
+   */
+  private async buildUserActiveMatchViews(
+    userId: string,
+    activeMatches: ActiveMatch<Config, Rating>[],
+  ): Promise<UserActiveMatch<Config, PlayerState, PublicState, Rating>[]> {
+    const gameStateService = this.requireGameStateService();
+    const timestamp = new Date();
+    const matchDataById = await this.getMatchDataById(
+      activeMatches.map((activeMatch) => activeMatch.matchId),
+    );
+    const projectedMatches: UserActiveMatch<
+      Config,
+      PlayerState,
+      PublicState,
+      Rating
+    >[] = [];
+
+    for (const activeMatch of activeMatches) {
+      const gameData = matchDataById.get(activeMatch.matchId);
+      if (gameData == null) {
+        continue;
+      }
+
+      const playerId = gameStateService.getPlayerId(gameData, userId);
+      if (playerId == null) {
+        continue;
+      }
+
+      projectedMatches.push({
+        ...activeMatch,
+        publicState: gameStateService.getPublicState(gameData, timestamp),
+        privateState: gameStateService.getPlayerState(
+          gameData,
+          playerId,
+          timestamp,
+        ),
+      });
+    }
+
+    return projectedMatches;
   }
 
   /**

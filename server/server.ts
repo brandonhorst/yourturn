@@ -1,4 +1,6 @@
 import type {
+  ActiveMatch,
+  ActivePublicMatch,
   ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
@@ -6,6 +8,7 @@ import type {
   MatchViewData,
   PlayerSnapshot,
   Server,
+  UserActiveMatch,
   UserMatchmakingViewData,
   UserProfileViewData,
 } from "../types.ts";
@@ -94,7 +97,16 @@ export class ServerController<
   async getUserMatchmakingViewData(
     userId: string,
   ): Promise<
-    { props: UserMatchmakingViewData<Config, Loadout, Rating>; token: string }
+    {
+      props: UserMatchmakingViewData<
+        Config,
+        Loadout,
+        PlayerState,
+        PublicState,
+        Rating
+      >;
+      token: string;
+    }
   > {
     if (userId === "") {
       throw new Error("Missing UserMatchmaking user ID");
@@ -113,9 +125,14 @@ export class ServerController<
       expiration: new Date(Date.now() + tokenTtlMs),
     });
 
+    const userActiveMatches = await this.buildUserActiveMatchViews(
+      userId,
+      userMatchmakingData.activeMatches,
+    );
+
     return {
       props: {
-        userActiveMatches: userMatchmakingData.activeMatches,
+        userActiveMatches,
         roomIds: userMatchmakingData.joinedRooms.map((joinedRoom) =>
           joinedRoom.roomId
         ),
@@ -129,11 +146,14 @@ export class ServerController<
    * Builds view data for the active public matches channel.
    */
   async getActivePublicMatchesViewData(): Promise<
-    ActivePublicMatchesViewData<Config, Rating>
+    ActivePublicMatchesViewData<Config, PublicState, Rating>
   > {
     const allActiveMatches = await this.db.getAllActivePublicMatches();
-    return {
+    const projectedMatches = await this.buildActivePublicMatchViews(
       allActiveMatches,
+    );
+    return {
+      allActiveMatches: projectedMatches,
     };
   }
 
@@ -213,6 +233,109 @@ export class ServerController<
       publicState: gameStateUpdate.publicState,
       outcome: gameStateUpdate.outcome,
     } as MatchViewData<PlayerState, PublicState, Outcome, Rating>;
+  }
+
+  /**
+   * Loads match storage records for a set of match IDs.
+   */
+  private async getMatchDataById(
+    matchIds: string[],
+  ): Promise<
+    Map<string, MatchStorageData<Config, GameState, Outcome, Rating>>
+  > {
+    const uniqueMatchIds = [...new Set(matchIds)];
+    const matchEntries = await Promise.all(
+      uniqueMatchIds.map(async (matchId) => {
+        try {
+          const gameData = await this.db.getMatchStorageData(matchId);
+          return [matchId, gameData] as const;
+        } catch {
+          return undefined;
+        }
+      }),
+    );
+    const matchDataById = new Map<
+      string,
+      MatchStorageData<Config, GameState, Outcome, Rating>
+    >();
+    for (const matchEntry of matchEntries) {
+      if (matchEntry == null) {
+        continue;
+      }
+      matchDataById.set(matchEntry[0], matchEntry[1]);
+    }
+    return matchDataById;
+  }
+
+  /**
+   * Projects active public matches using the latest match game state.
+   */
+  private async buildActivePublicMatchViews(
+    activeMatches: ActiveMatch<Config, Rating>[],
+  ): Promise<ActivePublicMatch<Config, PublicState, Rating>[]> {
+    const timestamp = new Date();
+    const matchDataById = await this.getMatchDataById(
+      activeMatches.map((activeMatch) => activeMatch.matchId),
+    );
+    const projectedMatches: ActivePublicMatch<Config, PublicState, Rating>[] =
+      [];
+
+    for (const activeMatch of activeMatches) {
+      const gameData = matchDataById.get(activeMatch.matchId);
+      if (gameData == null) {
+        continue;
+      }
+
+      projectedMatches.push({
+        ...activeMatch,
+        publicState: this.gameStateService.getPublicState(gameData, timestamp),
+      });
+    }
+
+    return projectedMatches;
+  }
+
+  /**
+   * Projects user-active matches with both public and private player state.
+   */
+  private async buildUserActiveMatchViews(
+    userId: string,
+    activeMatches: ActiveMatch<Config, Rating>[],
+  ): Promise<UserActiveMatch<Config, PlayerState, PublicState, Rating>[]> {
+    const timestamp = new Date();
+    const matchDataById = await this.getMatchDataById(
+      activeMatches.map((activeMatch) => activeMatch.matchId),
+    );
+    const projectedMatches: UserActiveMatch<
+      Config,
+      PlayerState,
+      PublicState,
+      Rating
+    >[] = [];
+
+    for (const activeMatch of activeMatches) {
+      const gameData = matchDataById.get(activeMatch.matchId);
+      if (gameData == null) {
+        continue;
+      }
+
+      const playerId = this.gameStateService.getPlayerId(gameData, userId);
+      if (playerId == null) {
+        continue;
+      }
+
+      projectedMatches.push({
+        ...activeMatch,
+        publicState: this.gameStateService.getPublicState(gameData, timestamp),
+        privateState: this.gameStateService.getPlayerState(
+          gameData,
+          playerId,
+          timestamp,
+        ),
+      });
+    }
+
+    return projectedMatches;
   }
 
   /**

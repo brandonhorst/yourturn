@@ -179,13 +179,17 @@ export function useMatchChannel<
 }
 
 // Subscribes to the global active public matches channel on an open socket.
-export function useActivePublicMatchesChannel<Config, Rating>({
+export function useActivePublicMatchesChannel<Config, PublicState, Rating>({
   socket,
   initialActivePublicMatchesProps,
 }: {
   socket: Socket;
-  initialActivePublicMatchesProps: ActivePublicMatchesViewData<Config, Rating>;
-}): ActivePublicMatchesViewData<Config, Rating> {
+  initialActivePublicMatchesProps: ActivePublicMatchesViewData<
+    Config,
+    PublicState,
+    Rating
+  >;
+}): ActivePublicMatchesViewData<Config, PublicState, Rating> {
   const [allActiveMatches, setActiveMatches] = useState(
     initialActivePublicMatchesProps.allActiveMatches,
   );
@@ -218,7 +222,7 @@ export function useActivePublicMatchesChannel<Config, Rating>({
         never,
         Rating,
         never,
-        never,
+        PublicState,
         never
       >;
       switch (response.type) {
@@ -546,17 +550,35 @@ export function useAccountUserProfileChannel<Config, Outcome, Rating>({
 }
 
 // Subscribes to UserMatchmaking on an already-open socket.
-export function useUserMatchmakingChannel<Config, Loadout, Rating>({
+export function useUserMatchmakingChannel<
+  Config,
+  Loadout,
+  PrivateState,
+  PublicState,
+  Rating,
+>({
   socket,
   initialUserMatchmakingProps,
   navigate,
   displayError,
 }: {
   socket: Socket;
-  initialUserMatchmakingProps: UserMatchmakingViewData<Config, Loadout, Rating>;
+  initialUserMatchmakingProps: UserMatchmakingViewData<
+    Config,
+    Loadout,
+    PrivateState,
+    PublicState,
+    Rating
+  >;
   navigate: (matchId: string) => void;
   displayError: (message: string) => void;
-}): UserMatchmakingProps<Config, Loadout, Rating> {
+}): UserMatchmakingProps<
+  Config,
+  Loadout,
+  PrivateState,
+  PublicState,
+  Rating
+> {
   const [userActiveMatches, setUserActiveMatches] = useState(
     initialUserMatchmakingProps.userActiveMatches,
   );
@@ -594,8 +616,8 @@ export function useUserMatchmakingChannel<Config, Loadout, Rating>({
         Config,
         Loadout,
         Rating,
-        never,
-        never,
+        PrivateState,
+        PublicState,
         never
       >;
       switch (response.type) {
