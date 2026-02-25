@@ -31,6 +31,21 @@ To get started, it's recommended to start with
 If you want to use the library directly, it's available at
 [jsr:@brandonhorst/yourturn](https://jsr.io/@brandonhorst/yourturn).
 
+## Fetching User Profiles
+
+Use `fetchUserProfile(socket, userId)` from `@brandonhorst/yourturn/hooks` to
+fetch a single canonical profile snapshot for any user. This is a one-shot
+request, not a subscription.
+
+```ts
+import { fetchUserProfile, useSocket } from "@brandonhorst/yourturn/hooks";
+
+const socket = useSocket("/api/socket");
+const profile = await fetchUserProfile(socket, "some-user-id");
+```
+
+`profile` is `UserProfileViewData<Rating> | null`.
+
 ## Designing Game and UI Logic
 
 These are the things you need to define to build your game.

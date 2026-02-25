@@ -5,13 +5,16 @@ import type {
   SocketOpenListener,
 } from "../types.ts";
 
-// Hook that opens and manages a socket created by `createSocket`, then calls
-// `onMessage` for each JSON message. It reconnects on close with exponential
-// backoff and sends `initializeMessage` whenever a connection opens.
+// Opens and manages one WebSocket connection with reconnect-on-close behavior.
+// It exposes add/remove APIs for message/open listeners through the `Socket`
+// interface used by the channel hooks.
 export function useSocket(socketUrl: string): Socket {
   const ws = useRef<WebSocket | null>(null);
   const closedIntentionally = useRef(false);
   const reconnectAttempt = useRef(0);
+  const messageEventHandlers = useRef(
+    new Map<SocketMessageListener, (event: MessageEvent) => void>(),
+  );
   const maxReconnectDelay = 30000; // Maximum delay in ms (30 seconds)
 
   const connectWebSocket = () => {
@@ -52,16 +55,17 @@ export function useSocket(socketUrl: string): Socket {
 
   return {
     addMessageListener: (handler: SocketMessageListener) => {
-      ws.current?.addEventListener(
-        "message",
-        (event) => handler(event.data),
-      );
+      const eventHandler = (event: MessageEvent) => handler(event.data);
+      messageEventHandlers.current.set(handler, eventHandler);
+      ws.current?.addEventListener("message", eventHandler);
     },
     removeMessageListener: (handler: SocketMessageListener) => {
-      ws.current?.removeEventListener(
-        "message",
-        (event) => handler(event.data),
-      );
+      const eventHandler = messageEventHandlers.current.get(handler);
+      if (eventHandler == null) {
+        return;
+      }
+      ws.current?.removeEventListener("message", eventHandler);
+      messageEventHandlers.current.delete(handler);
     },
     addOpenListener: (handler: SocketOpenListener) => {
       ws.current?.addEventListener("open", handler);

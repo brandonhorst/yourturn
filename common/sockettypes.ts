@@ -21,8 +21,8 @@ export type ClientMessage<Config, Loadout, Move, PlayerState, PublicState> =
     type: "UpdateAccountUserProfile";
     description?: string;
   }
-  // User Profile Channel
-  | { type: "SubscribeUserProfile"; subscriptionId: string; userId: string }
+  // One-shot user profile fetch request
+  | { type: "FetchUserProfile"; requestId: string; userId: string }
   // UserMatchmaking channel
   | { type: "SubscribeUserMatchmaking"; subscriptionId: string }
   | {
@@ -69,9 +69,9 @@ export type ServerMessage<
     accountUserProfileProps: UserProfileViewData<Rating>;
   }
   | {
-    type: "UpdateUserProfileProps";
-    subscriptionId: string;
-    userProfileProps: UserProfileViewData<Rating>;
+    type: "FetchUserProfileResult";
+    requestId: string;
+    userProfile: UserProfileViewData<Rating> | null;
   }
   | {
     type: "UpdateUserMatchmakingProps";

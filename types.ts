@@ -389,8 +389,6 @@ export type UserMatchmakingProps<Config, Loadout, Rating> =
     joinRoom: (roomId: string, options: { loadout: Loadout }) => void;
   };
 
-export type UserProfileProps<Rating> = UserProfileViewData<Rating>;
-
 export type AccountUserProfileProps<Rating> =
   & UserProfileViewData<Rating>
   & {

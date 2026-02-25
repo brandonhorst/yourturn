@@ -49,10 +49,9 @@ type UserMatchmakingConnectionState<Config, Loadout, Rating> = {
 };
 
 /**
- * UserProfile-specific state tracked for one websocket and user ID across
- * AccountUserProfile and UserProfile channels.
+ * AccountUserProfile-specific state tracked for one websocket and user ID.
  */
-type UserProfileConnectionState<Rating> = {
+type AccountUserProfileConnectionState<Rating> = {
   userId: string;
   subscriptionIds: Set<string>;
   userChangesReader: ReadableStreamDefaultReader<UserProfileViewData<Rating>>;
@@ -79,7 +78,6 @@ type GameConnection<Config, GameState, Outcome, Rating> = {
 
 type SocketSubscription =
   | { type: "AccountUserProfile"; userId: string }
-  | { type: "UserProfile"; userId: string }
   | { type: "UserMatchmaking" }
   | { type: "Room"; roomId: string }
   | { type: "ActivePublicGames" }
@@ -88,13 +86,16 @@ type SocketSubscription =
   | { type: "Game"; gameId: string };
 
 /**
- * Combined state for a websocket across UserMatchmaking, room, and game
- * subscriptions.
+ * Combined state for a websocket across account profile, UserMatchmaking,
+ * room, and game subscriptions.
  */
 type SocketConnectionState<Config, Loadout, Rating> = {
   subscriptions: Map<string, SocketSubscription>;
   roomConnections: Map<string, RoomConnectionState<Config, Loadout, Rating>>;
-  userProfileConnections: Map<string, UserProfileConnectionState<Rating>>;
+  accountUserProfileConnections: Map<
+    string,
+    AccountUserProfileConnectionState<Rating>
+  >;
   userMatchmaking?: UserMatchmakingConnectionState<Config, Loadout, Rating>;
 };
 
@@ -277,74 +278,37 @@ export class SocketStore<
     await this.unsubscribe(socket, subscriptionId);
 
     const connectionState = this.getOrCreateSocketConnection(socket);
-    let userProfileConnection = connectionState.userProfileConnections.get(
-      userId,
-    );
+    let accountUserProfileConnection = connectionState
+      .accountUserProfileConnections.get(
+        userId,
+      );
 
-    if (userProfileConnection == null) {
+    if (accountUserProfileConnection == null) {
       const userChangesReader = this.db.watchForUserProfileChanges(userId)
         .getReader();
-      userProfileConnection = {
+      accountUserProfileConnection = {
         userId,
         subscriptionIds: new Set(),
         userChangesReader,
       };
-      connectionState.userProfileConnections.set(userId, userProfileConnection);
-      void this.streamUserProfileChangesToSocket(
+      connectionState.accountUserProfileConnections.set(
+        userId,
+        accountUserProfileConnection,
+      );
+      void this.streamAccountUserProfileChangesToSocket(
         socket,
         userId,
         userChangesReader,
       );
     }
 
-    userProfileConnection.subscriptionIds.add(subscriptionId);
+    accountUserProfileConnection.subscriptionIds.add(subscriptionId);
     connectionState.subscriptions.set(subscriptionId, {
       type: "AccountUserProfile",
       userId,
     });
 
     this.sendAccountUserProfileSnapshot(socket, subscriptionId, userProfile);
-  }
-
-  /**
-   * Subscribes one logical UserProfile channel instance on a websocket.
-   */
-  async subscribeUserProfile(
-    socket: WebSocket,
-    subscriptionId: string,
-    userId: string,
-    userProfile: UserProfileViewData<Rating>,
-  ): Promise<void> {
-    await this.unsubscribe(socket, subscriptionId);
-
-    const connectionState = this.getOrCreateSocketConnection(socket);
-    let userProfileConnection = connectionState.userProfileConnections.get(
-      userId,
-    );
-
-    if (userProfileConnection == null) {
-      const userChangesReader = this.db.watchForUserProfileChanges(userId)
-        .getReader();
-      userProfileConnection = {
-        userId,
-        subscriptionIds: new Set(),
-        userChangesReader,
-      };
-      connectionState.userProfileConnections.set(userId, userProfileConnection);
-      void this.streamUserProfileChangesToSocket(
-        socket,
-        userId,
-        userChangesReader,
-      );
-    }
-
-    userProfileConnection.subscriptionIds.add(subscriptionId);
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "UserProfile",
-      userId,
-    });
-
-    this.sendUserProfileSnapshot(socket, subscriptionId, userProfile);
   }
 
   /**
@@ -537,14 +501,7 @@ export class SocketStore<
 
     switch (subscription.type) {
       case "AccountUserProfile":
-        this.unsubscribeUserProfileSubscription(
-          socket,
-          subscriptionId,
-          subscription.userId,
-        );
-        break;
-      case "UserProfile":
-        this.unsubscribeUserProfileSubscription(
+        this.unsubscribeAccountUserProfileSubscription(
           socket,
           subscriptionId,
           subscription.userId,
@@ -800,10 +757,10 @@ export class SocketStore<
   }
 
   /**
-   * Unsubscribes one UserProfile subscription and tears down user-profile
-   * streams when last.
+   * Unsubscribes one AccountUserProfile subscription and tears down account
+   * profile streams when last.
    */
-  private unsubscribeUserProfileSubscription(
+  private unsubscribeAccountUserProfileSubscription(
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
@@ -812,20 +769,21 @@ export class SocketStore<
     if (connectionState == null) {
       return;
     }
-    const userProfileConnection = connectionState.userProfileConnections.get(
-      userId,
-    );
-    if (userProfileConnection == null) {
+    const accountUserProfileConnection = connectionState
+      .accountUserProfileConnections.get(
+        userId,
+      );
+    if (accountUserProfileConnection == null) {
       return;
     }
 
-    userProfileConnection.subscriptionIds.delete(subscriptionId);
-    if (userProfileConnection.subscriptionIds.size > 0) {
+    accountUserProfileConnection.subscriptionIds.delete(subscriptionId);
+    if (accountUserProfileConnection.subscriptionIds.size > 0) {
       return;
     }
 
-    closeReader(userProfileConnection.userChangesReader);
-    connectionState.userProfileConnections.delete(userId);
+    closeReader(accountUserProfileConnection.userChangesReader);
+    connectionState.accountUserProfileConnections.delete(userId);
   }
 
   /**
@@ -949,9 +907,9 @@ export class SocketStore<
   }
 
   /**
-   * Streams UserProfile updates for one websocket and target user.
+   * Streams AccountUserProfile updates for one websocket and target user.
    */
-  private async streamUserProfileChangesToSocket(
+  private async streamAccountUserProfileChangesToSocket(
     socket: WebSocket,
     userId: string,
     userChangesReader: ReadableStreamDefaultReader<UserProfileViewData<Rating>>,
@@ -963,7 +921,11 @@ export class SocketStore<
           break;
         }
 
-        this.sendUserProfileSnapshotToSubscriptions(socket, userId, data.value);
+        this.sendAccountUserProfileSnapshotToSubscriptions(
+          socket,
+          userId,
+          data.value,
+        );
       }
     } catch {
       // Reader cancellation is expected during unsubscribe.
@@ -1093,53 +1055,21 @@ export class SocketStore<
   }
 
   /**
-   * Sends one full UserProfile snapshot to one subscription ID.
+   * Sends the latest account profile snapshot to each active
+   * AccountUserProfile subscription for a user.
    */
-  private sendUserProfileSnapshot(
-    socket: WebSocket,
-    subscriptionId: string,
-    userProfile: UserProfileViewData<Rating>,
-  ): void {
-    sendServerMessage<never, never, Rating, never, never, never>(socket, {
-      type: "UpdateUserProfileProps",
-      subscriptionId,
-      userProfileProps: userProfile,
-    });
-  }
-
-  /**
-   * Sends the latest profile snapshot to each active AccountUserProfile and
-   * UserProfile subscription for a user.
-   */
-  private sendUserProfileSnapshotToSubscriptions(
+  private sendAccountUserProfileSnapshotToSubscriptions(
     socket: WebSocket,
     userId: string,
     userProfile: UserProfileViewData<Rating>,
   ): void {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return;
-    }
-
     for (
-      const subscriptionId of this.getUserProfileSubscriptionIds(socket, userId)
+      const subscriptionId of this.getAccountUserProfileSubscriptionIds(
+        socket,
+        userId,
+      )
     ) {
-      const subscription = connectionState.subscriptions.get(subscriptionId);
-      if (subscription == null) {
-        continue;
-      }
-
-      if (subscription.type === "AccountUserProfile") {
-        this.sendAccountUserProfileSnapshot(
-          socket,
-          subscriptionId,
-          userProfile,
-        );
-        continue;
-      }
-      if (subscription.type === "UserProfile") {
-        this.sendUserProfileSnapshot(socket, subscriptionId, userProfile);
-      }
+      this.sendAccountUserProfileSnapshot(socket, subscriptionId, userProfile);
     }
   }
 
@@ -1239,9 +1169,10 @@ export class SocketStore<
   }
 
   /**
-   * Returns all active UserProfile subscription IDs for one socket and user.
+   * Returns all active AccountUserProfile subscription IDs for one socket and
+   * user.
    */
-  private getUserProfileSubscriptionIds(
+  private getAccountUserProfileSubscriptionIds(
     socket: WebSocket,
     userId: string,
   ): string[] {
@@ -1249,13 +1180,12 @@ export class SocketStore<
     if (connectionState == null) {
       return [];
     }
-    const userProfileConnection = connectionState.userProfileConnections.get(
-      userId,
-    );
-    if (userProfileConnection == null) {
+    const accountUserProfileConnection = connectionState
+      .accountUserProfileConnections.get(userId);
+    if (accountUserProfileConnection == null) {
       return [];
     }
-    return [...userProfileConnection.subscriptionIds];
+    return [...accountUserProfileConnection.subscriptionIds];
   }
 
   /**
@@ -1676,7 +1606,7 @@ export class SocketStore<
     const connectionState: SocketConnectionState<Config, Loadout, Rating> = {
       subscriptions: new Map(),
       roomConnections: new Map(),
-      userProfileConnections: new Map(),
+      accountUserProfileConnections: new Map(),
     };
     this.sockets.set(socket, connectionState);
     return connectionState;
@@ -1696,7 +1626,7 @@ export class SocketStore<
     if (connectionState.roomConnections.size > 0) {
       return;
     }
-    if (connectionState.userProfileConnections.size > 0) {
+    if (connectionState.accountUserProfileConnections.size > 0) {
       return;
     }
     if (connectionState.userMatchmaking != null) {

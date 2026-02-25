@@ -8,7 +8,7 @@ import type {
   UserMatchmakingViewData,
   UserProfileViewData,
 } from "../types.ts";
-import type { ClientMessage } from "../common/sockettypes.ts";
+import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
 import { GameStateService } from "./gamestateservice.ts";
 import {
   type DB,
@@ -169,7 +169,7 @@ export class Server<
   }
 
   /**
-   * Builds the initial payload for one UserProfile channel subscription.
+   * Builds the initial payload for one canonical user profile fetch.
    */
   async getInitialUserProfileProps(
     userId: string,
@@ -236,8 +236,8 @@ export class Server<
   }
 
   /**
-   * Configures one websocket to handle profile, matchmaking, list, room, and
-   * game channel messages.
+   * Configures one websocket to handle account profile, matchmaking, list,
+   * room, and game channel messages, plus one-shot profile fetch requests.
    */
   configureSocket(
     socket: WebSocket,
@@ -331,7 +331,7 @@ export class Server<
 
       if (
         request.type === "SubscribeAccountUserProfile" ||
-        request.type === "SubscribeUserProfile" ||
+        request.type === "FetchUserProfile" ||
         request.type === "UpdateAccountUserProfile" ||
         request.type === "SubscribeUserMatchmaking" ||
         request.type === "SubscribeActivePublicGames" ||
@@ -368,23 +368,26 @@ export class Server<
           );
           break;
         }
-        case "SubscribeUserProfile": {
-          const latestUserProfile = await this.db.getUserProfileViewData(
-            request.userId,
-          );
-          if (latestUserProfile == null) {
-            sendDisplayError("Unknown UserProfile user.");
-            break;
-          }
-
-          await this.socketStore.subscribeUserProfile(
-            socket,
-            request.subscriptionId,
-            request.userId,
-            latestUserProfile,
+        case "FetchUserProfile":
+          socket.send(
+            JSON.stringify(
+              {
+                type: "FetchUserProfileResult",
+                requestId: request.requestId,
+                userProfile: await this.db.getUserProfileViewData(
+                  request.userId,
+                ),
+              } satisfies ServerMessage<
+                Config,
+                Loadout,
+                Rating,
+                PlayerState,
+                PublicState,
+                Outcome
+              >,
+            ),
           );
           break;
-        }
         case "UpdateAccountUserProfile":
           try {
             const normalizedUpdate = this.normalizeUserProfileUpdate({
