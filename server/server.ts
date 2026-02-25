@@ -88,10 +88,10 @@ export class ServerController<
   }
 
   /**
-   * Builds the initial UserMatchmaking payload for an existing user.
+   * Builds UserMatchmaking view data for an existing user.
    * Returns a fresh auth token that can be used to reconnect later.
    */
-  async getInitialUserMatchmakingProps(
+  async getUserMatchmakingViewData(
     userId: string,
   ): Promise<
     { props: UserMatchmakingViewData<Config, Loadout, Rating>; token: string }
@@ -126,9 +126,9 @@ export class ServerController<
   }
 
   /**
-   * Builds the initial payload for the active public games channel.
+   * Builds view data for the active public games channel.
    */
-  async getInitialActivePublicGamesProps(): Promise<
+  async getActivePublicGamesViewData(): Promise<
     ActivePublicGamesViewData<Config, Rating>
   > {
     const allActiveGames = await this.db.getAllActivePublicGames();
@@ -138,9 +138,9 @@ export class ServerController<
   }
 
   /**
-   * Builds the initial payload for the active public users channel.
+   * Builds view data for the active public users channel.
    */
-  async getInitialActivePublicUsersProps(): Promise<
+  async getActivePublicUsersViewData(): Promise<
     ActiveUsersViewData<Rating>
   > {
     const allActiveUsers = await this.db.getAllActivePublicUsers();
@@ -150,9 +150,9 @@ export class ServerController<
   }
 
   /**
-   * Builds the initial payload for the available public rooms channel.
+   * Builds view data for the available public rooms channel.
    */
-  async getInitialAvailablePublicRoomsProps(): Promise<
+  async getAvailablePublicRoomsViewData(): Promise<
     AvailablePublicRoomsViewData<Config, Rating>
   > {
     const allAvailableRooms = await this.db.getAllAvailablePublicRooms();
@@ -162,9 +162,9 @@ export class ServerController<
   }
 
   /**
-   * Builds the initial payload for one AccountUserProfile channel subscription.
+   * Builds view data for one AccountUserProfile channel subscription.
    */
-  async getInitialAccountUserProfileProps(
+  async getAccountUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<Rating>> {
     if (userId === "") {
@@ -179,9 +179,9 @@ export class ServerController<
   }
 
   /**
-   * Builds the initial payload for one canonical user profile fetch.
+   * Builds view data for one canonical user profile fetch.
    */
-  async getInitialUserProfileProps(
+  async getUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<Rating>> {
     if (userId === "") {
@@ -196,9 +196,9 @@ export class ServerController<
   }
 
   /**
-   * Builds the initial game payload for a viewer or player.
+   * Builds game view data for a viewer or player.
    */
-  async getInitialGameProps(
+  async getGameViewData(
     gameId: string,
     userId: string,
   ): Promise<GameViewData<PlayerState, PublicState, Outcome, Rating>> {

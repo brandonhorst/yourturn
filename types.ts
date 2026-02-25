@@ -98,25 +98,25 @@ export interface Server<
   Rating,
   Loadout,
 > {
-  getInitialUserMatchmakingProps(
+  getUserMatchmakingViewData(
     userId: string,
   ): Promise<
     { props: UserMatchmakingViewData<Config, Loadout, Rating>; token: string }
   >;
-  getInitialActivePublicGamesProps(): Promise<
+  getActivePublicGamesViewData(): Promise<
     ActivePublicGamesViewData<Config, Rating>
   >;
-  getInitialActivePublicUsersProps(): Promise<ActiveUsersViewData<Rating>>;
-  getInitialAvailablePublicRoomsProps(): Promise<
+  getActivePublicUsersViewData(): Promise<ActiveUsersViewData<Rating>>;
+  getAvailablePublicRoomsViewData(): Promise<
     AvailablePublicRoomsViewData<Config, Rating>
   >;
-  getInitialAccountUserProfileProps(
+  getAccountUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<Rating>>;
-  getInitialUserProfileProps(
+  getUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<Rating>>;
-  getInitialGameProps(
+  getGameViewData(
     gameId: string,
     userId: string,
   ): Promise<GameViewData<PlayerState, PublicState, Outcome, Rating>>;
