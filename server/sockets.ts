@@ -121,10 +121,16 @@ function sendServerMessage<
  * Cancels and unlocks a stream reader.
  */
 function closeReader<T>(reader: ReadableStreamDefaultReader<T>): void {
+  let cancellation: Promise<void> | undefined;
   try {
-    reader.cancel();
+    cancellation = reader.cancel();
   } catch {
     // Reader may already be closed.
+  }
+  if (cancellation != null) {
+    void cancellation.catch(() => {
+      // Reader may already be closed or detached.
+    });
   }
   try {
     reader.releaseLock();
