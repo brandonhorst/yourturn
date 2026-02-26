@@ -29,11 +29,14 @@ export type UserProfileViewData<T extends GameTypes> = {
   isGuest: boolean;
   rating: Record<string, T["Rating"]>;
   description: string;
+  starredUserIds: string[];
   completedMatches: CompletedMatchSnapshot<T>[];
 };
 
 export type UserProfileUpdate = {
   description?: string;
+  starUserId?: string;
+  unstarUserId?: string;
 };
 
 export type TokenData = {

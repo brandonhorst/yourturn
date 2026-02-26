@@ -24,13 +24,36 @@ export class SocketRouter<T extends GameTypes> {
    * Validates and normalizes optional account user profile updates.
    */
   private normalizeUserProfileUpdate(
-    profileUpdate: { description?: string },
-  ): { description: string } {
-    if (profileUpdate.description === undefined) {
-      throw new Error("Provide a description.");
+    profileUpdate: {
+      description?: string;
+      starUserId?: string;
+      unstarUserId?: string;
+    },
+  ): {
+    description?: string;
+    starUserId?: string;
+    unstarUserId?: string;
+  } {
+    if (
+      profileUpdate.description === undefined &&
+      profileUpdate.starUserId === undefined &&
+      profileUpdate.unstarUserId === undefined
+    ) {
+      throw new Error("Provide a profile change.");
     }
 
-    return { description: profileUpdate.description };
+    if (
+      profileUpdate.starUserId !== undefined &&
+      profileUpdate.unstarUserId !== undefined
+    ) {
+      throw new Error("Cannot star and unstar in one request.");
+    }
+
+    return {
+      description: profileUpdate.description,
+      starUserId: profileUpdate.starUserId,
+      unstarUserId: profileUpdate.unstarUserId,
+    };
   }
 
   /**
@@ -294,12 +317,16 @@ export class SocketRouter<T extends GameTypes> {
           try {
             const normalizedUpdate = this.normalizeUserProfileUpdate({
               description: request.description,
+              starUserId: request.starUserId,
+              unstarUserId: request.unstarUserId,
             });
             await this.db.updateUserProfile(userId, normalizedUpdate);
           } catch (err) {
             if (err instanceof Error) {
               if (
-                err.message === "Provide a description."
+                err.message === "Provide a profile change." ||
+                err.message === "Cannot star and unstar in one request." ||
+                err.message === "User already starred."
               ) {
                 sendDisplayError(err.message);
                 break;

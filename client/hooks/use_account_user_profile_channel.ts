@@ -80,13 +80,41 @@ export function useAccountUserProfileChannel<T extends GameTypes>({
   }, [socket]);
 
   const update = useCallback((changes: UserProfileUpdate) => {
-    if (changes.description == null) {
+    if (
+      changes.description == null &&
+      changes.starUserId == null &&
+      changes.unstarUserId == null
+    ) {
       return;
     }
 
     const request: ClientMessage<T> = {
       type: "UpdateAccountUserProfile",
       description: changes.description,
+      starUserId: changes.starUserId,
+      unstarUserId: changes.unstarUserId,
+    };
+    socket.send(JSON.stringify(request));
+  }, [socket]);
+
+  /**
+   * Adds one user ID to the authenticated user's starred list.
+   */
+  const starUser = useCallback((userId: string) => {
+    const request: ClientMessage<T> = {
+      type: "UpdateAccountUserProfile",
+      starUserId: userId,
+    };
+    socket.send(JSON.stringify(request));
+  }, [socket]);
+
+  /**
+   * Removes one user ID from the authenticated user's starred list.
+   */
+  const unstarUser = useCallback((userId: string) => {
+    const request: ClientMessage<T> = {
+      type: "UpdateAccountUserProfile",
+      unstarUserId: userId,
     };
     socket.send(JSON.stringify(request));
   }, [socket]);
@@ -94,5 +122,7 @@ export function useAccountUserProfileChannel<T extends GameTypes>({
   return {
     ...accountUserProfile,
     update,
+    starUser,
+    unstarUser,
   };
 }

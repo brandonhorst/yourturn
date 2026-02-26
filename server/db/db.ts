@@ -125,6 +125,18 @@ export class DB<
   }
 
   /**
+   * Ensures user storage data has all runtime defaults required by new fields.
+   */
+  private normalizeUserStorageData(
+    userStorageData: UserStorageData<T>,
+  ): UserStorageData<T> {
+    return {
+      ...userStorageData,
+      starredUserIds: userStorageData.starredUserIds ?? [],
+    };
+  }
+
+  /**
    * Reads one snapshot batch for a direct-child index prefix.
    */
   private async listSingleBatch<T>(
@@ -1587,33 +1599,36 @@ export class DB<
     userId: string,
     data: UserStorageData<T>,
   ): Promise<void> {
+    const normalizedData = this.normalizeUserStorageData(data);
     this.log(
       "INFO",
-      `createNewUserStorageData request=${serializeLogValue({ userId, data })}`,
+      `createNewUserStorageData request=${
+        serializeLogValue({ userId, data: normalizedData })
+      }`,
     );
     const userKey = getUserKey(userId);
-    const usernameKey = getUserByUsernameKey(data.username);
+    const usernameKey = getUserByUsernameKey(normalizedData.username);
     const transaction = this.kv.atomic()
       .check({ key: userKey, versionstamp: null })
       .check({ key: usernameKey, versionstamp: null })
-      .set(userKey, data)
+      .set(userKey, normalizedData)
       .set(usernameKey, userId);
     this.setAuditLogEntryOnOperation(transaction, {
       type: "CreateNewUserStorageData",
       userId,
-      username: data.username,
-      isGuest: data.isGuest,
+      username: normalizedData.username,
+      isGuest: normalizedData.isGuest,
     });
     const res = await transaction.commit();
     if (!res.ok) {
       throw new Error(
-        `User ${userId} or username ${data.username} already exists`,
+        `User ${userId} or username ${normalizedData.username} already exists`,
       );
     }
     this.log(
       "INFO",
       `createNewUserStorageData completed=${
-        serializeLogValue({ userId, username: data.username })
+        serializeLogValue({ userId, username: normalizedData.username })
       }`,
     );
   }
@@ -1640,12 +1655,12 @@ export class DB<
       if (entry.value == null) {
         throw new Error(`Updating unstored user ${userId}`);
       }
-      const existingData = entry.value;
+      const existingData = this.normalizeUserStorageData(entry.value);
 
-      const updatedData: UserStorageData<T> = {
+      const updatedData = this.normalizeUserStorageData({
         ...existingData,
         ...data,
-      };
+      });
 
       const previousUsername = existingData.username;
       const updatedUsername = updatedData.username;
@@ -1701,17 +1716,21 @@ export class DB<
    */
   public async updateUserProfile(
     userId: string,
-    profile: { description?: string },
+    profile: {
+      description?: string;
+      starUserId?: string;
+      unstarUserId?: string;
+    },
   ): Promise<void> {
     this.log(
       "INFO",
       `updateUserProfile request=${serializeLogValue({ userId, profile })}`,
     );
-    const profileUpdate: Partial<UserStorageData<T>> = {};
-    if (profile.description !== undefined) {
-      profileUpdate.description = profile.description;
-    }
-    if (Object.keys(profileUpdate).length === 0) {
+    if (
+      profile.description === undefined &&
+      profile.starUserId === undefined &&
+      profile.unstarUserId === undefined
+    ) {
       this.log(
         "INFO",
         `updateUserProfile noop=${serializeLogValue({ userId })}`,
@@ -1719,7 +1738,54 @@ export class DB<
       return;
     }
 
-    await this.updateUserStorageData(userId, profileUpdate);
+    await this.repeatUntilTransactionSucceeds(async (transaction) => {
+      const userKey = getUserKey(userId);
+      const userEntry = await this.kv.get<UserStorageData<T>>(userKey);
+      if (userEntry.value == null) {
+        throw new Error(`Updating unstored user ${userId}`);
+      }
+      const existingUser = this.normalizeUserStorageData(userEntry.value);
+
+      const nextStarredUserIds = [...existingUser.starredUserIds];
+      if (profile.starUserId !== undefined) {
+        if (nextStarredUserIds.includes(profile.starUserId)) {
+          throw new Error("User already starred.");
+        }
+        nextStarredUserIds.push(profile.starUserId);
+      }
+
+      let updatedStarredUserIds = nextStarredUserIds;
+      if (profile.unstarUserId !== undefined) {
+        updatedStarredUserIds = nextStarredUserIds.filter((starredUserId) =>
+          starredUserId !== profile.unstarUserId
+        );
+      }
+
+      const updatedUser = this.normalizeUserStorageData({
+        ...existingUser,
+        description: profile.description ?? existingUser.description,
+        starredUserIds: updatedStarredUserIds,
+      });
+
+      const usernameKey = getUserByUsernameKey(existingUser.username);
+      const usernameEntry = await this.kv.get<string>(usernameKey);
+      if (usernameEntry.value !== userId) {
+        throw new Error(
+          `Username index for ${existingUser.username} is not owned by ${userId}`,
+        );
+      }
+
+      transaction
+        .check(userEntry)
+        .check(usernameEntry)
+        .set(userKey, updatedUser)
+        .set(usernameKey, userId);
+      this.setAuditLogEntryOnOperation(transaction, {
+        type: "UpdateUserStorageData",
+        userId,
+      });
+    });
+
     this.log(
       "INFO",
       `updateUserProfile completed=${serializeLogValue({ userId })}`,
@@ -1737,13 +1803,16 @@ export class DB<
     const entry = await this.kv.get<UserStorageData<T>>(
       getUserKey(userId),
     );
+    const userData = entry.value == null
+      ? null
+      : this.normalizeUserStorageData(entry.value);
     this.log(
       "INFO",
       `getUserStorageData response=${
-        serializeLogValue({ userId, user: entry.value })
+        serializeLogValue({ userId, user: userData })
       }`,
     );
-    return entry.value;
+    return userData;
   }
 
   /**

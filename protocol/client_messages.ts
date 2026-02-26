@@ -12,6 +12,8 @@ export type ClientMessage<T extends GameTypes> =
   | {
     type: "UpdateAccountUserProfile";
     description?: string;
+    starUserId?: string;
+    unstarUserId?: string;
   }
   // One-shot user profile fetch request
   | { type: "FetchUserProfile"; requestId: string; userId: string }

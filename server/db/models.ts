@@ -53,6 +53,7 @@ export type UserStorageData<T extends GameTypes> = {
   username: string;
   isGuest: boolean;
   description: string;
+  starredUserIds: string[];
   ratings: Record<string, T["Rating"]>;
 };
 
@@ -84,6 +85,7 @@ export function userStorageDataToUserProfileViewData<
     username: userStorageData.username,
     isGuest: userStorageData.isGuest,
     description: userStorageData.description,
+    starredUserIds: userStorageData.starredUserIds ?? [],
     rating: userStorageData.ratings,
     completedMatches,
   };

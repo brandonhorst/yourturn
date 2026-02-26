@@ -117,6 +117,8 @@ export type AccountUserProfileProps<T extends GameTypes> =
   & UserProfileViewData<T>
   & {
     update: (changes: UserProfileUpdate) => void;
+    starUser: (userId: string) => void;
+    unstarUser: (userId: string) => void;
   };
 
 export type RoomProps<T extends GameTypes> =

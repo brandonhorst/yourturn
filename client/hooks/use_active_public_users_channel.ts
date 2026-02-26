@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
 import type { ActiveUsersViewData, GameTypes, Socket } from "@/types/mod.ts";
 
@@ -8,9 +8,11 @@ import type { ActiveUsersViewData, GameTypes, Socket } from "@/types/mod.ts";
 export function useActivePublicUsersChannel<T extends GameTypes>({
   socket,
   initialActivePublicUsersProps,
+  starredUserIds = [],
 }: {
   socket: Socket;
   initialActivePublicUsersProps: ActiveUsersViewData<T>;
+  starredUserIds?: string[];
 }): ActiveUsersViewData<T> {
   const [allActiveUsers, setActiveUsers] = useState(
     initialActivePublicUsersProps.allActiveUsers,
@@ -70,5 +72,30 @@ export function useActivePublicUsersChannel<T extends GameTypes>({
     };
   }, [socket]);
 
-  return { allActiveUsers };
+  /**
+   * Prioritizes starred users locally without altering server subscription data.
+   */
+  const sortedActiveUsers = useMemo(() => {
+    if (starredUserIds.length === 0 || allActiveUsers.length < 2) {
+      return allActiveUsers;
+    }
+
+    const starredUserIdSet = new Set(starredUserIds);
+    return allActiveUsers
+      .map((activeUser, index) => ({
+        activeUser,
+        index,
+        isStarred: starredUserIdSet.has(activeUser.userId),
+      }))
+      .sort((left, right) => {
+        if (left.isStarred !== right.isStarred) {
+          return left.isStarred ? -1 : 1;
+        }
+
+        return left.index - right.index;
+      })
+      .map(({ activeUser }) => activeUser);
+  }, [allActiveUsers, starredUserIds]);
+
+  return { allActiveUsers: sortedActiveUsers };
 }

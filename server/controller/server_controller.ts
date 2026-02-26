@@ -358,6 +358,7 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       username: user.username,
       isGuest: user.isGuest,
       description: "",
+      starredUserIds: [],
       ratings: this.buildInitialRatings(),
     });
     await this.db.createNewUserMatchmakingStorageData(userId, {

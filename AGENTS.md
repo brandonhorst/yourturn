@@ -73,6 +73,9 @@ Supporting modules:
   `Socket` object and keeps listeners registered across reconnects.
 - `client/fetchers/fetch_user_profile.ts` - one-shot profile fetch helper.
 
+`useActivePublicUsersChannel` accepts optional `starredUserIds` and performs
+local client-side sorting so starred users appear first.
+
 ### Protocol Architecture
 
 Socket protocol types are in:
@@ -133,7 +136,7 @@ Uses Deno KV for:
 - Room chat thread IDs persisted on room records (`chatThreadId`)
 - Chat messages at `["chatthread", chatThreadId, "chatmessage", chatMessageId]`
 - User records at `["users", userId]` (username, guest flag, description,
-  ratings)
+  starred user IDs, ratings)
 - Completed-match history at
   `["completedmatchesbyuser", userId, completedMatchEntryId]`
 - User matchmaking records at `["usermatchmakings", userId]`
@@ -163,7 +166,8 @@ One socket supports these subscriptions:
 `JoinQueue`, `CreateAndJoinRoom`, and `JoinRoom` may include
 `assignmentSubscriptionId` for direct `MatchAssignment` delivery.
 
-`UpdateAccountUserProfile` currently supports `description` updates.
+`UpdateAccountUserProfile` supports `description` updates plus `starUserId` and
+`unstarUserId` mutations for account profile stars.
 
 `SendChatMessage` stores one message in a chat thread and `SubscribeChatThread`
 streams appended messages after an optional `lastMessageId` cursor.
