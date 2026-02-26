@@ -40,8 +40,28 @@ subscribe to multiple channels.
   `getChatThreadMessages`).
 - `server/controller/socket_router.ts` - Inbound socket message routing,
   validation, and delegation to `SocketStore`/`DB`/`GameStateService`.
-- `server/sockets/socket_store.ts` - Subscription lifecycle, stream fan-out,
-  room/queue actions, and match assignment dispatch.
+- `server/sockets/socket_store.ts` - Thin SocketStore facade that wires streams
+  into socket operation modules and delegates to domain ops.
+- `server/sockets/context.ts` - Shared SocketStore state + helper context used
+  by socket operation objects.
+- `server/sockets/contracts.ts` - Socket operation interfaces and dependency
+  override types for constructor injection.
+- `server/sockets/ops/presence_ops.ts` - Active public index subscription,
+  projection, snapshot, and broadcast operations.
+- `server/sockets/ops/user_ops.ts` - Account user profile channel subscription
+  and stream operations.
+- `server/sockets/ops/user_matchmaking_ops.ts` - UserMatchmaking channel
+  subscription and projection stream operations.
+- `server/sockets/ops/queue_ops.ts` - Queue join/leave and queue subscription
+  cleanup operations.
+- `server/sockets/ops/room_ops.ts` - Room subscribe/join/create/commit/leave and
+  room stream fan-out operations.
+- `server/sockets/ops/chat_ops.ts` - Chat-thread subscribe/send and stream
+  fan-out operations.
+- `server/sockets/ops/match_ops.ts` - Match subscription stream operations and
+  initial match snapshot delivery.
+- `server/sockets/ops/lifecycle_ops.ts` - Cross-channel unsubscribe lifecycle
+  dispatch operations.
 - `server/sockets/state.ts` - Socket connection state types.
 - `server/sockets/wire.ts` - Shared socket send/reader/match-payload helpers.
 - `server/db/db.ts` - Public DB facade that delegates to injected operation
@@ -193,7 +213,16 @@ Current module names include:
 - `server.controller`
 - `server.socket_router`
 - `server.socket`
-- `server.sockets`
+- `server.sockets.store`
+- `server.sockets.context`
+- `server.sockets.presence`
+- `server.sockets.user`
+- `server.sockets.user_matchmaking`
+- `server.sockets.queue`
+- `server.sockets.room`
+- `server.sockets.chat`
+- `server.sockets.match`
+- `server.sockets.lifecycle`
 - `server.db`
 - `server.db.chat`
 - `server.db.match`

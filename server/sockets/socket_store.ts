@@ -1,69 +1,90 @@
-import type {
-  DB,
-  MatchAssignmentNotification,
-  MatchStorageData,
-  RoomWatchEvent,
-  UserMatchmakingStorageData,
-} from "../db/mod.ts";
+import { logServer } from "@/server/logging.ts";
+import type { GameStateService } from "@/server/services/game_state_service.ts";
 import type {
   ActiveMatch,
-  ActivePublicMatch,
-  ActivePublicMatchesViewData,
-  ActiveUsersViewData,
-  AvailablePublicRoomsViewData,
   AvailableRoom,
-  ChatMessage,
   GameTypes,
   PlayerSnapshot,
-  RoomEntry,
-  UserActiveMatch,
-  UserMatchmakingViewData,
   UserProfileViewData,
 } from "@/types/mod.ts";
-import type { GameStateService } from "../services/game_state_service.ts";
-import { MatchProjectionService } from "../services/match_projection_service.ts";
-import { logServer, serializeLogValue } from "../logging.ts";
+import type { DB, UserMatchmakingStorageData } from "@/server/db/mod.ts";
 import type {
-  ChatThreadSubscriptionState,
-  MatchConnection,
-  RoomConnectionState,
-  SocketConnectionState,
-  UserMatchmakingConnectionState,
-} from "./state.ts";
-import { buildMatchViewData, closeReader, sendServerMessage } from "./wire.ts";
-import { ulid } from "@std/ulid";
+  ChatSocketOps,
+  LifecycleSocketOps,
+  MatchSocketOps,
+  PresenceSocketOps,
+  QueueSocketOps,
+  RoomSocketOps,
+  SocketOperationOverrides,
+  UserMatchmakingSocketOps,
+  UserSocketOps,
+} from "./contracts.ts";
+import { SocketStoreContext } from "./context.ts";
+import { SocketChatOps } from "./ops/chat_ops.ts";
+import { SocketLifecycleOps } from "./ops/lifecycle_ops.ts";
+import { SocketMatchOps } from "./ops/match_ops.ts";
+import { SocketPresenceOps } from "./ops/presence_ops.ts";
+import { SocketQueueOps } from "./ops/queue_ops.ts";
+import { SocketRoomOps } from "./ops/room_ops.ts";
+import { SocketUserMatchmakingOps } from "./ops/user_matchmaking_ops.ts";
+import { SocketUserOps } from "./ops/user_ops.ts";
 
-const SOCKET_STORE_LOG_MODULE = "server.sockets";
+const SOCKET_STORE_FACADE_LOG_MODULE = "server.sockets.store";
 
+/**
+ * Facade over domain-specific socket operation objects.
+ */
 export class SocketStore<T extends GameTypes> {
-  private sockets: Map<
-    WebSocket,
-    SocketConnectionState<T>
-  > = new Map();
-  private gameStateService?: GameStateService<T>;
-  private activePublicMatchesSubscriptions: Map<string, WebSocket> = new Map();
-  private activePublicUsersSubscriptions: Map<string, WebSocket> = new Map();
-  private availablePublicRoomsSubscriptions: Map<string, WebSocket> = new Map();
-  private matchConnections: Map<
-    string,
-    MatchConnection<T>
-  > = new Map();
-  private matchProjectionService?: MatchProjectionService<T>;
+  private readonly context: SocketStoreContext<T>;
+  private readonly presenceOps: PresenceSocketOps<T>;
+  private readonly userOps: UserSocketOps<T>;
+  private readonly queueOps: QueueSocketOps<T>;
+  private readonly userMatchmakingOps: UserMatchmakingSocketOps<T>;
+  private readonly roomOps: RoomSocketOps<T>;
+  private readonly chatOps: ChatSocketOps<T>;
+  private readonly matchOps: MatchSocketOps<T>;
+  private readonly lifecycleOps: LifecycleSocketOps<T>;
 
   constructor(
-    private db: DB<T>,
+    db: DB<T>,
     activeMatchesStream: ReadableStream<ActiveMatch<T>[]>,
     activeUsersStream: ReadableStream<PlayerSnapshot<T>[]>,
     availableRoomsStream: ReadableStream<AvailableRoom<T>[]>,
+    overrides: SocketOperationOverrides<T> = {},
   ) {
+    this.context = new SocketStoreContext<T>(db);
+
+    this.presenceOps = overrides.presenceOps ??
+      new SocketPresenceOps<T>(this.context);
+    this.userOps = overrides.userOps ?? new SocketUserOps<T>(this.context);
+    this.queueOps = overrides.queueOps ?? new SocketQueueOps<T>(this.context);
+    this.userMatchmakingOps = overrides.userMatchmakingOps ??
+      new SocketUserMatchmakingOps<T>(
+        this.context,
+        this.queueOps,
+        this.presenceOps,
+      );
+    this.roomOps = overrides.roomOps ?? new SocketRoomOps<T>(this.context);
+    this.chatOps = overrides.chatOps ?? new SocketChatOps<T>(this.context);
+    this.matchOps = overrides.matchOps ?? new SocketMatchOps<T>(this.context);
+    this.lifecycleOps = overrides.lifecycleOps ??
+      new SocketLifecycleOps<T>(this.context, {
+        userOps: this.userOps,
+        userMatchmakingOps: this.userMatchmakingOps,
+        roomOps: this.roomOps,
+        chatOps: this.chatOps,
+        matchOps: this.matchOps,
+      });
+
     logServer(
-      SOCKET_STORE_LOG_MODULE,
+      SOCKET_STORE_FACADE_LOG_MODULE,
       "INFO",
       "SocketStore initialized",
     );
-    this.streamActivePublicMatchesToSockets(activeMatchesStream);
-    this.streamActivePublicUsersToSockets(activeUsersStream);
-    this.streamAvailablePublicRoomsToSockets(availableRoomsStream);
+
+    this.presenceOps.streamActivePublicMatchesToSockets(activeMatchesStream);
+    this.presenceOps.streamActivePublicUsersToSockets(activeUsersStream);
+    this.presenceOps.streamAvailablePublicRoomsToSockets(availableRoomsStream);
   }
 
   /**
@@ -72,456 +93,155 @@ export class SocketStore<T extends GameTypes> {
   setGameStateService(
     gameStateService: GameStateService<T>,
   ): void {
-    this.gameStateService = gameStateService;
-    this.matchProjectionService = new MatchProjectionService(
-      this.db,
-      gameStateService,
-    );
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      "Registered GameStateService with SocketStore",
-    );
+    this.context.setGameStateService(gameStateService);
   }
 
   /**
    * Subscribes one logical AccountUserProfile channel instance on a websocket.
    */
-  async subscribeAccountUserProfile(
+  subscribeAccountUserProfile(
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
     userProfile: UserProfileViewData<T>,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeAccountUserProfile request=${
-        serializeLogValue({ subscriptionId, userId, userProfile })
-      }`,
-    );
-    await this.unsubscribe(socket, subscriptionId);
-
-    const connectionState = this.getOrCreateSocketConnection(socket);
-    let accountUserProfileConnection = connectionState
-      .accountUserProfileConnections.get(
-        userId,
-      );
-
-    if (accountUserProfileConnection == null) {
-      const userChangesReader = this.db.watchForUserProfileChanges(userId)
-        .getReader();
-      accountUserProfileConnection = {
-        userId,
-        subscriptionIds: new Set(),
-        userChangesReader,
-      };
-      connectionState.accountUserProfileConnections.set(
-        userId,
-        accountUserProfileConnection,
-      );
-      void this.streamAccountUserProfileChangesToSocket(
-        socket,
-        userId,
-        userChangesReader,
-      );
-    }
-
-    accountUserProfileConnection.subscriptionIds.add(subscriptionId);
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "AccountUserProfile",
+    return this.userOps.subscribeAccountUserProfile(
+      socket,
+      subscriptionId,
       userId,
-    });
-
-    this.sendAccountUserProfileSnapshot(socket, subscriptionId, userProfile);
+      userProfile,
+      () => this.lifecycleOps.unsubscribe(socket, subscriptionId),
+    );
   }
 
   /**
    * Subscribes one logical UserMatchmaking channel instance on a websocket.
    */
-  async subscribeUserMatchmaking(
+  subscribeUserMatchmaking(
     socket: WebSocket,
     subscriptionId: string,
     userId: string,
     userData: UserMatchmakingStorageData<T>,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeUserMatchmaking request=${
-        serializeLogValue({ subscriptionId, userId, userData })
-      }`,
-    );
-    const existingConnection = this.sockets.get(socket);
-    const existingSubscription = existingConnection?.subscriptions.get(
-      subscriptionId,
-    );
-
-    if (
-      existingSubscription?.type === "UserMatchmaking" &&
-      existingConnection != null &&
-      existingConnection.userMatchmaking != null
-    ) {
-      const connectionUserId = existingConnection.userMatchmaking.userId;
-      existingConnection.userMatchmaking.subscriptionIds.add(subscriptionId);
-      await this.sendUserMatchmakingSnapshot(
-        socket,
-        subscriptionId,
-        connectionUserId,
-        userData,
-      );
-      return;
-    }
-
-    await this.unsubscribe(socket, subscriptionId);
-
-    const connectionState = this.getOrCreateSocketConnection(socket);
-
-    if (connectionState.userMatchmaking == null) {
-      const userChangesReader = this.db.watchForUserMatchmakingChanges(userId)
-        .getReader();
-
-      connectionState.userMatchmaking = {
-        userId,
-        subscriptionIds: new Set(),
-        userChangesReader,
-        queueSubscriptions: new Map(),
-      };
-      void this.streamUserChangesToSocket(socket, userId, userChangesReader);
-    }
-
-    const userMatchmakingState = connectionState.userMatchmaking;
-    if (userMatchmakingState == null) {
-      throw new Error("UserMatchmaking connection state was not initialized");
-    }
-
-    userMatchmakingState.subscriptionIds.add(subscriptionId);
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "UserMatchmaking",
-    });
-
-    await this.sendUserMatchmakingSnapshot(
+    return this.userMatchmakingOps.subscribeUserMatchmaking(
       socket,
       subscriptionId,
       userId,
       userData,
+      () => this.lifecycleOps.unsubscribe(socket, subscriptionId),
     );
   }
 
   /**
    * Subscribes one logical active public matches channel instance.
    */
-  async subscribeActivePublicMatches(
+  subscribeActivePublicMatches(
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeActivePublicMatches request=${
-        serializeLogValue({ subscriptionId })
-      }`,
+    return this.presenceOps.subscribeActivePublicMatches(
+      socket,
+      subscriptionId,
+      () => this.lifecycleOps.unsubscribe(socket, subscriptionId),
     );
-    await this.unsubscribe(socket, subscriptionId);
-
-    const connectionState = this.getOrCreateSocketConnection(socket);
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "ActivePublicMatches",
-    });
-    this.activePublicMatchesSubscriptions.set(subscriptionId, socket);
-    await this.sendActivePublicMatchesSnapshot(socket, subscriptionId);
   }
 
   /**
    * Subscribes one logical active public users channel instance.
    */
-  async subscribeActivePublicUsers(
+  subscribeActivePublicUsers(
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeActivePublicUsers request=${
-        serializeLogValue({ subscriptionId })
-      }`,
+    return this.presenceOps.subscribeActivePublicUsers(
+      socket,
+      subscriptionId,
+      () => this.lifecycleOps.unsubscribe(socket, subscriptionId),
     );
-    await this.unsubscribe(socket, subscriptionId);
-
-    const connectionState = this.getOrCreateSocketConnection(socket);
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "ActivePublicUsers",
-    });
-    this.activePublicUsersSubscriptions.set(subscriptionId, socket);
-    await this.sendActivePublicUsersSnapshot(socket, subscriptionId);
   }
 
   /**
    * Subscribes one logical available public rooms channel instance.
    */
-  async subscribeAvailablePublicRooms(
+  subscribeAvailablePublicRooms(
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeAvailablePublicRooms request=${
-        serializeLogValue({ subscriptionId })
-      }`,
+    return this.presenceOps.subscribeAvailablePublicRooms(
+      socket,
+      subscriptionId,
+      () => this.lifecycleOps.unsubscribe(socket, subscriptionId),
     );
-    await this.unsubscribe(socket, subscriptionId);
-
-    const connectionState = this.getOrCreateSocketConnection(socket);
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "AvailablePublicRooms",
-    });
-    this.availablePublicRoomsSubscriptions.set(subscriptionId, socket);
-    await this.sendAvailablePublicRoomsSnapshot(socket, subscriptionId);
   }
 
   /**
    * Subscribes one logical room channel instance on a websocket.
    */
-  async subscribeRoom(
+  subscribeRoom(
     socket: WebSocket,
     subscriptionId: string,
     roomId: string,
     userId: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeRoom request=${
-        serializeLogValue({ subscriptionId, roomId, userId })
-      }`,
-    );
-    await this.unsubscribe(socket, subscriptionId);
-
-    const room = await this.db.getRoom(roomId);
-    if (room == null) {
-      throw new Error(`Room ${roomId} not found`);
-    }
-
-    const roomMember = room.members.find((member) => member.userId === userId);
-    if (roomMember == null) {
-      throw new Error(`User ${userId} is not in room ${roomId}`);
-    }
-
-    const connectionState = this.getOrCreateSocketConnection(socket);
-    let roomConnection = connectionState.roomConnections.get(roomId);
-
-    if (roomConnection == null) {
-      const roomChangesReader = this.db.watchForRoomChanges(roomId)
-        .getReader();
-
-      roomConnection = {
-        userId,
-        roomId,
-        subscriptionIds: new Set(),
-        entryId: roomMember.entryId,
-        loadout: roomMember.loadout,
-        roomChangesReader,
-      };
-      connectionState.roomConnections.set(roomId, roomConnection);
-
-      void this.streamRoomChangesToSocket(socket, roomId, roomChangesReader);
-    } else {
-      roomConnection.userId = userId;
-      roomConnection.entryId = roomMember.entryId;
-      roomConnection.loadout = roomMember.loadout;
-    }
-
-    roomConnection.subscriptionIds.add(subscriptionId);
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "Room",
-      roomId,
-    });
-
-    const roomEntry: RoomEntry<T> = {
-      roomId,
-      chatThreadId: room.chatThreadId,
-      numPlayers: room.numPlayers,
-      players: room.members.map((member) => member.playerSnapshot),
-      config: room.config,
-      loadout: roomMember.loadout,
-    };
-    this.sendRoomEntryUpdateToSubscription(
+    return this.roomOps.subscribeRoom(
       socket,
       subscriptionId,
-      roomEntry,
+      roomId,
+      userId,
+      () => this.lifecycleOps.unsubscribe(socket, subscriptionId),
     );
   }
 
   /**
    * Subscribes one logical chat thread channel instance on a websocket.
    */
-  async subscribeChatThread(
+  subscribeChatThread(
     socket: WebSocket,
     subscriptionId: string,
     chatThreadId: string,
     lastMessageId?: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeChatThread request=${
-        serializeLogValue({ subscriptionId, chatThreadId, lastMessageId })
-      }`,
-    );
-    await this.unsubscribe(socket, subscriptionId);
-
-    const connectionState = this.getOrCreateSocketConnection(socket);
-    const messageChangesReader = this.db.watchForChatThreadMessageChanges(
+    return this.chatOps.subscribeChatThread(
+      socket,
+      subscriptionId,
       chatThreadId,
-    ).getReader();
-    const chatThreadSubscription: ChatThreadSubscriptionState = {
-      chatThreadId,
+      () => this.lifecycleOps.unsubscribe(socket, subscriptionId),
       lastMessageId,
-      messageChangesReader,
-    };
-    connectionState.chatThreadSubscriptions.set(
-      subscriptionId,
-      chatThreadSubscription,
-    );
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "ChatThread",
-      chatThreadId,
-    });
-
-    await this.sendChatMessagesAfterCursor(
-      socket,
-      subscriptionId,
-      chatThreadSubscription,
-    );
-    void this.streamChatThreadChangesToSocket(
-      socket,
-      subscriptionId,
-      messageChangesReader,
     );
   }
 
   /**
    * Creates and stores one chat message in a chat thread.
    */
-  async sendChatMessage(
+  sendChatMessage(
     chatThreadId: string,
     playerSnapshot: PlayerSnapshot<T>,
     message: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `sendChatMessage request=${
-        serializeLogValue({ chatThreadId, playerSnapshot, message })
-      }`,
-    );
-    const chatMessage: ChatMessage<T> = {
-      id: ulid(),
-      playerSnapshot,
-      message,
-      date: new Date(),
-    };
-    await this.db.appendChatMessage(chatThreadId, chatMessage);
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `sendChatMessage completed=${
-        serializeLogValue({ chatThreadId, chatMessageId: chatMessage.id })
-      }`,
-    );
+    return this.chatOps.sendChatMessage(chatThreadId, playerSnapshot, message);
   }
 
   /**
    * Unsubscribes one logical channel instance identified by subscription ID.
    */
-  async unsubscribe(
+  unsubscribe(
     socket: WebSocket,
     subscriptionId: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `unsubscribe request=${serializeLogValue({ subscriptionId })}`,
-    );
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return;
-    }
-
-    const subscription = connectionState.subscriptions.get(subscriptionId);
-    if (subscription == null) {
-      return;
-    }
-
-    connectionState.subscriptions.delete(subscriptionId);
-
-    switch (subscription.type) {
-      case "AccountUserProfile":
-        this.unsubscribeAccountUserProfileSubscription(
-          socket,
-          subscriptionId,
-          subscription.userId,
-        );
-        break;
-      case "UserMatchmaking":
-        await this.unsubscribeUserMatchmakingSubscription(
-          socket,
-          subscriptionId,
-        );
-        break;
-      case "Room":
-        await this.unsubscribeRoomSubscription(
-          socket,
-          subscriptionId,
-          subscription.roomId,
-        );
-        break;
-      case "ActivePublicMatches":
-        this.activePublicMatchesSubscriptions.delete(subscriptionId);
-        break;
-      case "ActivePublicUsers":
-        this.activePublicUsersSubscriptions.delete(subscriptionId);
-        break;
-      case "AvailablePublicRooms":
-        this.availablePublicRoomsSubscriptions.delete(subscriptionId);
-        break;
-      case "ChatThread":
-        this.unsubscribeChatThreadSubscription(socket, subscriptionId);
-        break;
-      case "Match":
-        this.unsubscribeMatchSubscription(subscriptionId, subscription.matchId);
-        break;
-    }
-
-    this.pruneIdleSocket(socket);
+    return this.lifecycleOps.unsubscribe(socket, subscriptionId);
   }
 
   /**
    * Unsubscribes a websocket from all channel subscriptions.
    */
-  async unsubscribeSocket(socket: WebSocket): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      "unsubscribeSocket request={}",
-    );
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return;
-    }
-
-    for (const subscriptionId of [...connectionState.subscriptions.keys()]) {
-      await this.unsubscribe(socket, subscriptionId);
-    }
-
-    this.pruneIdleSocket(socket);
+  unsubscribeSocket(socket: WebSocket): Promise<void> {
+    return this.lifecycleOps.unsubscribeSocket(socket);
   }
 
   /**
    * Adds a user to a queue and dispatches any immediate match assignments.
    */
-  async joinQueue(
+  joinQueue(
     socket: WebSocket,
     queueId: string,
     userId: string,
@@ -529,60 +249,20 @@ export class SocketStore<T extends GameTypes> {
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `joinQueue request=${
-        serializeLogValue({
-          queueId,
-          userId,
-          playerSnapshot,
-          loadout,
-          assignmentSubscriptionId,
-        })
-      }`,
-    );
-    const userMatchmakingState = this.getUserMatchmakingConnectionState(socket);
-
-    if (userMatchmakingState.queueSubscriptions.has(queueId)) {
-      await this.cleanupQueueSubscription(socket, queueId, {
-        removeFromDb: true,
-      });
-    }
-
-    const entryId = ulid();
-    const matchAssignments = await this.db.addToQueue(
+    return this.queueOps.joinQueue(
+      socket,
       queueId,
-      entryId,
       userId,
       playerSnapshot,
       loadout,
       assignmentSubscriptionId,
-    );
-
-    if (matchAssignments.length === 0) {
-      userMatchmakingState.queueSubscriptions.set(queueId, {
-        queueId,
-        entryId,
-      });
-    } else {
-      userMatchmakingState.queueSubscriptions.delete(queueId);
-    }
-
-    this.sendMatchAssignmentsToStoredSubscriptions(matchAssignments);
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `joinQueue result=${
-        serializeLogValue({ queueId, userId, assignments: matchAssignments })
-      }`,
     );
   }
 
   /**
    * Creates a room and immediately joins it for the requesting user.
    */
-  async createAndJoinRoom(
+  createAndJoinRoom(
     socket: WebSocket,
     roomConfig: {
       numPlayers: number;
@@ -594,22 +274,28 @@ export class SocketStore<T extends GameTypes> {
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `createAndJoinRoom request=${
-        serializeLogValue({
-          roomConfig,
-          userId,
-          playerSnapshot,
-          loadout,
-          assignmentSubscriptionId,
-        })
-      }`,
+    return this.roomOps.createAndJoinRoom(
+      socket,
+      roomConfig,
+      userId,
+      playerSnapshot,
+      loadout,
+      assignmentSubscriptionId,
     );
-    const roomId = ulid();
-    await this.db.createRoom(roomId, userId, roomConfig);
-    await this.joinRoom(
+  }
+
+  /**
+   * Adds a user to a room.
+   */
+  joinRoom(
+    socket: WebSocket,
+    roomId: string,
+    userId: string,
+    playerSnapshot: PlayerSnapshot<T>,
+    loadout: T["Loadout"],
+    assignmentSubscriptionId?: string,
+  ): Promise<boolean> {
+    return this.roomOps.joinRoom(
       socket,
       roomId,
       userId,
@@ -617,1289 +303,48 @@ export class SocketStore<T extends GameTypes> {
       loadout,
       assignmentSubscriptionId,
     );
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `createAndJoinRoom created room=${serializeLogValue({ roomId, userId })}`,
-    );
-  }
-
-  /**
-   * Adds a user to a room.
-   */
-  async joinRoom(
-    _socket: WebSocket,
-    roomId: string,
-    userId: string,
-    playerSnapshot: PlayerSnapshot<T>,
-    loadout: T["Loadout"],
-    assignmentSubscriptionId?: string,
-  ): Promise<boolean> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `joinRoom request=${
-        serializeLogValue({
-          roomId,
-          userId,
-          playerSnapshot,
-          loadout,
-          assignmentSubscriptionId,
-        })
-      }`,
-    );
-    const entryId = ulid();
-
-    try {
-      await this.db.addToRoom(
-        roomId,
-        entryId,
-        userId,
-        playerSnapshot,
-        loadout,
-        assignmentSubscriptionId,
-      );
-    } catch (error) {
-      logServer(
-        SOCKET_STORE_LOG_MODULE,
-        "WARN",
-        `joinRoom failed error=${
-          serializeLogValue(error instanceof Error ? error : String(error))
-        }`,
-      );
-      return false;
-    }
-
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `joinRoom succeeded=${serializeLogValue({ roomId, userId, entryId })}`,
-    );
-    return true;
   }
 
   /**
    * Leaves one queue and removes its stored queue entry state.
    */
-  async leaveQueue(socket: WebSocket, queueId: string): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `leaveQueue request=${serializeLogValue({ queueId })}`,
-    );
-    await this.cleanupQueueSubscription(socket, queueId, {
-      removeFromDb: true,
-    });
+  leaveQueue(socket: WebSocket, queueId: string): Promise<void> {
+    return this.queueOps.leaveQueue(socket, queueId);
   }
 
   /**
    * Commits one room to a match when the user is an active member.
    */
-  async commitRoom(roomId: string, userId: string): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `commitRoom request=${serializeLogValue({ roomId, userId })}`,
-    );
-    const room = await this.db.getRoom(roomId);
-    if (room == null) {
-      throw new Error(`Room ${roomId} not found`);
-    }
-
-    const member = room.members.find((roomMember) =>
-      roomMember.userId === userId
-    );
-    if (member == null) {
-      throw new Error(`User ${userId} is not in room ${roomId}`);
-    }
-
-    const matchAssignments = await this.db.commitRoom(roomId, userId);
-    this.sendMatchAssignmentsToStoredSubscriptions(matchAssignments);
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `commitRoom assignments=${
-        serializeLogValue({ roomId, userId, matchAssignments })
-      }`,
-    );
+  commitRoom(roomId: string, userId: string): Promise<void> {
+    return this.roomOps.commitRoom(roomId, userId);
   }
 
   /**
    * Leaves one room regardless of whether this socket is subscribed to it.
    */
-  async leaveRoom(
+  leaveRoom(
     socket: WebSocket,
     roomId: string,
     userId: string,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `leaveRoom request=${serializeLogValue({ roomId, userId })}`,
-    );
-    const room = await this.db.getRoom(roomId);
-    if (room != null) {
-      const member = room.members.find((roomMember) =>
-        roomMember.userId === userId
-      );
-      if (member != null) {
-        await this.db.removeFromRoom(roomId, member.entryId);
-      }
-    }
-
-    await this.cleanupRoomConnection(socket, roomId, {
-      notifyClient: true,
-      removeSubscriptionEntries: true,
-    });
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `leaveRoom completed=${serializeLogValue({ roomId, userId })}`,
-    );
+    return this.roomOps.leaveRoom(socket, roomId, userId);
   }
 
   /**
    * Subscribes one logical match channel instance on a websocket.
    */
-  async subscribeMatch(
+  subscribeMatch(
     socket: WebSocket,
     subscriptionId: string,
     matchId: string,
     playerId?: number,
   ): Promise<void> {
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeMatch request=${
-        serializeLogValue({ subscriptionId, matchId, playerId })
-      }`,
-    );
-    await this.unsubscribe(socket, subscriptionId);
-
-    const gameStateService = this.requireGameStateService();
-    const connectionState = this.getOrCreateSocketConnection(socket);
-
-    if (!this.matchConnections.has(matchId)) {
-      this.createMatchConnection(matchId);
-    }
-
-    const matchConnection = this.matchConnections.get(matchId);
-    if (matchConnection == null) {
-      throw new Error(`Match connection ${matchId} not found`);
-    }
-
-    matchConnection.matchSubscriptions.set(subscriptionId, {
-      subscriptionId,
+    return this.matchOps.subscribeMatch(
       socket,
-      playerId,
-    });
-    connectionState.subscriptions.set(subscriptionId, {
-      type: "Match",
+      subscriptionId,
       matchId,
-    });
-
-    const gameData = await this.db.getMatchStorageData(matchId);
-    const gameStateUpdate = gameStateService.buildGameStateUpdate(
-      gameData,
+      () => this.lifecycleOps.unsubscribe(socket, subscriptionId),
       playerId,
     );
-
-    sendServerMessage<T>(socket, {
-      type: "UpdateMatchState",
-      subscriptionId,
-      matchViewData: buildMatchViewData(
-        gameData.chatThreadId,
-        gameData.players,
-        playerId,
-        gameStateUpdate,
-      ),
-    });
-    logServer(
-      SOCKET_STORE_LOG_MODULE,
-      "INFO",
-      `subscribeMatch sent initial state=${
-        serializeLogValue({ subscriptionId, matchId, playerId })
-      }`,
-    );
-  }
-
-  /**
-   * Unsubscribes one AccountUserProfile subscription and tears down account
-   * profile streams when last.
-   */
-  private unsubscribeAccountUserProfileSubscription(
-    socket: WebSocket,
-    subscriptionId: string,
-    userId: string,
-  ): void {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return;
-    }
-    const accountUserProfileConnection = connectionState
-      .accountUserProfileConnections.get(
-        userId,
-      );
-    if (accountUserProfileConnection == null) {
-      return;
-    }
-
-    accountUserProfileConnection.subscriptionIds.delete(subscriptionId);
-    if (accountUserProfileConnection.subscriptionIds.size > 0) {
-      return;
-    }
-
-    closeReader(accountUserProfileConnection.userChangesReader);
-    connectionState.accountUserProfileConnections.delete(userId);
-  }
-
-  /**
-   * Unsubscribes one UserMatchmaking subscription and tears down
-   * UserMatchmaking streams when last.
-   */
-  private async unsubscribeUserMatchmakingSubscription(
-    socket: WebSocket,
-    subscriptionId: string,
-  ): Promise<void> {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.userMatchmaking == null) {
-      return;
-    }
-
-    const userMatchmakingState = connectionState.userMatchmaking;
-    userMatchmakingState.subscriptionIds.delete(subscriptionId);
-
-    if (userMatchmakingState.subscriptionIds.size > 0) {
-      return;
-    }
-
-    await this.cleanupUserMatchmakingConnection(socket, userMatchmakingState);
-  }
-
-  /**
-   * Unsubscribes one room subscription and tears down room streams when last.
-   */
-  private async unsubscribeRoomSubscription(
-    socket: WebSocket,
-    subscriptionId: string,
-    roomId: string,
-  ): Promise<void> {
-    const roomConnection = this.getRoomConnection(socket, roomId);
-    if (roomConnection == null) {
-      return;
-    }
-
-    roomConnection.subscriptionIds.delete(subscriptionId);
-    if (roomConnection.subscriptionIds.size > 0) {
-      return;
-    }
-
-    await this.cleanupRoomConnection(socket, roomId, {
-      notifyClient: false,
-      removeSubscriptionEntries: false,
-    });
-  }
-
-  /**
-   * Unsubscribes one chat thread subscription and tears down its stream reader.
-   */
-  private unsubscribeChatThreadSubscription(
-    socket: WebSocket,
-    subscriptionId: string,
-  ): void {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return;
-    }
-    const chatThreadSubscription = connectionState.chatThreadSubscriptions.get(
-      subscriptionId,
-    );
-    if (chatThreadSubscription == null) {
-      return;
-    }
-    closeReader(chatThreadSubscription.messageChangesReader);
-    connectionState.chatThreadSubscriptions.delete(subscriptionId);
-  }
-
-  /**
-   * Cleans up shared UserMatchmaking resources after the last
-   * UserMatchmaking subscription is gone.
-   */
-  private async cleanupUserMatchmakingConnection(
-    socket: WebSocket,
-    userMatchmakingState: UserMatchmakingConnectionState<T>,
-  ): Promise<void> {
-    for (const queueId of [...userMatchmakingState.queueSubscriptions.keys()]) {
-      await this.cleanupQueueSubscription(socket, queueId, {
-        removeFromDb: true,
-      });
-    }
-
-    closeReader(userMatchmakingState.userChangesReader);
-
-    const connectionState = this.sockets.get(socket);
-    if (connectionState != null) {
-      connectionState.userMatchmaking = undefined;
-    }
-  }
-
-  /**
-   * Removes one match subscription from its match stream.
-   */
-  private unsubscribeMatchSubscription(
-    subscriptionId: string,
-    matchId: string,
-  ): void {
-    const matchConnection = this.matchConnections.get(matchId);
-    if (matchConnection == null) {
-      return;
-    }
-
-    const wasRemoved = matchConnection.matchSubscriptions.delete(
-      subscriptionId,
-    );
-    if (!wasRemoved) {
-      return;
-    }
-
-    if (matchConnection.matchSubscriptions.size === 0) {
-      closeReader(matchConnection.changesReader);
-      this.matchConnections.delete(matchId);
-    }
-  }
-
-  /**
-   * Streams UserMatchmaking updates for one websocket.
-   */
-  private async streamUserChangesToSocket(
-    socket: WebSocket,
-    userId: string,
-    userChangesReader: ReadableStreamDefaultReader<
-      UserMatchmakingStorageData<T>
-    >,
-  ): Promise<void> {
-    try {
-      while (true) {
-        const data = await userChangesReader.read();
-        if (data.done) {
-          break;
-        }
-
-        const userData = data.value;
-        await this.sendUserMatchmakingSnapshotToSubscriptions(
-          socket,
-          userId,
-          userData,
-        );
-      }
-    } catch {
-      // Reader cancellation is expected during unsubscribe.
-    }
-  }
-
-  /**
-   * Streams AccountUserProfile updates for one websocket and target user.
-   */
-  private async streamAccountUserProfileChangesToSocket(
-    socket: WebSocket,
-    userId: string,
-    userChangesReader: ReadableStreamDefaultReader<
-      UserProfileViewData<T>
-    >,
-  ): Promise<void> {
-    try {
-      while (true) {
-        const data = await userChangesReader.read();
-        if (data.done) {
-          break;
-        }
-
-        this.sendAccountUserProfileSnapshotToSubscriptions(
-          socket,
-          userId,
-          data.value,
-        );
-      }
-    } catch {
-      // Reader cancellation is expected during unsubscribe.
-    } finally {
-      closeReader(userChangesReader);
-    }
-  }
-
-  /**
-   * Streams room updates for one room subscription.
-   */
-  private async streamRoomChangesToSocket(
-    socket: WebSocket,
-    roomId: string,
-    roomChangesReader: ReadableStreamDefaultReader<
-      RoomWatchEvent<T>
-    >,
-  ): Promise<void> {
-    try {
-      while (true) {
-        const data = await roomChangesReader.read();
-        if (data.done) {
-          break;
-        }
-
-        if (data.value.type === "deleted") {
-          this.sendRoomEntryRemovalToRoomSubscriptions(socket, roomId);
-          await this.cleanupRoomConnection(socket, roomId, {
-            notifyClient: false,
-            removeSubscriptionEntries: true,
-          });
-          break;
-        }
-
-        const roomConnection = this.getRoomConnection(socket, roomId);
-        if (roomConnection == null) {
-          break;
-        }
-
-        const roomMember = data.value.room.members.find((member) =>
-          member.userId === roomConnection.userId
-        );
-        if (roomMember == null) {
-          this.sendRoomEntryRemovalToRoomSubscriptions(socket, roomId);
-          await this.cleanupRoomConnection(socket, roomId, {
-            notifyClient: false,
-            removeSubscriptionEntries: true,
-          });
-          break;
-        }
-
-        roomConnection.entryId = roomMember.entryId;
-        roomConnection.loadout = roomMember.loadout;
-
-        const roomEntry: RoomEntry<T> = {
-          roomId,
-          chatThreadId: data.value.room.chatThreadId,
-          numPlayers: data.value.room.numPlayers,
-          players: data.value.room.members.map((member) =>
-            member.playerSnapshot
-          ),
-          config: data.value.room.config,
-          loadout: roomMember.loadout,
-        };
-
-        this.sendRoomEntryUpdateToRoomSubscriptions(socket, roomId, roomEntry);
-      }
-    } catch {
-      // Reader cancellation is expected during unsubscribe.
-    } finally {
-      closeReader(roomChangesReader);
-    }
-  }
-
-  /**
-   * Streams chat thread updates for one logical chat subscription.
-   */
-  private async streamChatThreadChangesToSocket(
-    socket: WebSocket,
-    subscriptionId: string,
-    messageChangesReader: ReadableStreamDefaultReader<void>,
-  ): Promise<void> {
-    try {
-      while (true) {
-        const data = await messageChangesReader.read();
-        if (data.done) {
-          break;
-        }
-
-        const connectionState = this.sockets.get(socket);
-        if (connectionState == null) {
-          break;
-        }
-        const chatThreadSubscription = connectionState.chatThreadSubscriptions
-          .get(subscriptionId);
-        if (chatThreadSubscription == null) {
-          break;
-        }
-
-        await this.sendChatMessagesAfterCursor(
-          socket,
-          subscriptionId,
-          chatThreadSubscription,
-        );
-      }
-    } catch {
-      // Reader cancellation is expected during unsubscribe.
-    } finally {
-      closeReader(messageChangesReader);
-    }
-  }
-
-  /**
-   * Sends all currently available chat messages after one subscription cursor.
-   */
-  private async sendChatMessagesAfterCursor(
-    socket: WebSocket,
-    subscriptionId: string,
-    chatThreadSubscription: ChatThreadSubscriptionState,
-  ): Promise<void> {
-    const chatMessages = await this.db.getChatThreadMessagesAfter(
-      chatThreadSubscription.chatThreadId,
-      chatThreadSubscription.lastMessageId,
-    );
-    if (chatMessages.length === 0) {
-      return;
-    }
-
-    const connectionState = this.sockets.get(socket);
-    const activeSubscription = connectionState?.subscriptions.get(
-      subscriptionId,
-    );
-    if (
-      activeSubscription?.type !== "ChatThread" ||
-      activeSubscription.chatThreadId !== chatThreadSubscription.chatThreadId
-    ) {
-      return;
-    }
-
-    chatThreadSubscription.lastMessageId = chatMessages[chatMessages.length - 1]
-      .id;
-    sendServerMessage<T>(socket, {
-      type: "AppendChatMessages",
-      subscriptionId,
-      chatThreadId: chatThreadSubscription.chatThreadId,
-      chatMessages,
-    });
-  }
-
-  /**
-   * Builds one full UserMatchmaking payload with derived match state.
-   */
-  private async buildUserMatchmakingProps(
-    userId: string,
-    userData: UserMatchmakingStorageData<T>,
-  ): Promise<
-    UserMatchmakingViewData<T>
-  > {
-    const userActiveMatches = await this.buildUserActiveMatchViews(
-      userId,
-      userData.activeMatches,
-    );
-    return {
-      userActiveMatches,
-      roomIds: userData.joinedRooms.map((joinedRoom) => joinedRoom.roomId),
-      queueEntries: userData.queueEntries,
-    };
-  }
-
-  /**
-   * Sends one UserMatchmaking payload update to one subscription.
-   */
-  private sendUserMatchmakingUpdate(
-    socket: WebSocket,
-    subscriptionId: string,
-    userMatchmakingProps: UserMatchmakingViewData<T>,
-  ): void {
-    sendServerMessage<T>(socket, {
-      type: "UpdateUserMatchmakingProps",
-      subscriptionId,
-      userMatchmakingProps,
-    });
-  }
-
-  /**
-   * Sends one full UserMatchmaking snapshot to one subscription ID.
-   */
-  private async sendUserMatchmakingSnapshot(
-    socket: WebSocket,
-    subscriptionId: string,
-    userId: string,
-    userData: UserMatchmakingStorageData<T>,
-  ): Promise<void> {
-    const userMatchmakingProps = await this.buildUserMatchmakingProps(
-      userId,
-      userData,
-    );
-    this.sendUserMatchmakingUpdate(
-      socket,
-      subscriptionId,
-      userMatchmakingProps,
-    );
-  }
-
-  /**
-   * Sends the latest UserMatchmaking snapshot to each active UserMatchmaking subscription.
-   */
-  private async sendUserMatchmakingSnapshotToSubscriptions(
-    socket: WebSocket,
-    userId: string,
-    userData: UserMatchmakingStorageData<T>,
-  ): Promise<void> {
-    const userMatchmakingProps = await this.buildUserMatchmakingProps(
-      userId,
-      userData,
-    );
-    for (
-      const subscriptionId of this.getUserMatchmakingSubscriptionIds(socket)
-    ) {
-      this.sendUserMatchmakingUpdate(
-        socket,
-        subscriptionId,
-        userMatchmakingProps,
-      );
-    }
-  }
-
-  /**
-   * Sends one full AccountUserProfile snapshot to one subscription ID.
-   */
-  private sendAccountUserProfileSnapshot(
-    socket: WebSocket,
-    subscriptionId: string,
-    userProfile: UserProfileViewData<T>,
-  ): void {
-    sendServerMessage<T>(socket, {
-      type: "UpdateAccountUserProfileProps",
-      subscriptionId,
-      accountUserProfileProps: userProfile,
-    });
-  }
-
-  /**
-   * Sends the latest account profile snapshot to each active
-   * AccountUserProfile subscription for a user.
-   */
-  private sendAccountUserProfileSnapshotToSubscriptions(
-    socket: WebSocket,
-    userId: string,
-    userProfile: UserProfileViewData<T>,
-  ): void {
-    for (
-      const subscriptionId of this.getAccountUserProfileSubscriptionIds(
-        socket,
-        userId,
-      )
-    ) {
-      this.sendAccountUserProfileSnapshot(socket, subscriptionId, userProfile);
-    }
-  }
-
-  /**
-   * Sends one room entry update to one subscription ID.
-   */
-  private sendRoomEntryUpdateToSubscription(
-    socket: WebSocket,
-    subscriptionId: string,
-    roomEntry: RoomEntry<T>,
-  ): void {
-    sendServerMessage<T>(socket, {
-      type: "UpdateRoomEntry",
-      subscriptionId,
-      roomEntry,
-    });
-  }
-
-  /**
-   * Sends one room entry update to each active room subscription.
-   */
-  private sendRoomEntryUpdateToRoomSubscriptions(
-    socket: WebSocket,
-    roomId: string,
-    roomEntry: RoomEntry<T>,
-  ): void {
-    for (const subscriptionId of this.getRoomSubscriptionIds(socket, roomId)) {
-      this.sendRoomEntryUpdateToSubscription(socket, subscriptionId, roomEntry);
-    }
-  }
-
-  /**
-   * Sends one room entry removal to each active room subscription.
-   */
-  private sendRoomEntryRemovalToRoomSubscriptions(
-    socket: WebSocket,
-    roomId: string,
-  ): void {
-    for (const subscriptionId of this.getRoomSubscriptionIds(socket, roomId)) {
-      sendServerMessage<T>(socket, {
-        type: "RemoveRoomEntry",
-        subscriptionId,
-        roomId,
-      });
-    }
-  }
-
-  /**
-   * Sends match assignment messages for each stored assignment target.
-   */
-  private sendMatchAssignmentsToStoredSubscriptions(
-    assignments: MatchAssignmentNotification[],
-  ): void {
-    for (const assignment of assignments) {
-      if (assignment.subscriptionId == null) {
-        continue;
-      }
-
-      this.sendMatchAssignmentToMatchingSubscriptions(
-        assignment.subscriptionId,
-        assignment.matchId,
-      );
-    }
-  }
-
-  /**
-   * Sends one match assignment message to sockets currently holding the
-   * referenced subscription ID.
-   */
-  private sendMatchAssignmentToMatchingSubscriptions(
-    subscriptionId: string,
-    matchId: string,
-  ): void {
-    for (const [socket, connectionState] of this.sockets.entries()) {
-      if (!connectionState.subscriptions.has(subscriptionId)) {
-        continue;
-      }
-
-      sendServerMessage<T>(socket, {
-        type: "MatchAssignment",
-        subscriptionId,
-        matchId,
-      });
-    }
-  }
-
-  /**
-   * Returns all active UserMatchmaking subscription IDs for a socket.
-   */
-  private getUserMatchmakingSubscriptionIds(socket: WebSocket): string[] {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.userMatchmaking == null) {
-      return [];
-    }
-
-    return [...connectionState.userMatchmaking.subscriptionIds];
-  }
-
-  /**
-   * Returns all active AccountUserProfile subscription IDs for one socket and
-   * user.
-   */
-  private getAccountUserProfileSubscriptionIds(
-    socket: WebSocket,
-    userId: string,
-  ): string[] {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return [];
-    }
-    const accountUserProfileConnection = connectionState
-      .accountUserProfileConnections.get(userId);
-    if (accountUserProfileConnection == null) {
-      return [];
-    }
-    return [...accountUserProfileConnection.subscriptionIds];
-  }
-
-  /**
-   * Returns all active room subscription IDs for one socket and room.
-   */
-  private getRoomSubscriptionIds(
-    socket: WebSocket,
-    roomId: string,
-  ): string[] {
-    const roomConnection = this.getRoomConnection(socket, roomId);
-    if (roomConnection == null) {
-      return [];
-    }
-
-    return [...roomConnection.subscriptionIds];
-  }
-
-  /**
-   * Sends the latest active public matches snapshot to one subscription.
-   */
-  private async sendActivePublicMatchesSnapshot(
-    socket: WebSocket,
-    subscriptionId: string,
-  ): Promise<void> {
-    const allActiveMatches = await this.db.getAllActivePublicMatches();
-    const projectedMatches = await this.buildActivePublicMatchViews(
-      allActiveMatches,
-    );
-    this.sendActivePublicMatchesUpdate(
-      socket,
-      subscriptionId,
-      projectedMatches,
-    );
-  }
-
-  /**
-   * Sends one active public matches update payload to one subscription.
-   */
-  private sendActivePublicMatchesUpdate(
-    socket: WebSocket,
-    subscriptionId: string,
-    allActiveMatches: ActivePublicMatch<T>[],
-  ): void {
-    const activePublicMatchesProps: ActivePublicMatchesViewData<T> = {
-      allActiveMatches,
-    };
-    sendServerMessage<T>(
-      socket,
-      {
-        type: "UpdateActivePublicMatches",
-        subscriptionId,
-        activePublicMatchesProps,
-      },
-    );
-  }
-
-  /**
-   * Broadcasts active match list updates to all active public match subscriptions.
-   */
-  private streamActivePublicMatchesToSockets(
-    activeMatchesStream: ReadableStream<ActiveMatch<T>[]>,
-  ): void {
-    activeMatchesStream.pipeTo(
-      new WritableStream({
-        write: async (allActiveMatches: ActiveMatch<T>[]) => {
-          if (this.activePublicMatchesSubscriptions.size === 0) {
-            return;
-          }
-          const projectedMatches = await this.buildActivePublicMatchViews(
-            allActiveMatches,
-          );
-          for (
-            const [subscriptionId, socket] of this
-              .activePublicMatchesSubscriptions.entries()
-          ) {
-            this.sendActivePublicMatchesUpdate(
-              socket,
-              subscriptionId,
-              projectedMatches,
-            );
-          }
-        },
-      }),
-    ).catch((err) => {
-      logServer(
-        SOCKET_STORE_LOG_MODULE,
-        "ERROR",
-        `Failed to broadcast active match updates error=${
-          serializeLogValue(err instanceof Error ? err : String(err))
-        }`,
-      );
-    });
-  }
-
-  /**
-   * Projects active public matches with up-to-date public state.
-   */
-  private buildActivePublicMatchViews(
-    activeMatches: ActiveMatch<T>[],
-  ): Promise<ActivePublicMatch<T>[]> {
-    return this.requireMatchProjectionService().buildActivePublicMatchViews(
-      activeMatches,
-    );
-  }
-
-  /**
-   * Projects user-active matches with up-to-date public and private state.
-   */
-  private buildUserActiveMatchViews(
-    userId: string,
-    activeMatches: ActiveMatch<T>[],
-  ): Promise<UserActiveMatch<T>[]> {
-    return this.requireMatchProjectionService().buildUserActiveMatchViews(
-      userId,
-      activeMatches,
-    );
-  }
-
-  /**
-   * Sends the latest active public users snapshot to one subscription.
-   */
-  private async sendActivePublicUsersSnapshot(
-    socket: WebSocket,
-    subscriptionId: string,
-  ): Promise<void> {
-    const allActiveUsers = await this.db.getAllActivePublicUsers();
-    this.sendActivePublicUsersUpdate(socket, subscriptionId, allActiveUsers);
-  }
-
-  /**
-   * Sends one active public users update payload to one subscription.
-   */
-  private sendActivePublicUsersUpdate(
-    socket: WebSocket,
-    subscriptionId: string,
-    allActiveUsers: PlayerSnapshot<T>[],
-  ): void {
-    const activePublicUsersProps: ActiveUsersViewData<T> = {
-      allActiveUsers,
-    };
-    sendServerMessage<T>(socket, {
-      type: "UpdateActivePublicUsers",
-      subscriptionId,
-      activePublicUsersProps,
-    });
-  }
-
-  /**
-   * Broadcasts active user list updates to all active public user subscriptions.
-   */
-  private streamActivePublicUsersToSockets(
-    activeUsersStream: ReadableStream<PlayerSnapshot<T>[]>,
-  ): void {
-    activeUsersStream.pipeTo(
-      new WritableStream({
-        write: (allActiveUsers: PlayerSnapshot<T>[]) => {
-          for (
-            const [subscriptionId, socket] of this
-              .activePublicUsersSubscriptions.entries()
-          ) {
-            this.sendActivePublicUsersUpdate(
-              socket,
-              subscriptionId,
-              allActiveUsers,
-            );
-          }
-        },
-      }),
-    ).catch((err) => {
-      logServer(
-        SOCKET_STORE_LOG_MODULE,
-        "ERROR",
-        `Failed to broadcast active user updates error=${
-          serializeLogValue(err instanceof Error ? err : String(err))
-        }`,
-      );
-    });
-  }
-
-  /**
-   * Sends the latest available public rooms snapshot to one subscription.
-   */
-  private async sendAvailablePublicRoomsSnapshot(
-    socket: WebSocket,
-    subscriptionId: string,
-  ): Promise<void> {
-    const allAvailableRooms = await this.db.getAllAvailablePublicRooms();
-    this.sendAvailablePublicRoomsUpdate(
-      socket,
-      subscriptionId,
-      allAvailableRooms,
-    );
-  }
-
-  /**
-   * Sends one available public rooms update payload to one subscription.
-   */
-  private sendAvailablePublicRoomsUpdate(
-    socket: WebSocket,
-    subscriptionId: string,
-    allAvailableRooms: AvailableRoom<T>[],
-  ): void {
-    const availablePublicRoomsProps: AvailablePublicRoomsViewData<T> = {
-      allAvailableRooms,
-    };
-    sendServerMessage<T>(socket, {
-      type: "UpdateAvailablePublicRooms",
-      subscriptionId,
-      availablePublicRoomsProps,
-    });
-  }
-
-  /**
-   * Broadcasts available room list updates to all public room subscriptions.
-   */
-  private streamAvailablePublicRoomsToSockets(
-    availableRoomsStream: ReadableStream<AvailableRoom<T>[]>,
-  ): void {
-    availableRoomsStream.pipeTo(
-      new WritableStream({
-        write: (allAvailableRooms: AvailableRoom<T>[]) => {
-          for (
-            const [subscriptionId, socket] of this
-              .availablePublicRoomsSubscriptions.entries()
-          ) {
-            this.sendAvailablePublicRoomsUpdate(
-              socket,
-              subscriptionId,
-              allAvailableRooms,
-            );
-          }
-        },
-      }),
-    ).catch((err) => {
-      logServer(
-        SOCKET_STORE_LOG_MODULE,
-        "ERROR",
-        `Failed to broadcast available room updates error=${
-          serializeLogValue(err instanceof Error ? err : String(err))
-        }`,
-      );
-    });
-  }
-
-  /**
-   * Returns one room connection tracked for a socket.
-   */
-  private getRoomConnection(
-    socket: WebSocket,
-    roomId: string,
-  ): RoomConnectionState<T> | undefined {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return undefined;
-    }
-
-    return connectionState.roomConnections.get(roomId);
-  }
-
-  /**
-   * Cleans up one queue subscription and optionally removes it from storage.
-   */
-  private async cleanupQueueSubscription(
-    socket: WebSocket,
-    queueId: string,
-    options: { removeFromDb: boolean },
-  ): Promise<void> {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.userMatchmaking == null) {
-      return;
-    }
-
-    const userMatchmakingState = connectionState.userMatchmaking;
-    const queueSubscription = userMatchmakingState.queueSubscriptions.get(
-      queueId,
-    );
-    if (queueSubscription == null) {
-      return;
-    }
-
-    if (options.removeFromDb) {
-      try {
-        await this.db.removeFromQueue(
-          queueSubscription.queueId,
-          queueSubscription.entryId,
-        );
-      } catch (err) {
-        logServer(
-          SOCKET_STORE_LOG_MODULE,
-          "ERROR",
-          `Failed to remove queue subscription error=${
-            serializeLogValue(err instanceof Error ? err : String(err))
-          }`,
-        );
-      }
-    }
-
-    userMatchmakingState.queueSubscriptions.delete(queueId);
-  }
-
-  /**
-   * Cleans up one room connection and optionally removes channel subscriptions.
-   */
-  private cleanupRoomConnection(
-    socket: WebSocket,
-    roomId: string,
-    options: { notifyClient: boolean; removeSubscriptionEntries: boolean },
-  ): void {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return;
-    }
-
-    const roomConnection = connectionState.roomConnections.get(roomId);
-    if (roomConnection == null) {
-      return;
-    }
-
-    const roomSubscriptionIds = [...roomConnection.subscriptionIds];
-
-    closeReader(roomConnection.roomChangesReader);
-
-    connectionState.roomConnections.delete(roomId);
-
-    if (options.removeSubscriptionEntries) {
-      for (const subscriptionId of roomSubscriptionIds) {
-        const subscription = connectionState.subscriptions.get(subscriptionId);
-        if (subscription?.type === "Room" && subscription.roomId === roomId) {
-          connectionState.subscriptions.delete(subscriptionId);
-        }
-      }
-    }
-
-    if (options.notifyClient) {
-      for (const subscriptionId of roomSubscriptionIds) {
-        sendServerMessage<T>(
-          socket,
-          {
-            type: "RemoveRoomEntry",
-            subscriptionId,
-            roomId,
-          },
-        );
-      }
-    }
-
-    this.pruneIdleSocket(socket);
-  }
-
-  /**
-   * Creates and registers one match connection stream.
-   */
-  private createMatchConnection(
-    matchId: string,
-  ): void {
-    const changesReader = this.db.watchForMatchChanges(matchId).getReader();
-
-    this.matchConnections.set(matchId, {
-      matchSubscriptions: new Map(),
-      changesReader,
-    });
-
-    void this.streamMatchChangesToSockets(matchId, changesReader);
-  }
-
-  /**
-   * Streams one match channel's updates to all subscribed sockets.
-   */
-  private async streamMatchChangesToSockets(
-    matchId: string,
-    changesReader: ReadableStreamDefaultReader<
-      MatchStorageData<T>
-    >,
-  ): Promise<void> {
-    const gameStateService = this.requireGameStateService();
-    try {
-      while (true) {
-        const data = await changesReader.read();
-        if (data.done) {
-          break;
-        }
-
-        const matchConnection = this.matchConnections.get(matchId);
-        if (matchConnection == null) {
-          break;
-        }
-
-        const gameData = data.value;
-        const timestamp = new Date();
-
-        const nextPublicState = gameStateService.getPublicState(
-          gameData,
-          timestamp,
-        );
-
-        for (
-          const gameSubscription of matchConnection.matchSubscriptions.values()
-        ) {
-          const gameStateUpdate = gameStateService.buildGameStateUpdate(
-            gameData,
-            gameSubscription.playerId,
-            {
-              timestamp,
-              publicState: nextPublicState,
-            },
-          );
-
-          sendServerMessage<T>(
-            gameSubscription.socket,
-            {
-              type: "UpdateMatchState",
-              subscriptionId: gameSubscription.subscriptionId,
-              matchViewData: buildMatchViewData(
-                gameData.chatThreadId,
-                gameData.players,
-                gameSubscription.playerId,
-                gameStateUpdate,
-              ),
-            },
-          );
-        }
-      }
-    } catch {
-      // Reader cancellation is expected during unsubscribe.
-    }
-  }
-
-  /**
-   * Returns the configured match helpers or throws when missing.
-   */
-  private requireGameStateService(): GameStateService<T> {
-    if (this.gameStateService == null) {
-      throw new Error("SocketStore match state service is not configured");
-    }
-    return this.gameStateService;
-  }
-
-  /**
-   * Returns the configured projection helpers or throws when missing.
-   */
-  private requireMatchProjectionService(): MatchProjectionService<T> {
-    if (this.matchProjectionService == null) {
-      throw new Error("SocketStore match projection service is not configured");
-    }
-    return this.matchProjectionService;
-  }
-
-  /**
-   * Returns the UserMatchmaking connection state for a socket or throws when
-   * absent.
-   */
-  private getUserMatchmakingConnectionState(
-    socket: WebSocket,
-  ): UserMatchmakingConnectionState<T> {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null || connectionState.userMatchmaking == null) {
-      throw new Error("Socket is not subscribed to userMatchmaking");
-    }
-
-    return connectionState.userMatchmaking;
-  }
-
-  /**
-   * Returns a socket connection state, creating one when missing.
-   */
-  private getOrCreateSocketConnection(
-    socket: WebSocket,
-  ): SocketConnectionState<T> {
-    const existing = this.sockets.get(socket);
-    if (existing != null) {
-      return existing;
-    }
-
-    const connectionState: SocketConnectionState<T> = {
-      subscriptions: new Map(),
-      roomConnections: new Map(),
-      chatThreadSubscriptions: new Map(),
-      accountUserProfileConnections: new Map(),
-    };
-    this.sockets.set(socket, connectionState);
-    return connectionState;
-  }
-
-  /**
-   * Removes socket bookkeeping when no subscriptions remain.
-   */
-  private pruneIdleSocket(socket: WebSocket): void {
-    const connectionState = this.sockets.get(socket);
-    if (connectionState == null) {
-      return;
-    }
-    if (connectionState.subscriptions.size > 0) {
-      return;
-    }
-    if (connectionState.roomConnections.size > 0) {
-      return;
-    }
-    if (connectionState.chatThreadSubscriptions.size > 0) {
-      return;
-    }
-    if (connectionState.accountUserProfileConnections.size > 0) {
-      return;
-    }
-    if (connectionState.userMatchmaking != null) {
-      return;
-    }
-
-    this.sockets.delete(socket);
   }
 }
