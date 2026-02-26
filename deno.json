@@ -3,9 +3,9 @@
   "license": "MIT",
   "name": "@brandonhorst/yourturn",
   "exports": {
-    "./server": "./server.ts",
-    "./hooks": "./hooks.ts",
-    "./types": "./types.ts"
+    "./server": "./server/mod.ts",
+    "./client": "./client/mod.ts",
+    "./types": "./types/mod.ts"
   },
   "imports": {
     "preact": "npm:preact@^10.27.2",

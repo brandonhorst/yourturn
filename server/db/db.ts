@@ -3,7 +3,7 @@ import {
   logServer,
   serializeLogValue,
   type ServerLogLevel,
-} from "./logging.ts";
+} from "../logging.ts";
 import type {
   ActiveMatch,
   AuditLogEntry,
@@ -17,7 +17,45 @@ import type {
   QueueEntry,
   TokenData,
   UserProfileViewData,
-} from "../types.ts";
+} from "../../types/mod.ts";
+import {
+  ACTIVE_PUBLIC_USER_TTL_MS,
+  DB_LOG_MODULE,
+  PUBLIC_LIST_BATCH_SIZE,
+  PUBLIC_LIST_READ_LIMIT,
+  U64_MAX,
+  USER_COMPLETED_MATCHES_BATCH_SIZE,
+  USER_COMPLETED_MATCHES_READ_LIMIT,
+} from "./constants.ts";
+import {
+  getActivePublicMatchesKey,
+  getActivePublicMatchKey,
+  getActivePublicUserKey,
+  getActivePublicUsersKey,
+  getAuditLogEntryKey,
+  getAvailablePublicRoomKey,
+  getAvailablePublicRoomsKey,
+  getMatchKey,
+  getQueueEntryKey,
+  getQueuePrefix,
+  getRoomKey,
+  getTokenKey,
+  getUserByUsernameKey,
+  getUserCompletedMatchesKey,
+  getUserCompletedMatchKey,
+  getUserKey,
+  getUserMatchmakingKey,
+} from "./keys.ts";
+import {
+  type ActiveUserStorageData,
+  type MatchAssignmentNotification,
+  type MatchStorageData,
+  type RoomStorageData,
+  type RoomWatchEvent,
+  type UserMatchmakingStorageData,
+  type UserStorageData,
+  userStorageDataToUserProfileViewData,
+} from "./models.ts";
 
 type QueueEntryValue<T extends GameTypes> = {
   timestamp: Date;
@@ -26,158 +64,6 @@ type QueueEntryValue<T extends GameTypes> = {
   loadout: T["Loadout"];
   assignmentSubscriptionId?: string;
 };
-
-export type RoomStorageData<T extends GameTypes> = {
-  numPlayers: number;
-  config: T["Config"];
-  private: boolean;
-  members: RoomMember<T>[];
-};
-
-export type RoomWatchEvent<T extends GameTypes> =
-  | { type: "updated"; room: RoomStorageData<T> }
-  | { type: "deleted" };
-
-type RoomMember<T extends GameTypes> = {
-  entryId: string;
-  timestamp: Date;
-  userId: string;
-  playerSnapshot: PlayerSnapshot<T>;
-  loadout: T["Loadout"];
-  assignmentSubscriptionId?: string;
-};
-
-export type MatchStorageData<T extends GameTypes> = {
-  config: T["Config"];
-  queueId?: string;
-  gameState: T["GameState"];
-  userIds: string[];
-  players: PlayerSnapshot<T>[];
-  outcome: T["Outcome"] | undefined;
-};
-
-export type MatchAssignmentNotification = {
-  matchId: string;
-  subscriptionId?: string;
-};
-
-export type JoinedRoom<T extends GameTypes> = {
-  roomId: string;
-  loadout: T["Loadout"];
-};
-
-export type UserStorageData<T extends GameTypes> = {
-  username: string;
-  isGuest: boolean;
-  description: string;
-  ratings: Record<string, T["Rating"]>;
-};
-
-export type UserMatchmakingStorageData<T extends GameTypes> = {
-  activeMatches: ActiveMatch<T>[];
-  joinedRooms: JoinedRoom<T>[];
-  queueEntries: QueueEntry<T>[];
-};
-
-export type ActiveUserStorageData<T extends GameTypes> = {
-  playerSnapshot: PlayerSnapshot<T>;
-  connectionCount: number;
-};
-
-/**
- * Converts canonical stored user data into socket-safe user profile view data.
- */
-export function userStorageDataToUserProfileViewData<
-  T extends GameTypes,
->(
-  userId: string,
-  userStorageData: UserStorageData<T>,
-  completedMatches: CompletedMatchSnapshot<T>[],
-): UserProfileViewData<T> {
-  return {
-    userId,
-    username: userStorageData.username,
-    isGuest: userStorageData.isGuest,
-    description: userStorageData.description,
-    rating: userStorageData.ratings,
-    completedMatches,
-  };
-}
-
-/**
- * Converts user profile view data into a frozen player snapshot.
- */
-export function userProfileViewDataToPlayerSnapshot<T extends GameTypes>(
-  userProfileViewData: UserProfileViewData<T>,
-): PlayerSnapshot<T> {
-  return {
-    userId: userProfileViewData.userId,
-    username: userProfileViewData.username,
-    isGuest: userProfileViewData.isGuest,
-    rating: userProfileViewData.rating,
-  };
-}
-
-function getQueuePrefix(queueId: string) {
-  return ["queueentry", queueId];
-}
-
-function getQueueEntryKey(queueId: string, entryId: string) {
-  return ["queueentry", queueId, entryId];
-}
-function getRoomKey(roomId: string) {
-  return ["rooms", roomId];
-}
-function getAvailablePublicRoomsKey() {
-  return ["availablepublicrooms"];
-}
-function getAvailablePublicRoomKey(roomId: string) {
-  return ["availablepublicrooms", roomId];
-}
-function getActivePublicMatchesKey() {
-  return ["activepublicmatches"];
-}
-function getActivePublicMatchKey(matchId: string) {
-  return ["activepublicmatches", matchId];
-}
-function getActivePublicUsersKey() {
-  return ["activepublicusers"];
-}
-function getActivePublicUserKey(userId: string) {
-  return ["activepublicusers", userId];
-}
-function getMatchKey(matchId: string) {
-  return ["matches", matchId];
-}
-function getUserKey(userId: string) {
-  return ["users", userId];
-}
-function getUserCompletedMatchesKey(userId: string) {
-  return ["completedmatchesbyuser", userId];
-}
-function getUserCompletedMatchKey(userId: string, completedMatchId: string) {
-  return ["completedmatchesbyuser", userId, completedMatchId];
-}
-function getUserMatchmakingKey(userId: string) {
-  return ["usermatchmakings", userId];
-}
-function getUserByUsernameKey(username: string) {
-  return ["usersByUsername", username];
-}
-function getTokenKey(token: string) {
-  return ["tokens", token];
-}
-function getAuditLogEntryKey(id: string) {
-  return ["auditlogentries", id];
-}
-
-const PUBLIC_LIST_READ_LIMIT = 500;
-const PUBLIC_LIST_BATCH_SIZE = 500;
-const USER_COMPLETED_MATCHES_READ_LIMIT = 500;
-const USER_COMPLETED_MATCHES_BATCH_SIZE = 500;
-const ACTIVE_PUBLIC_USER_TTL_MS = 10 * 60 * 1000;
-const U64_MAX = (1n << 64n) - 1n;
-const DB_LOG_MODULE = "server.db";
 
 export class DB<
   T extends GameTypes,

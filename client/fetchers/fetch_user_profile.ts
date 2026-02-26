@@ -1,5 +1,9 @@
-import type { ClientMessage, ServerMessage } from "../common/sockettypes.ts";
-import type { GameTypes, Socket, UserProfileViewData } from "../types.ts";
+import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
+import type {
+  GameTypes,
+  Socket,
+  UserProfileViewData,
+} from "../../types/mod.ts";
 
 const fetchUserProfileTimeoutMs = 10000;
 
@@ -19,7 +23,9 @@ export function fetchUserProfile<T extends GameTypes>(
   };
 
   return new Promise((resolve, reject) => {
-    // Resolves only for this request ID and then detaches request listeners.
+    /**
+     * Resolves only for this request ID and then detaches listeners.
+     */
     const onMessage = (message: string) => {
       const response = JSON.parse(message) as ServerMessage<T>;
       if (
@@ -35,12 +41,16 @@ export function fetchUserProfile<T extends GameTypes>(
       resolve(response.userProfile);
     };
 
-    // Retries the request after reconnects until a response arrives.
+    /**
+     * Retries the request after reconnects until a response arrives.
+     */
     const onOpen = () => {
       socket.send(JSON.stringify(request));
     };
 
-    // Cleans up listeners and timeout for this one-shot request.
+    /**
+     * Cleans up listeners and timeout for this one-shot request.
+     */
     const timeoutId = setTimeout(() => {
       socket.removeMessageListener(onMessage);
       socket.removeOpenListener(onOpen);
@@ -52,7 +62,7 @@ export function fetchUserProfile<T extends GameTypes>(
     try {
       socket.send(JSON.stringify(request));
     } catch {
-      // We'll retry when the socket opens.
+      // Request will be retried when the socket opens.
     }
   });
 }

@@ -1,12 +1,12 @@
-import type { DB, MatchStorageData } from "./db.ts";
-import { logServer, serializeLogValue } from "./logging.ts";
+import type { DB, MatchStorageData } from "../db/mod.ts";
+import { logServer, serializeLogValue } from "../logging.ts";
 import type {
   GameDefinition,
   GameTypes,
   OutcomeObject,
   PlayerStateObject,
   PublicStateObject,
-} from "../types.ts";
+} from "../../types/mod.ts";
 
 type GameStateUpdate<T extends GameTypes> = {
   playerState: T["PlayerState"] | undefined;

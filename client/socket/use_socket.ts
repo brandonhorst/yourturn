@@ -3,11 +3,11 @@ import type {
   Socket,
   SocketMessageListener,
   SocketOpenListener,
-} from "../types.ts";
+} from "../../types/mod.ts";
 
-// Opens and manages one WebSocket connection with reconnect-on-close behavior.
-// It exposes add/remove APIs for message/open listeners through the `Socket`
-// interface used by the channel hooks.
+/**
+ * Opens and manages one websocket with reconnect-on-close behavior.
+ */
 export function useSocket(socketUrl: string): Socket {
   const ws = useRef<WebSocket | null>(null);
   const closedIntentionally = useRef(false);
@@ -15,22 +15,25 @@ export function useSocket(socketUrl: string): Socket {
   const messageEventHandlers = useRef(
     new Map<SocketMessageListener, (event: MessageEvent) => void>(),
   );
-  const maxReconnectDelay = 30000; // Maximum delay in ms (30 seconds)
+  const maxReconnectDelay = 30000;
 
+  /**
+   * Creates one websocket and attaches reconnect behavior.
+   */
   const connectWebSocket = () => {
     ws.current = new WebSocket(socketUrl);
 
     ws.current.addEventListener("open", () => {
       console.log("WebSocket opened");
-      reconnectAttempt.current = 0; // Reset attempt counter on successful connection
+      reconnectAttempt.current = 0;
     });
+
     ws.current.addEventListener("close", () => {
       console.log("WebSocket closed");
       if (closedIntentionally.current) {
         return;
       }
 
-      // Calculate delay with exponential backoff
       const delay = Math.min(
         maxReconnectDelay,
         Math.pow(2, reconnectAttempt.current) - 1,

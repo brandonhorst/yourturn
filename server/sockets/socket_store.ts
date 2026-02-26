@@ -4,7 +4,7 @@ import type {
   MatchStorageData,
   RoomWatchEvent,
   UserMatchmakingStorageData,
-} from "./db.ts";
+} from "../db/mod.ts";
 import type {
   ActiveMatch,
   ActivePublicMatch,
@@ -13,199 +13,25 @@ import type {
   AvailablePublicRoomsViewData,
   AvailableRoom,
   GameTypes,
-  MatchViewData,
   PlayerSnapshot,
   RoomEntry,
   UserActiveMatch,
   UserMatchmakingViewData,
   UserProfileViewData,
-} from "../types.ts";
-import type { ServerMessage } from "../common/sockettypes.ts";
-import type { GameStateService } from "./gamestateservice.ts";
-import { logServer, serializeLogValue } from "./logging.ts";
+} from "../../types/mod.ts";
+import type { GameStateService } from "../services/game_state_service.ts";
+import { MatchProjectionService } from "../services/match_projection_service.ts";
+import { logServer, serializeLogValue } from "../logging.ts";
+import type {
+  MatchConnection,
+  RoomConnectionState,
+  SocketConnectionState,
+  UserMatchmakingConnectionState,
+} from "./state.ts";
+import { buildMatchViewData, closeReader, sendServerMessage } from "./wire.ts";
 import { ulid } from "@std/ulid";
 
 const SOCKET_STORE_LOG_MODULE = "server.sockets";
-const SOCKET_WIRE_LOG_MODULE = "server.socket";
-
-type QueueSubscription = {
-  queueId: string;
-  entryId: string;
-};
-
-type RoomConnectionState<T extends GameTypes> = {
-  userId: string;
-  roomId: string;
-  subscriptionIds: Set<string>;
-  entryId: string;
-  loadout: T["Loadout"];
-  roomChangesReader: ReadableStreamDefaultReader<
-    RoomWatchEvent<T>
-  >;
-};
-
-/**
- * UserMatchmaking-specific state tracked for one websocket.
- */
-type UserMatchmakingConnectionState<T extends GameTypes> = {
-  userId: string;
-  subscriptionIds: Set<string>;
-  userChangesReader: ReadableStreamDefaultReader<
-    UserMatchmakingStorageData<T>
-  >;
-  queueSubscriptions: Map<string, QueueSubscription>;
-};
-
-/**
- * AccountUserProfile-specific state tracked for one websocket and user ID.
- */
-type AccountUserProfileConnectionState<T extends GameTypes> = {
-  userId: string;
-  subscriptionIds: Set<string>;
-  userChangesReader: ReadableStreamDefaultReader<
-    UserProfileViewData<T>
-  >;
-};
-
-/**
- * One websocket subscriber within a match channel.
- */
-type MatchSocketSubscription = {
-  subscriptionId: string;
-  socket: WebSocket;
-  playerId: number | undefined;
-};
-
-/**
- * Shared stream and subscriber state for a single game.
- */
-type MatchConnection<T extends GameTypes> = {
-  matchSubscriptions: Map<string, MatchSocketSubscription>;
-  changesReader: ReadableStreamDefaultReader<
-    MatchStorageData<T>
-  >;
-};
-
-type SocketSubscription =
-  | { type: "AccountUserProfile"; userId: string }
-  | { type: "UserMatchmaking" }
-  | { type: "Room"; roomId: string }
-  | { type: "ActivePublicMatches" }
-  | { type: "ActivePublicUsers" }
-  | { type: "AvailablePublicRooms" }
-  | { type: "Match"; matchId: string };
-
-/**
- * Combined state for a websocket across account profile, UserMatchmaking,
- * room, and match subscriptions.
- */
-type SocketConnectionState<T extends GameTypes> = {
-  subscriptions: Map<string, SocketSubscription>;
-  roomConnections: Map<string, RoomConnectionState<T>>;
-  accountUserProfileConnections: Map<
-    string,
-    AccountUserProfileConnectionState<T>
-  >;
-  userMatchmaking?: UserMatchmakingConnectionState<T>;
-};
-
-/**
- * Serializes and sends one server message over a websocket, with debug logs.
- */
-function sendServerMessage<
-  T extends GameTypes,
->(
-  socket: WebSocket,
-  message: ServerMessage<T>,
-): void {
-  logServer(
-    SOCKET_WIRE_LOG_MODULE,
-    "INFO",
-    `Socket outbound message payload=${
-      serializeLogValue({ type: message.type, message })
-    }`,
-  );
-  socket.send(JSON.stringify(message));
-}
-
-/**
- * Cancels and unlocks a stream reader.
- */
-function closeReader<T>(reader: ReadableStreamDefaultReader<T>): void {
-  let cancellation: Promise<void> | undefined;
-  try {
-    cancellation = reader.cancel();
-  } catch {
-    // Reader may already be closed.
-  }
-  if (cancellation != null) {
-    void cancellation.catch(() => {
-      // Reader may already be closed or detached.
-    });
-  }
-  try {
-    reader.releaseLock();
-  } catch {
-    // Reader may already have released its lock.
-  }
-}
-
-/**
- * Creates a strongly-typed match view payload for one subscriber update.
- */
-function buildMatchViewData<T extends GameTypes>(
-  players: PlayerSnapshot<T>[],
-  playerId: number | undefined,
-  gameStateUpdate: {
-    playerState: T["PlayerState"] | undefined;
-    publicState: T["PublicState"];
-    outcome: T["Outcome"] | undefined;
-  },
-): MatchViewData<T> {
-  if (playerId == null) {
-    if (gameStateUpdate.outcome === undefined) {
-      return {
-        players,
-        playerId: undefined,
-        playerState: undefined,
-        publicState: gameStateUpdate.publicState,
-        outcome: undefined,
-      };
-    }
-
-    return {
-      players,
-      playerId: undefined,
-      playerState: undefined,
-      publicState: gameStateUpdate.publicState,
-      outcome: gameStateUpdate.outcome,
-    };
-  }
-
-  if (gameStateUpdate.playerState == null) {
-    throw new Error(
-      `Missing player state for subscribed player ${playerId}`,
-    );
-  }
-
-  if (gameStateUpdate.outcome === undefined) {
-    return {
-      players,
-      playerId,
-      playerState: gameStateUpdate.playerState,
-      publicState: gameStateUpdate.publicState,
-      outcome: undefined,
-    };
-  }
-
-  return {
-    players,
-    playerId,
-    playerState: gameStateUpdate.playerState,
-    publicState: gameStateUpdate.publicState,
-    outcome: gameStateUpdate.outcome,
-  };
-}
 
 export class SocketStore<T extends GameTypes> {
   private sockets: Map<
@@ -220,6 +46,7 @@ export class SocketStore<T extends GameTypes> {
     string,
     MatchConnection<T>
   > = new Map();
+  private matchProjectionService?: MatchProjectionService<T>;
 
   constructor(
     private db: DB<T>,
@@ -244,6 +71,10 @@ export class SocketStore<T extends GameTypes> {
     gameStateService: GameStateService<T>,
   ): void {
     this.gameStateService = gameStateService;
+    this.matchProjectionService = new MatchProjectionService(
+      this.db,
+      gameStateService,
+    );
     logServer(
       SOCKET_STORE_LOG_MODULE,
       "INFO",
@@ -1474,102 +1305,27 @@ export class SocketStore<T extends GameTypes> {
   }
 
   /**
-   * Loads match storage records for a set of match IDs.
-   */
-  private async getMatchDataById(
-    matchIds: string[],
-  ): Promise<
-    Map<string, MatchStorageData<T>>
-  > {
-    const uniqueMatchIds = [...new Set(matchIds)];
-    const matchEntries = await Promise.all(
-      uniqueMatchIds.map(async (matchId) => {
-        try {
-          const gameData = await this.db.getMatchStorageData(matchId);
-          return [matchId, gameData] as const;
-        } catch {
-          return undefined;
-        }
-      }),
-    );
-    const matchDataById = new Map<
-      string,
-      MatchStorageData<T>
-    >();
-    for (const matchEntry of matchEntries) {
-      if (matchEntry == null) {
-        continue;
-      }
-      matchDataById.set(matchEntry[0], matchEntry[1]);
-    }
-    return matchDataById;
-  }
-
-  /**
    * Projects active public matches with up-to-date public state.
    */
-  private async buildActivePublicMatchViews(
+  private buildActivePublicMatchViews(
     activeMatches: ActiveMatch<T>[],
   ): Promise<ActivePublicMatch<T>[]> {
-    const gameStateService = this.requireGameStateService();
-    const timestamp = new Date();
-    const matchDataById = await this.getMatchDataById(
-      activeMatches.map((activeMatch) => activeMatch.matchId),
+    return this.requireMatchProjectionService().buildActivePublicMatchViews(
+      activeMatches,
     );
-    const projectedMatches: ActivePublicMatch<T>[] = [];
-
-    for (const activeMatch of activeMatches) {
-      const gameData = matchDataById.get(activeMatch.matchId);
-      if (gameData == null) {
-        continue;
-      }
-
-      projectedMatches.push({
-        ...activeMatch,
-        publicState: gameStateService.getPublicState(gameData, timestamp),
-      });
-    }
-
-    return projectedMatches;
   }
 
   /**
    * Projects user-active matches with up-to-date public and private state.
    */
-  private async buildUserActiveMatchViews(
+  private buildUserActiveMatchViews(
     userId: string,
     activeMatches: ActiveMatch<T>[],
   ): Promise<UserActiveMatch<T>[]> {
-    const gameStateService = this.requireGameStateService();
-    const timestamp = new Date();
-    const matchDataById = await this.getMatchDataById(
-      activeMatches.map((activeMatch) => activeMatch.matchId),
+    return this.requireMatchProjectionService().buildUserActiveMatchViews(
+      userId,
+      activeMatches,
     );
-    const projectedMatches: UserActiveMatch<T>[] = [];
-
-    for (const activeMatch of activeMatches) {
-      const gameData = matchDataById.get(activeMatch.matchId);
-      if (gameData == null) {
-        continue;
-      }
-
-      const playerId = gameStateService.getPlayerId(gameData, userId);
-      if (playerId == null) {
-        continue;
-      }
-
-      projectedMatches.push({
-        ...activeMatch,
-        publicState: gameStateService.getPublicState(gameData, timestamp),
-        privateState: gameStateService.getPlayerState(
-          gameData,
-          playerId,
-          timestamp,
-        ),
-      });
-    }
-
-    return projectedMatches;
   }
 
   /**
@@ -1888,6 +1644,16 @@ export class SocketStore<T extends GameTypes> {
       throw new Error("SocketStore match state service is not configured");
     }
     return this.gameStateService;
+  }
+
+  /**
+   * Returns the configured projection helpers or throws when missing.
+   */
+  private requireMatchProjectionService(): MatchProjectionService<T> {
+    if (this.matchProjectionService == null) {
+      throw new Error("SocketStore match projection service is not configured");
+    }
+    return this.matchProjectionService;
   }
 
   /**

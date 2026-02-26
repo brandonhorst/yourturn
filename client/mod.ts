@@ -6,6 +6,7 @@ export {
   useMatchChannel,
   useRoomChannel,
   useUserMatchmakingChannel,
-} from "./client/channels.ts";
-export { fetchUserProfile } from "./client/fetchers.ts";
-export { useSocket } from "./client/socket.ts";
+} from "./hooks/mod.ts";
+
+export { useSocket } from "./socket/use_socket.ts";
+export { fetchUserProfile } from "./fetchers/fetch_user_profile.ts";

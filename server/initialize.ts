@@ -4,11 +4,11 @@ import type {
   GameTypes,
   PlayerSnapshot,
   Server,
-} from "./types.ts";
-import { DB } from "./server/db.ts";
-import { logServer } from "./server/logging.ts";
-import { SocketStore } from "./server/sockets.ts";
-import { ServerController } from "./server/server.ts";
+} from "../types/mod.ts";
+import { DB } from "./db/mod.ts";
+import { logServer } from "./logging.ts";
+import { SocketStore } from "./sockets/mod.ts";
+import { ServerController } from "./controller/mod.ts";
 
 export async function initializeServer<T extends GameTypes>(
   game: GameDefinition<T>,
