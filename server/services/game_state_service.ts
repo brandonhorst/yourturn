@@ -6,7 +6,7 @@ import type {
   OutcomeObject,
   PlayerStateObject,
   PublicStateObject,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 
 type GameStateUpdate<T extends GameTypes> = {
   playerState: T["PlayerState"] | undefined;

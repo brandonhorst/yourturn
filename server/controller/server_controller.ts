@@ -9,7 +9,7 @@ import type {
   Server,
   UserMatchmakingViewData,
   UserProfileViewData,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 import type { DB, MatchStorageData } from "../db/mod.ts";
 import { logServer, serializeLogValue } from "../logging.ts";
 import { GameStateService } from "../services/game_state_service.ts";

@@ -4,7 +4,7 @@ import type {
   GameTypes,
   PlayerSnapshot,
   Server,
-} from "../types/mod.ts";
+} from "@/types/mod.ts";
 import { DB } from "./db/mod.ts";
 import { logServer } from "./logging.ts";
 import { SocketStore } from "./sockets/mod.ts";

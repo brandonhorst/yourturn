@@ -180,6 +180,8 @@ Current module names include:
 - Keep this `AGENTS.md` file up to date. If behavior, architecture, module
   exports, protocols, or developer workflow changes, update this file in the
   same change set.
+- Prefer the `@/` import alias for cross-directory imports instead of long
+  relative paths like `../../`.
 - Ensure all functions have good comments that explain their purpose.
 - Do not use the `unknown` type unless instructed to do so.
 - Right now, this system is unlaunched and in active development. Do not worry

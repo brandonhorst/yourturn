@@ -17,7 +17,7 @@ import type {
   QueueEntry,
   TokenData,
   UserProfileViewData,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 import {
   ACTIVE_PUBLIC_USER_TTL_MS,
   DB_LOG_MODULE,

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
+import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
 import type {
   GameTypes,
   MatchProps,
   MatchViewData,
   Socket,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 
 /**
  * Subscribes to one match and returns player/observer match props.

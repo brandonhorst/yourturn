@@ -1,10 +1,6 @@
 import { ulid } from "@std/ulid";
-import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
-import type {
-  GameDefinition,
-  GameTypes,
-  PlayerSnapshot,
-} from "../../types/mod.ts";
+import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
+import type { GameDefinition, GameTypes, PlayerSnapshot } from "@/types/mod.ts";
 import { type DB, userProfileViewDataToPlayerSnapshot } from "../db/mod.ts";
 import { logServer, serializeLogValue } from "../logging.ts";
 import type { GameStateService } from "../services/game_state_service.ts";

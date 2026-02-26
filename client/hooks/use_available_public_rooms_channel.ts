@@ -1,10 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
-import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
+import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
 import type {
   AvailablePublicRoomsViewData,
   GameTypes,
   Socket,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 
 /**
  * Subscribes to the global available public rooms channel.

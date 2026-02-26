@@ -3,7 +3,7 @@ import type {
   ActivePublicMatch,
   GameTypes,
   UserActiveMatch,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 import type { DB, MatchStorageData } from "../db/mod.ts";
 import type { GameStateService } from "./game_state_service.ts";
 

@@ -3,7 +3,7 @@ import type {
   RoomWatchEvent,
   UserMatchmakingStorageData,
 } from "../db/mod.ts";
-import type { GameTypes, UserProfileViewData } from "../../types/mod.ts";
+import type { GameTypes, UserProfileViewData } from "@/types/mod.ts";
 
 export type QueueSubscription = {
   queueId: string;

@@ -1,9 +1,5 @@
-import type { ServerMessage } from "../../protocol/mod.ts";
-import type {
-  GameTypes,
-  MatchViewData,
-  PlayerSnapshot,
-} from "../../types/mod.ts";
+import type { ServerMessage } from "@/protocol/mod.ts";
+import type { GameTypes, MatchViewData, PlayerSnapshot } from "@/types/mod.ts";
 import { logServer, serializeLogValue } from "../logging.ts";
 
 const SOCKET_WIRE_LOG_MODULE = "server.socket";

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
+import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
 import type {
   AccountUserProfileProps,
   GameTypes,
   Socket,
   UserProfileUpdate,
   UserProfileViewData,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 
 /**
  * Subscribes to the authenticated user's account profile channel.

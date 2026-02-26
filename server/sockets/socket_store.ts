@@ -18,7 +18,7 @@ import type {
   UserActiveMatch,
   UserMatchmakingViewData,
   UserProfileViewData,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 import type { GameStateService } from "../services/game_state_service.ts";
 import { MatchProjectionService } from "../services/match_projection_service.ts";
 import { logServer, serializeLogValue } from "../logging.ts";

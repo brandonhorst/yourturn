@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
+import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
 import type {
   GameTypes,
   Socket,
   UserMatchmakingProps,
   UserMatchmakingViewData,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 
 /**
  * Subscribes to the user's matchmaking channel and exposes queue/room actions.

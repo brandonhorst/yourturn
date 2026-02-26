@@ -1,10 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
-import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
-import type {
-  ActiveUsersViewData,
-  GameTypes,
-  Socket,
-} from "../../types/mod.ts";
+import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
+import type { ActiveUsersViewData, GameTypes, Socket } from "@/types/mod.ts";
 
 /**
  * Subscribes to the global active public users channel.

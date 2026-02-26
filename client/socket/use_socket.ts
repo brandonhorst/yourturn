@@ -3,7 +3,7 @@ import type {
   Socket,
   SocketMessageListener,
   SocketOpenListener,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 
 /**
  * Opens and manages one websocket with reconnect-on-close behavior.

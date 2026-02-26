@@ -1,4 +1,4 @@
-import type { GameTypes } from "../types/mod.ts";
+import type { GameTypes } from "@/types/mod.ts";
 
 export type ClientMessage<T extends GameTypes> =
   // Active public matches channel

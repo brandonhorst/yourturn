@@ -1,9 +1,5 @@
-import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
-import type {
-  GameTypes,
-  Socket,
-  UserProfileViewData,
-} from "../../types/mod.ts";
+import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
+import type { GameTypes, Socket, UserProfileViewData } from "@/types/mod.ts";
 
 const fetchUserProfileTimeoutMs = 10000;
 

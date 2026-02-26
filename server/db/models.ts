@@ -5,7 +5,7 @@ import type {
   PlayerSnapshot,
   QueueEntry,
   UserProfileViewData,
-} from "../../types/mod.ts";
+} from "@/types/mod.ts";
 
 export type RoomMember<T extends GameTypes> = {
   entryId: string;

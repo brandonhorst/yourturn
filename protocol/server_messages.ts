@@ -7,7 +7,7 @@ import type {
   RoomEntry,
   UserMatchmakingViewData,
   UserProfileViewData,
-} from "../types/mod.ts";
+} from "@/types/mod.ts";
 
 export type ServerMessage<T extends GameTypes> =
   | {

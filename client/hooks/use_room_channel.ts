@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import type { ClientMessage, ServerMessage } from "../../protocol/mod.ts";
-import type {
-  GameTypes,
-  RoomEntry,
-  RoomProps,
-  Socket,
-} from "../../types/mod.ts";
+import type { ClientMessage, ServerMessage } from "@/protocol/mod.ts";
+import type { GameTypes, RoomEntry, RoomProps, Socket } from "@/types/mod.ts";
 
 /**
  * Subscribes to one joined room and exposes room lifecycle actions.
