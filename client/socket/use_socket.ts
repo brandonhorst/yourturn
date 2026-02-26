@@ -5,79 +5,107 @@ import type {
   SocketOpenListener,
 } from "@/types/mod.ts";
 
+const BASE_RECONNECT_DELAY_MS = 1000;
+const MAX_RECONNECT_DELAY_MS = 30000;
+
 /**
  * Opens and manages one websocket with reconnect-on-close behavior.
  */
 export function useSocket(socketUrl: string): Socket {
   const ws = useRef<WebSocket | null>(null);
-  const closedIntentionally = useRef(false);
-  const reconnectAttempt = useRef(0);
-  const messageEventHandlers = useRef(
-    new Map<SocketMessageListener, (event: MessageEvent) => void>(),
-  );
-  const maxReconnectDelay = 30000;
+  const messageListeners = useRef(new Set<SocketMessageListener>());
+  const openListeners = useRef(new Set<SocketOpenListener>());
+  const socketApi = useRef<Socket | null>(null);
 
-  /**
-   * Creates one websocket and attaches reconnect behavior.
-   */
-  const connectWebSocket = () => {
-    ws.current = new WebSocket(socketUrl);
+  useEffect(() => {
+    let closedIntentionally = false;
+    let reconnectAttempt = 0;
+    let reconnectTimer: number | null = null;
 
-    ws.current.addEventListener("open", () => {
-      console.log("WebSocket opened");
-      reconnectAttempt.current = 0;
-    });
-
-    ws.current.addEventListener("close", () => {
-      console.log("WebSocket closed");
-      if (closedIntentionally.current) {
+    /**
+     * Broadcasts websocket messages to all registered message listeners.
+     */
+    const onMessage = (event: MessageEvent) => {
+      if (typeof event.data !== "string") {
         return;
       }
 
-      const delay = Math.min(
-        maxReconnectDelay,
-        Math.pow(2, reconnectAttempt.current) - 1,
-      );
-      reconnectAttempt.current++;
+      for (const listener of messageListeners.current) {
+        listener(event.data);
+      }
+    };
 
-      console.log(
-        `Reconnecting in ${delay}ms (attempt ${reconnectAttempt.current})`,
-      );
-      setTimeout(connectWebSocket, delay);
-    });
-  };
+    /**
+     * Resets reconnect backoff and notifies current open listeners.
+     */
+    const onOpen = () => {
+      reconnectAttempt = 0;
+      for (const listener of openListeners.current) {
+        listener();
+      }
+    };
 
-  useEffect(() => {
+    /**
+     * Connects one websocket and schedules reconnects when needed.
+     */
+    const connectWebSocket = () => {
+      if (closedIntentionally) {
+        return;
+      }
+
+      const socket = new WebSocket(socketUrl);
+      ws.current = socket;
+
+      socket.addEventListener("message", onMessage);
+      socket.addEventListener("open", onOpen);
+      socket.addEventListener("close", () => {
+        if (closedIntentionally) {
+          return;
+        }
+
+        const delay = Math.min(
+          MAX_RECONNECT_DELAY_MS,
+          BASE_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempt),
+        );
+        reconnectAttempt += 1;
+        reconnectTimer = setTimeout(connectWebSocket, delay);
+      });
+    };
+
     connectWebSocket();
 
     return () => {
-      closedIntentionally.current = true;
-      ws.current?.close();
-    };
-  }, []);
-
-  return {
-    addMessageListener: (handler: SocketMessageListener) => {
-      const eventHandler = (event: MessageEvent) => handler(event.data);
-      messageEventHandlers.current.set(handler, eventHandler);
-      ws.current?.addEventListener("message", eventHandler);
-    },
-    removeMessageListener: (handler: SocketMessageListener) => {
-      const eventHandler = messageEventHandlers.current.get(handler);
-      if (eventHandler == null) {
-        return;
+      closedIntentionally = true;
+      if (reconnectTimer != null) {
+        clearTimeout(reconnectTimer);
       }
-      ws.current?.removeEventListener("message", eventHandler);
-      messageEventHandlers.current.delete(handler);
-    },
-    addOpenListener: (handler: SocketOpenListener) => {
-      ws.current?.addEventListener("open", handler);
-    },
-    removeOpenListener: (handler: SocketOpenListener) => {
-      ws.current?.removeEventListener("open", handler);
-    },
-    send: (msg: string) => {
-      ws.current?.send(msg);
-    },
-  };
+      ws.current?.close();
+      ws.current = null;
+    };
+  }, [socketUrl]);
+
+  /**
+   * Lazily initializes one stable socket API object for the hook lifetime.
+   */
+  if (socketApi.current == null) {
+    socketApi.current = {
+      addMessageListener: (handler: SocketMessageListener) => {
+        messageListeners.current.add(handler);
+      },
+      removeMessageListener: (handler: SocketMessageListener) => {
+        messageListeners.current.delete(handler);
+      },
+      addOpenListener: (handler: SocketOpenListener) => {
+        openListeners.current.add(handler);
+      },
+      removeOpenListener: (handler: SocketOpenListener) => {
+        openListeners.current.delete(handler);
+      },
+      send: (msg: string) => {
+        ws.current?.send(msg);
+      },
+    };
+  }
+
+  return socketApi.current;
 }

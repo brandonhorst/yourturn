@@ -67,7 +67,8 @@ Client-side hooks are split by channel:
 
 Supporting modules:
 
-- `client/socket/use_socket.ts` - reconnecting socket hook.
+- `client/socket/use_socket.ts` - reconnecting socket hook that returns a stable
+  `Socket` object and keeps listeners registered across reconnects.
 - `client/fetchers/fetch_user_profile.ts` - one-shot profile fetch helper.
 
 ### Protocol Architecture
