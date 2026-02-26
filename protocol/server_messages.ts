@@ -2,6 +2,7 @@ import type {
   ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
+  ChatMessage,
   GameTypes,
   MatchViewData,
   RoomEntry,
@@ -52,4 +53,10 @@ export type ServerMessage<T extends GameTypes> =
     type: "UpdateMatchState";
     subscriptionId: string;
     matchViewData: MatchViewData<T>;
+  }
+  | {
+    type: "AppendChatMessages";
+    subscriptionId: string;
+    chatThreadId: string;
+    chatMessages: ChatMessage<T>[];
   };

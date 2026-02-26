@@ -42,6 +42,14 @@ export type ClientMessage<T extends GameTypes> =
   | { type: "SubscribeRoom"; subscriptionId: string; roomId: string }
   | { type: "CommitRoom"; roomId: string }
   | { type: "LeaveRoom"; roomId: string }
+  // Chat thread channel
+  | {
+    type: "SubscribeChatThread";
+    subscriptionId: string;
+    chatThreadId: string;
+    lastMessageId?: string;
+  }
+  | { type: "SendChatMessage"; chatThreadId: string; message: string }
   // Match channel
   | { type: "SubscribeMatch"; subscriptionId: string; matchId: string }
   | { type: "Move"; matchId: string; move: T["Move"] }

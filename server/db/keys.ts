@@ -38,6 +38,33 @@ export function getMatchKey(matchId: string): Deno.KvKey {
   return ["matches", matchId];
 }
 
+export function getChatThreadMessagesKey(chatThreadId: string): Deno.KvKey {
+  return ["chatthread", chatThreadId, "chatmessage"];
+}
+
+export function getChatThreadMessageKey(
+  chatThreadId: string,
+  chatMessageId: string,
+): Deno.KvKey {
+  return ["chatthread", chatThreadId, "chatmessage", chatMessageId];
+}
+
+export function getChatThreadMessagesRangeStartKey(
+  chatThreadId: string,
+  lastMessageId?: string,
+): Deno.KvKey {
+  if (lastMessageId == null) {
+    return ["chatthread", chatThreadId, "chatmessage", ""];
+  }
+  return ["chatthread", chatThreadId, "chatmessage", lastMessageId, ""];
+}
+
+export function getChatThreadMessagesRangeEndKey(
+  chatThreadId: string,
+): Deno.KvKey {
+  return ["chatthread", chatThreadId, "chatmessage", "\uffff"];
+}
+
 export function getUserKey(userId: string): Deno.KvKey {
   return ["users", userId];
 }

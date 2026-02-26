@@ -3,6 +3,7 @@ import type {
   ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
+  ChatThreadViewData,
   GameDefinition,
   GameTypes,
   MatchViewData,
@@ -261,6 +262,34 @@ export class ServerController<T extends GameTypes> implements Server<T> {
   }
 
   /**
+   * Fetches the most recent messages in one chat thread.
+   */
+  async getChatThreadMessages(
+    chatThreadId: string,
+    limit: number,
+  ): Promise<ChatThreadViewData<T>> {
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getChatThreadMessages request=${
+        serializeLogValue({ chatThreadId, limit })
+      }`,
+    );
+    const chatMessages = await this.db.getMostRecentChatThreadMessages(
+      chatThreadId,
+      limit,
+    );
+    logServer(
+      SERVER_CONTROLLER_LOG_MODULE,
+      "INFO",
+      `getChatThreadMessages response=${
+        serializeLogValue({ chatThreadId, count: chatMessages.length })
+      }`,
+    );
+    return { chatMessages };
+  }
+
+  /**
    * Builds the initial match view payload for a specific player or observer.
    */
   private buildMatchViewData(
@@ -272,6 +301,7 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       playerId,
     );
     return {
+      chatThreadId: gameData.chatThreadId,
       players: gameData.players,
       playerId,
       playerState: gameStateUpdate.playerState,

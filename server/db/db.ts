@@ -9,6 +9,7 @@ import type {
   AuditLogEntry,
   AuditLogEntryPayload,
   AvailableRoom,
+  ChatMessage,
   CompletedMatchSnapshot,
   GameDefinition,
   GameTypes,
@@ -20,6 +21,8 @@ import type {
 } from "@/types/mod.ts";
 import {
   ACTIVE_PUBLIC_USER_TTL_MS,
+  CHAT_THREAD_MESSAGES_BATCH_SIZE,
+  CHAT_THREAD_MESSAGES_READ_LIMIT,
   DB_LOG_MODULE,
   PUBLIC_LIST_BATCH_SIZE,
   PUBLIC_LIST_READ_LIMIT,
@@ -35,6 +38,10 @@ import {
   getAuditLogEntryKey,
   getAvailablePublicRoomKey,
   getAvailablePublicRoomsKey,
+  getChatThreadMessageKey,
+  getChatThreadMessagesKey,
+  getChatThreadMessagesRangeEndKey,
+  getChatThreadMessagesRangeStartKey,
   getMatchKey,
   getQueueEntryKey,
   getQueuePrefix,
@@ -48,6 +55,7 @@ import {
 } from "./keys.ts";
 import {
   type ActiveUserStorageData,
+  type ChatMessageStorageData,
   type MatchAssignmentNotification,
   type MatchStorageData,
   type RoomStorageData,
@@ -371,8 +379,10 @@ export class DB<
       "INFO",
       `createRoom request=${serializeLogValue({ roomId, userId, roomConfig })}`,
     );
+    const chatThreadId = ulid();
     const roomKey = getRoomKey(roomId);
     const roomData: RoomStorageData<T> = {
+      chatThreadId,
       numPlayers: roomConfig.numPlayers,
       config: roomConfig.config,
       private: roomConfig.private,
@@ -396,7 +406,9 @@ export class DB<
     });
     this.log(
       "INFO",
-      `createRoom completed=${serializeLogValue({ roomId, userId })}`,
+      `createRoom completed=${
+        serializeLogValue({ roomId, userId, chatThreadId })
+      }`,
     );
   }
 
@@ -663,8 +675,10 @@ export class DB<
       config: options.config,
       loadouts: options.loadouts,
     };
+    const chatThreadId = ulid();
     const gameState = this.game.setup(setupObject);
     const gameStorageData: MatchStorageData<T> = {
+      chatThreadId,
       config: options.config,
       queueId: options.queueId,
       gameState,
@@ -675,6 +689,7 @@ export class DB<
 
     const activePublicMatch: ActiveMatch<T> = {
       matchId: options.matchId,
+      chatThreadId,
       players: options.playerSnapshots,
       config: options.config,
       created: timestamp,
@@ -1405,6 +1420,163 @@ export class DB<
         transform: async (_events, controller) => {
           const data = await this.getAllAvailablePublicRooms();
           controller.enqueue(data);
+        },
+      }),
+    );
+  }
+
+  /**
+   * Normalizes one chat message fetch limit into the supported range.
+   */
+  private normalizeChatMessageLimit(limit: number): number {
+    if (!Number.isFinite(limit)) {
+      return CHAT_THREAD_MESSAGES_READ_LIMIT;
+    }
+    const normalizedLimit = Math.floor(limit);
+    if (normalizedLimit <= 0) {
+      return 0;
+    }
+    return Math.min(CHAT_THREAD_MESSAGES_READ_LIMIT, normalizedLimit);
+  }
+
+  /**
+   * Appends one chat message and increments the thread's ticker key atomically.
+   */
+  public async appendChatMessage(
+    chatThreadId: string,
+    chatMessage: ChatMessage<T>,
+  ): Promise<void> {
+    this.log(
+      "INFO",
+      `appendChatMessage request=${
+        serializeLogValue({ chatThreadId, chatMessage })
+      }`,
+    );
+    const chatThreadMessagesKey = getChatThreadMessagesKey(chatThreadId);
+    const chatMessageKey = getChatThreadMessageKey(
+      chatThreadId,
+      chatMessage.id,
+    );
+    const transaction = this.kv.atomic()
+      .check({ key: chatMessageKey, versionstamp: null })
+      .set(chatMessageKey, chatMessage as ChatMessageStorageData<T>);
+    this.mutateIndexedListRootCountOnOperation(
+      transaction,
+      chatThreadMessagesKey,
+      1,
+    );
+    const result = await transaction.commit();
+    if (!result.ok) {
+      throw new Error(
+        `Chat message ${chatMessage.id} already exists in ${chatThreadId}`,
+      );
+    }
+    this.log(
+      "INFO",
+      `appendChatMessage completed=${
+        serializeLogValue({ chatThreadId, chatMessageId: chatMessage.id })
+      }`,
+    );
+  }
+
+  /**
+   * Fetches the most recent chat messages for one chat thread.
+   * Returns messages oldest-to-newest for append-friendly client rendering.
+   */
+  public async getMostRecentChatThreadMessages(
+    chatThreadId: string,
+    limit: number,
+  ): Promise<ChatMessage<T>[]> {
+    const normalizedLimit = this.normalizeChatMessageLimit(limit);
+    this.log(
+      "INFO",
+      `getMostRecentChatThreadMessages request=${
+        serializeLogValue({ chatThreadId, limit, normalizedLimit })
+      }`,
+    );
+    if (normalizedLimit === 0) {
+      return [];
+    }
+    const chatThreadMessagesKey = getChatThreadMessagesKey(chatThreadId);
+    const chatMessageEntries = await Array.fromAsync(
+      this.kv.list<ChatMessageStorageData<T>>(
+        { prefix: chatThreadMessagesKey },
+        {
+          limit: normalizedLimit,
+          batchSize: CHAT_THREAD_MESSAGES_BATCH_SIZE,
+          reverse: true,
+        },
+      ),
+    );
+    const chatMessages = chatMessageEntries
+      .filter((entry) => entry.key.length === chatThreadMessagesKey.length + 1)
+      .map((entry) => entry.value)
+      .reverse();
+    this.log(
+      "INFO",
+      `getMostRecentChatThreadMessages response=${
+        serializeLogValue({ chatThreadId, count: chatMessages.length })
+      }`,
+    );
+    return chatMessages;
+  }
+
+  /**
+   * Fetches all chat messages that were appended after a specific message ID.
+   */
+  public async getChatThreadMessagesAfter(
+    chatThreadId: string,
+    lastMessageId?: string,
+  ): Promise<ChatMessage<T>[]> {
+    this.log(
+      "INFO",
+      `getChatThreadMessagesAfter request=${
+        serializeLogValue({ chatThreadId, lastMessageId })
+      }`,
+    );
+    const chatThreadMessagesKey = getChatThreadMessagesKey(chatThreadId);
+    const chatMessageListSelector: Deno.KvListSelector = {
+      start: getChatThreadMessagesRangeStartKey(chatThreadId, lastMessageId),
+      end: getChatThreadMessagesRangeEndKey(chatThreadId),
+    };
+    const chatMessageEntries = await Array.fromAsync(
+      this.kv.list<ChatMessageStorageData<T>>(
+        chatMessageListSelector,
+        {
+          batchSize: CHAT_THREAD_MESSAGES_BATCH_SIZE,
+        },
+      ),
+    );
+    const chatMessages = chatMessageEntries
+      .filter((entry) => entry.key.length === chatThreadMessagesKey.length + 1)
+      .map((entry) => entry.value);
+    this.log(
+      "INFO",
+      `getChatThreadMessagesAfter response=${
+        serializeLogValue({ chatThreadId, count: chatMessages.length })
+      }`,
+    );
+    return chatMessages;
+  }
+
+  /**
+   * Watches one chat thread's ticker key for newly appended messages.
+   */
+  public watchForChatThreadMessageChanges(
+    chatThreadId: string,
+  ): ReadableStream<void> {
+    this.log(
+      "INFO",
+      `watchForChatThreadMessageChanges request=${
+        serializeLogValue({ chatThreadId })
+      }`,
+    );
+    const chatThreadMessagesKey = getChatThreadMessagesKey(chatThreadId);
+    const stream = this.kv.watch<[Deno.KvU64]>([chatThreadMessagesKey]);
+    return stream.pipeThrough(
+      new TransformStream({
+        transform: (_events, controller) => {
+          controller.enqueue(undefined);
         },
       }),
     );

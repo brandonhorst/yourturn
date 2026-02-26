@@ -2,6 +2,7 @@ import type { GameTypes } from "./game.ts";
 import type {
   ActivePublicMatch,
   AvailableRoom,
+  ChatMessage,
   PlayerSnapshot,
   QueueEntry,
   RoomEntry,
@@ -29,6 +30,7 @@ export type UserMatchmakingViewData<T extends GameTypes> = {
 };
 
 type CompletePlayerViewData<T extends GameTypes> = {
+  chatThreadId: string;
   players: PlayerSnapshot<T>[];
   publicState: T["PublicState"];
   playerId: number;
@@ -37,6 +39,7 @@ type CompletePlayerViewData<T extends GameTypes> = {
 };
 
 type IncompletePlayerViewData<T extends GameTypes> = {
+  chatThreadId: string;
   players: PlayerSnapshot<T>[];
   publicState: T["PublicState"];
   playerId: number;
@@ -45,6 +48,7 @@ type IncompletePlayerViewData<T extends GameTypes> = {
 };
 
 type CompleteObserverViewData<T extends GameTypes> = {
+  chatThreadId: string;
   players: PlayerSnapshot<T>[];
   publicState: T["PublicState"];
   playerId: undefined;
@@ -53,6 +57,7 @@ type CompleteObserverViewData<T extends GameTypes> = {
 };
 
 type IncompleteObserverViewData<T extends GameTypes> = {
+  chatThreadId: string;
   players: PlayerSnapshot<T>[];
   publicState: T["PublicState"];
   playerId: undefined;
@@ -119,4 +124,14 @@ export type RoomProps<T extends GameTypes> =
   & {
     commitRoom: () => void;
     leaveRoom: () => void;
+  };
+
+export type ChatThreadViewData<T extends GameTypes> = {
+  chatMessages: ChatMessage<T>[];
+};
+
+export type ChatThreadProps<T extends GameTypes> =
+  & ChatThreadViewData<T>
+  & {
+    sendChatMessage: (message: string) => void;
   };

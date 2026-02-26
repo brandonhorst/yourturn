@@ -116,6 +116,7 @@ export function useRoomChannel<T extends GameTypes>({
 
   return {
     roomId: roomEntry.roomId,
+    chatThreadId: roomEntry.chatThreadId,
     numPlayers: roomEntry.numPlayers,
     players: roomEntry.players,
     config: roomEntry.config,

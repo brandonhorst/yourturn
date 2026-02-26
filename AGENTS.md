@@ -36,7 +36,8 @@ subscribe to multiple channels.
 - `server/initialize.ts` - Main initializer. Creates `DB` + `SocketStore` and
   returns `ServerController`.
 - `server/controller/server_controller.ts` - Public `Server<T>` API
-  implementation (`resolveToken`, initial payload reads, `configureSocket`).
+  implementation (`resolveToken`, initial payload reads, `configureSocket`,
+  `getChatThreadMessages`).
 - `server/controller/socket_router.ts` - Inbound socket message routing,
   validation, and delegation to `SocketStore`/`DB`/`GameStateService`.
 - `server/sockets/socket_store.ts` - Subscription lifecycle, stream fan-out,
@@ -64,6 +65,7 @@ Client-side hooks are split by channel:
 - `client/hooks/use_active_public_matches_channel.ts`
 - `client/hooks/use_active_public_users_channel.ts`
 - `client/hooks/use_available_public_rooms_channel.ts`
+- `client/hooks/use_chat_thread_channel.ts`
 
 Supporting modules:
 
@@ -125,8 +127,11 @@ Key methods:
 Uses Deno KV for:
 
 - Match state persistence at `["matches", matchId]`
+- Match chat thread IDs persisted on match records (`chatThreadId`)
 - Queue matchmaking and room-based matchmaking
 - Queue entries and room members with optional assignment subscription IDs
+- Room chat thread IDs persisted on room records (`chatThreadId`)
+- Chat messages at `["chatthread", chatThreadId, "chatmessage", chatMessageId]`
 - User records at `["users", userId]` (username, guest flag, description,
   ratings)
 - Completed-match history at
@@ -138,6 +143,7 @@ Uses Deno KV for:
   `["availablepublicrooms", roomId]`, and `["activepublicusers", userId]`
 - Root invalidation counters at `["activepublicmatches"]`,
   `["availablepublicrooms"]`, and `["activepublicusers"]`
+- Chat thread ticker keys at `["chatthread", chatThreadId, "chatmessage"]`
 
 ### WebSocket Communication
 
@@ -146,10 +152,11 @@ One socket supports these subscriptions:
 1. AccountUserProfile
 2. UserMatchmaking
 3. Room
-4. Match
-5. Active public matches
-6. Active public users
-7. Available public rooms
+4. ChatThread
+5. Match
+6. Active public matches
+7. Active public users
+8. Available public rooms
 
 `FetchUserProfile` is one-shot (not a subscription).
 
@@ -157,6 +164,9 @@ One socket supports these subscriptions:
 `assignmentSubscriptionId` for direct `MatchAssignment` delivery.
 
 `UpdateAccountUserProfile` currently supports `description` updates.
+
+`SendChatMessage` stores one message in a chat thread and `SubscribeChatThread`
+streams appended messages after an optional `lastMessageId` cursor.
 
 ### Server Logging
 

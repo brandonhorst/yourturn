@@ -63,6 +63,15 @@ export type MatchConnection<T extends GameTypes> = {
   >;
 };
 
+/**
+ * One websocket subscriber state for a chat thread channel.
+ */
+export type ChatThreadSubscriptionState = {
+  chatThreadId: string;
+  lastMessageId: string | undefined;
+  messageChangesReader: ReadableStreamDefaultReader<void>;
+};
+
 export type SocketSubscription =
   | { type: "AccountUserProfile"; userId: string }
   | { type: "UserMatchmaking" }
@@ -70,15 +79,17 @@ export type SocketSubscription =
   | { type: "ActivePublicMatches" }
   | { type: "ActivePublicUsers" }
   | { type: "AvailablePublicRooms" }
+  | { type: "ChatThread"; chatThreadId: string }
   | { type: "Match"; matchId: string };
 
 /**
  * Combined state for a websocket across account profile, UserMatchmaking,
- * room, and match subscriptions.
+ * room, chat thread, and match subscriptions.
  */
 export type SocketConnectionState<T extends GameTypes> = {
   subscriptions: Map<string, SocketSubscription>;
   roomConnections: Map<string, RoomConnectionState<T>>;
+  chatThreadSubscriptions: Map<string, ChatThreadSubscriptionState>;
   accountUserProfileConnections: Map<
     string,
     AccountUserProfileConnectionState<T>

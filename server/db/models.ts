@@ -1,5 +1,6 @@
 import type {
   ActiveMatch,
+  ChatMessage,
   CompletedMatchSnapshot,
   GameTypes,
   PlayerSnapshot,
@@ -17,6 +18,7 @@ export type RoomMember<T extends GameTypes> = {
 };
 
 export type RoomStorageData<T extends GameTypes> = {
+  chatThreadId: string;
   numPlayers: number;
   config: T["Config"];
   private: boolean;
@@ -28,6 +30,7 @@ export type RoomWatchEvent<T extends GameTypes> =
   | { type: "deleted" };
 
 export type MatchStorageData<T extends GameTypes> = {
+  chatThreadId: string;
   config: T["Config"];
   queueId?: string;
   gameState: T["GameState"];
@@ -63,6 +66,8 @@ export type ActiveUserStorageData<T extends GameTypes> = {
   playerSnapshot: PlayerSnapshot<T>;
   connectionCount: number;
 };
+
+export type ChatMessageStorageData<T extends GameTypes> = ChatMessage<T>;
 
 /**
  * Converts canonical stored user data into socket-safe user profile view data.

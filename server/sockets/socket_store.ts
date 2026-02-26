@@ -12,6 +12,7 @@ import type {
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
   AvailableRoom,
+  ChatMessage,
   GameTypes,
   PlayerSnapshot,
   RoomEntry,
@@ -23,6 +24,7 @@ import type { GameStateService } from "../services/game_state_service.ts";
 import { MatchProjectionService } from "../services/match_projection_service.ts";
 import { logServer, serializeLogValue } from "../logging.ts";
 import type {
+  ChatThreadSubscriptionState,
   MatchConnection,
   RoomConnectionState,
   SocketConnectionState,
@@ -338,6 +340,7 @@ export class SocketStore<T extends GameTypes> {
 
     const roomEntry: RoomEntry<T> = {
       roomId,
+      chatThreadId: room.chatThreadId,
       numPlayers: room.numPlayers,
       players: room.members.map((member) => member.playerSnapshot),
       config: room.config,
@@ -347,6 +350,85 @@ export class SocketStore<T extends GameTypes> {
       socket,
       subscriptionId,
       roomEntry,
+    );
+  }
+
+  /**
+   * Subscribes one logical chat thread channel instance on a websocket.
+   */
+  async subscribeChatThread(
+    socket: WebSocket,
+    subscriptionId: string,
+    chatThreadId: string,
+    lastMessageId?: string,
+  ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `subscribeChatThread request=${
+        serializeLogValue({ subscriptionId, chatThreadId, lastMessageId })
+      }`,
+    );
+    await this.unsubscribe(socket, subscriptionId);
+
+    const connectionState = this.getOrCreateSocketConnection(socket);
+    const messageChangesReader = this.db.watchForChatThreadMessageChanges(
+      chatThreadId,
+    ).getReader();
+    const chatThreadSubscription: ChatThreadSubscriptionState = {
+      chatThreadId,
+      lastMessageId,
+      messageChangesReader,
+    };
+    connectionState.chatThreadSubscriptions.set(
+      subscriptionId,
+      chatThreadSubscription,
+    );
+    connectionState.subscriptions.set(subscriptionId, {
+      type: "ChatThread",
+      chatThreadId,
+    });
+
+    await this.sendChatMessagesAfterCursor(
+      socket,
+      subscriptionId,
+      chatThreadSubscription,
+    );
+    void this.streamChatThreadChangesToSocket(
+      socket,
+      subscriptionId,
+      messageChangesReader,
+    );
+  }
+
+  /**
+   * Creates and stores one chat message in a chat thread.
+   */
+  async sendChatMessage(
+    chatThreadId: string,
+    playerSnapshot: PlayerSnapshot<T>,
+    message: string,
+  ): Promise<void> {
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `sendChatMessage request=${
+        serializeLogValue({ chatThreadId, playerSnapshot, message })
+      }`,
+    );
+    const chatMessage: ChatMessage<T> = {
+      id: ulid(),
+      playerSnapshot,
+      message,
+      date: new Date(),
+    };
+    await this.db.appendChatMessage(chatThreadId, chatMessage);
+    logServer(
+      SOCKET_STORE_LOG_MODULE,
+      "INFO",
+      `sendChatMessage completed=${
+        serializeLogValue({ chatThreadId, chatMessageId: chatMessage.id })
+      }`,
     );
   }
 
@@ -403,6 +485,9 @@ export class SocketStore<T extends GameTypes> {
         break;
       case "AvailablePublicRooms":
         this.availablePublicRoomsSubscriptions.delete(subscriptionId);
+        break;
+      case "ChatThread":
+        this.unsubscribeChatThreadSubscription(socket, subscriptionId);
         break;
       case "Match":
         this.unsubscribeMatchSubscription(subscriptionId, subscription.matchId);
@@ -723,6 +808,7 @@ export class SocketStore<T extends GameTypes> {
       type: "UpdateMatchState",
       subscriptionId,
       matchViewData: buildMatchViewData(
+        gameData.chatThreadId,
         gameData.players,
         playerId,
         gameStateUpdate,
@@ -812,6 +898,27 @@ export class SocketStore<T extends GameTypes> {
       notifyClient: false,
       removeSubscriptionEntries: false,
     });
+  }
+
+  /**
+   * Unsubscribes one chat thread subscription and tears down its stream reader.
+   */
+  private unsubscribeChatThreadSubscription(
+    socket: WebSocket,
+    subscriptionId: string,
+  ): void {
+    const connectionState = this.sockets.get(socket);
+    if (connectionState == null) {
+      return;
+    }
+    const chatThreadSubscription = connectionState.chatThreadSubscriptions.get(
+      subscriptionId,
+    );
+    if (chatThreadSubscription == null) {
+      return;
+    }
+    closeReader(chatThreadSubscription.messageChangesReader);
+    connectionState.chatThreadSubscriptions.delete(subscriptionId);
   }
 
   /**
@@ -968,6 +1075,7 @@ export class SocketStore<T extends GameTypes> {
 
         const roomEntry: RoomEntry<T> = {
           roomId,
+          chatThreadId: data.value.room.chatThreadId,
           numPlayers: data.value.room.numPlayers,
           players: data.value.room.members.map((member) =>
             member.playerSnapshot
@@ -983,6 +1091,81 @@ export class SocketStore<T extends GameTypes> {
     } finally {
       closeReader(roomChangesReader);
     }
+  }
+
+  /**
+   * Streams chat thread updates for one logical chat subscription.
+   */
+  private async streamChatThreadChangesToSocket(
+    socket: WebSocket,
+    subscriptionId: string,
+    messageChangesReader: ReadableStreamDefaultReader<void>,
+  ): Promise<void> {
+    try {
+      while (true) {
+        const data = await messageChangesReader.read();
+        if (data.done) {
+          break;
+        }
+
+        const connectionState = this.sockets.get(socket);
+        if (connectionState == null) {
+          break;
+        }
+        const chatThreadSubscription = connectionState.chatThreadSubscriptions
+          .get(subscriptionId);
+        if (chatThreadSubscription == null) {
+          break;
+        }
+
+        await this.sendChatMessagesAfterCursor(
+          socket,
+          subscriptionId,
+          chatThreadSubscription,
+        );
+      }
+    } catch {
+      // Reader cancellation is expected during unsubscribe.
+    } finally {
+      closeReader(messageChangesReader);
+    }
+  }
+
+  /**
+   * Sends all currently available chat messages after one subscription cursor.
+   */
+  private async sendChatMessagesAfterCursor(
+    socket: WebSocket,
+    subscriptionId: string,
+    chatThreadSubscription: ChatThreadSubscriptionState,
+  ): Promise<void> {
+    const chatMessages = await this.db.getChatThreadMessagesAfter(
+      chatThreadSubscription.chatThreadId,
+      chatThreadSubscription.lastMessageId,
+    );
+    if (chatMessages.length === 0) {
+      return;
+    }
+
+    const connectionState = this.sockets.get(socket);
+    const activeSubscription = connectionState?.subscriptions.get(
+      subscriptionId,
+    );
+    if (
+      activeSubscription?.type !== "ChatThread" ||
+      activeSubscription.chatThreadId !== chatThreadSubscription.chatThreadId
+    ) {
+      return;
+    }
+
+    chatThreadSubscription.lastMessageId = chatMessages[chatMessages.length - 1]
+      .id;
+    sendServerMessage<T>(socket, {
+      type: "AppendChatMessages",
+      subscriptionId,
+      chatThreadId: chatThreadSubscription.chatThreadId,
+      chatMessages,
+    });
   }
 
   /**
@@ -1623,6 +1806,7 @@ export class SocketStore<T extends GameTypes> {
               type: "UpdateMatchState",
               subscriptionId: gameSubscription.subscriptionId,
               matchViewData: buildMatchViewData(
+                gameData.chatThreadId,
                 gameData.players,
                 gameSubscription.playerId,
                 gameStateUpdate,
@@ -1685,6 +1869,7 @@ export class SocketStore<T extends GameTypes> {
     const connectionState: SocketConnectionState<T> = {
       subscriptions: new Map(),
       roomConnections: new Map(),
+      chatThreadSubscriptions: new Map(),
       accountUserProfileConnections: new Map(),
     };
     this.sockets.set(socket, connectionState);
@@ -1703,6 +1888,9 @@ export class SocketStore<T extends GameTypes> {
       return;
     }
     if (connectionState.roomConnections.size > 0) {
+      return;
+    }
+    if (connectionState.chatThreadSubscriptions.size > 0) {
       return;
     }
     if (connectionState.accountUserProfileConnections.size > 0) {

@@ -7,6 +7,13 @@ export type PlayerSnapshot<T extends GameTypes> = {
   rating: Record<string, T["Rating"]>;
 };
 
+export type ChatMessage<T extends GameTypes> = {
+  id: string;
+  playerSnapshot: PlayerSnapshot<T>;
+  message: string;
+  date: Date;
+};
+
 export type CompletedMatchSnapshot<T extends GameTypes> = {
   matchId: string;
   queueId?: string;
@@ -112,6 +119,7 @@ export type AuditLogEntry = {
 
 export type ActiveMatch<T extends GameTypes> = {
   matchId: string;
+  chatThreadId: string;
   players: PlayerSnapshot<T>[];
   config: T["Config"];
   created: Date;
@@ -134,6 +142,7 @@ export type AvailableRoom<T extends GameTypes> = {
 
 export type RoomEntry<T extends GameTypes> = {
   roomId: string;
+  chatThreadId: string;
   numPlayers: number;
   players: PlayerSnapshot<T>[];
   config: T["Config"];

@@ -3,6 +3,7 @@ export {
   useActivePublicMatchesChannel,
   useActivePublicUsersChannel,
   useAvailablePublicRoomsChannel,
+  useChatThreadChannel,
   useMatchChannel,
   useRoomChannel,
   useUserMatchmakingChannel,

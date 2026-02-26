@@ -129,6 +129,7 @@ export function useMatchChannel<T extends GameTypes>(
   const perform = playerId == null ? undefined : performCallback;
 
   return {
+    chatThreadId: initialMatchProps.chatThreadId,
     players,
     publicState,
     playerId: initialMatchProps.playerId,

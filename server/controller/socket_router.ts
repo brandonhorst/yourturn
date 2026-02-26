@@ -34,6 +34,16 @@ export class SocketRouter<T extends GameTypes> {
   }
 
   /**
+   * Validates and normalizes inbound chat message content.
+   */
+  private normalizeChatMessage(message: string): string {
+    if (message.trim() === "") {
+      throw new Error("Provide a message.");
+    }
+    return message;
+  }
+
+  /**
    * Configures one websocket with all supported yourturn channels.
    */
   configureSocket(
@@ -240,6 +250,8 @@ export class SocketRouter<T extends GameTypes> {
         request.type === "JoinQueue" ||
         request.type === "CreateAndJoinRoom" ||
         request.type === "JoinRoom" ||
+        request.type === "SubscribeChatThread" ||
+        request.type === "SendChatMessage" ||
         request.type === "CommitRoom" ||
         request.type === "LeaveQueue" ||
         request.type === "LeaveRoom" ||
@@ -572,6 +584,61 @@ export class SocketRouter<T extends GameTypes> {
             sendDisplayError("Unable to subscribe to match.");
           }
           break;
+        case "SubscribeChatThread":
+          try {
+            await this.socketStore.subscribeChatThread(
+              socket,
+              request.subscriptionId,
+              request.chatThreadId,
+              request.lastMessageId,
+            );
+          } catch (err) {
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to subscribe chat thread socket error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
+            await this.socketStore.unsubscribe(socket, request.subscriptionId);
+            sendDisplayError("Unable to subscribe to chat thread.");
+          }
+          break;
+        case "SendChatMessage": {
+          let normalizedMessage = "";
+          try {
+            normalizedMessage = this.normalizeChatMessage(request.message);
+          } catch (err) {
+            sendDisplayError(
+              err instanceof Error ? err.message : "Unable to send message.",
+            );
+            break;
+          }
+
+          const playerSnapshot = await getPlayerSnapshot();
+          if (playerSnapshot == null) {
+            sendDisplayError("Unknown chat user.");
+            break;
+          }
+
+          try {
+            await this.socketStore.sendChatMessage(
+              request.chatThreadId,
+              playerSnapshot,
+              normalizedMessage,
+            );
+          } catch (err) {
+            logServer(
+              SOCKET_LOG_MODULE,
+              "ERROR",
+              `Failed to send chat message error=${
+                serializeLogValue(err instanceof Error ? err : String(err))
+              }`,
+            );
+            sendDisplayError("Unable to send chat message.");
+          }
+          break;
+        }
         case "Unsubscribe":
           await this.socketStore.unsubscribe(socket, request.subscriptionId);
           break;

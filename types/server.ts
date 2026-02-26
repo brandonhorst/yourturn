@@ -4,6 +4,7 @@ import type {
   ActivePublicMatchesViewData,
   ActiveUsersViewData,
   AvailablePublicRoomsViewData,
+  ChatThreadViewData,
   MatchViewData,
   UserMatchmakingViewData,
 } from "./views.ts";
@@ -39,6 +40,11 @@ export interface Server<T extends GameTypes> {
     matchId: string,
     userId: string,
   ): Promise<MatchViewData<T>>;
+
+  getChatThreadMessages(
+    chatThreadId: string,
+    limit: number,
+  ): Promise<ChatThreadViewData<T>>;
 
   configureSocket(socket: WebSocket, userId: string): void;
   resolveToken(token: string | undefined): Promise<string>;

@@ -49,6 +49,7 @@ export function closeReader<T>(reader: ReadableStreamDefaultReader<T>): void {
  * Creates a strongly-typed match view payload for one subscriber update.
  */
 export function buildMatchViewData<T extends GameTypes>(
+  chatThreadId: string,
   players: PlayerSnapshot<T>[],
   playerId: number | undefined,
   gameStateUpdate: {
@@ -60,6 +61,7 @@ export function buildMatchViewData<T extends GameTypes>(
   if (playerId == null) {
     if (gameStateUpdate.outcome === undefined) {
       return {
+        chatThreadId,
         players,
         playerId: undefined,
         playerState: undefined,
@@ -69,6 +71,7 @@ export function buildMatchViewData<T extends GameTypes>(
     }
 
     return {
+      chatThreadId,
       players,
       playerId: undefined,
       playerState: undefined,
@@ -85,6 +88,7 @@ export function buildMatchViewData<T extends GameTypes>(
 
   if (gameStateUpdate.outcome === undefined) {
     return {
+      chatThreadId,
       players,
       playerId,
       playerState: gameStateUpdate.playerState,
@@ -94,6 +98,7 @@ export function buildMatchViewData<T extends GameTypes>(
   }
 
   return {
+    chatThreadId,
     players,
     playerId,
     playerState: gameStateUpdate.playerState,
