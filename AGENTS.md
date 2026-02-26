@@ -44,10 +44,18 @@ subscribe to multiple channels.
   room/queue actions, and match assignment dispatch.
 - `server/sockets/state.ts` - Socket connection state types.
 - `server/sockets/wire.ts` - Shared socket send/reader/match-payload helpers.
-- `server/db/db.ts` - Deno KV persistence implementation.
+- `server/db/db.ts` - Public DB facade that delegates to injected operation
+  objects.
+- `server/db/context.ts` - Shared DB helpers (transaction retry, audit logging,
+  root counter mutation, list reads, normalization).
+- `server/db/contracts.ts` - DB operation interfaces and dependency override
+  types for constructor injection.
 - `server/db/models.ts` - DB storage/view model types + user/profile mappers.
 - `server/db/keys.ts` - KV key builders.
 - `server/db/constants.ts` - DB constants (list limits, TTLs, u64 helpers).
+- `server/db/ops/*.ts` - Deno KV-backed operation implementations split by
+  domain (`queue`, `room`, `match`, `presence`, `chat`, `user`,
+  `user_matchmaking`, `token`).
 - `server/services/game_state_service.ts` - Game state projection + move
   application + ranked rating updates.
 - `server/services/match_projection_service.ts` - Shared match projection logic
@@ -187,6 +195,14 @@ Current module names include:
 - `server.socket`
 - `server.sockets`
 - `server.db`
+- `server.db.chat`
+- `server.db.match`
+- `server.db.presence`
+- `server.db.queue`
+- `server.db.room`
+- `server.db.token`
+- `server.db.user`
+- `server.db.user_matchmaking`
 - `server.gamestate`
 
 ## Agent Instructions

@@ -1,249 +1,85 @@
-import { ulid } from "@std/ulid";
-import {
-  logServer,
-  serializeLogValue,
-  type ServerLogLevel,
-} from "../logging.ts";
 import type {
   ActiveMatch,
-  AuditLogEntry,
-  AuditLogEntryPayload,
   AvailableRoom,
   ChatMessage,
-  CompletedMatchSnapshot,
   GameDefinition,
   GameTypes,
   PlayerSnapshot,
-  QueueConfig,
-  QueueEntry,
   TokenData,
   UserProfileViewData,
 } from "@/types/mod.ts";
-import {
-  ACTIVE_PUBLIC_USER_TTL_MS,
-  CHAT_THREAD_MESSAGES_BATCH_SIZE,
-  CHAT_THREAD_MESSAGES_READ_LIMIT,
-  DB_LOG_MODULE,
-  PUBLIC_LIST_BATCH_SIZE,
-  PUBLIC_LIST_READ_LIMIT,
-  U64_MAX,
-  USER_COMPLETED_MATCHES_BATCH_SIZE,
-  USER_COMPLETED_MATCHES_READ_LIMIT,
-} from "./constants.ts";
-import {
-  getActivePublicMatchesKey,
-  getActivePublicMatchKey,
-  getActivePublicUserKey,
-  getActivePublicUsersKey,
-  getAuditLogEntryKey,
-  getAvailablePublicRoomKey,
-  getAvailablePublicRoomsKey,
-  getChatThreadMessageKey,
-  getChatThreadMessagesKey,
-  getChatThreadMessagesRangeEndKey,
-  getChatThreadMessagesRangeStartKey,
-  getMatchKey,
-  getQueueEntryKey,
-  getQueuePrefix,
-  getRoomKey,
-  getTokenKey,
-  getUserByUsernameKey,
-  getUserCompletedMatchesKey,
-  getUserCompletedMatchKey,
-  getUserKey,
-  getUserMatchmakingKey,
-} from "./keys.ts";
-import {
-  type ActiveUserStorageData,
-  type ChatMessageStorageData,
-  type MatchAssignmentNotification,
-  type MatchStorageData,
-  type RoomStorageData,
-  type RoomWatchEvent,
-  type UserMatchmakingStorageData,
-  type UserStorageData,
-  userStorageDataToUserProfileViewData,
+import { logServer } from "../logging.ts";
+import { DbContext } from "./context.ts";
+import type {
+  ChatOps,
+  DbOperationOverrides,
+  MatchOps,
+  PublicIndexOps,
+  QueueOps,
+  RoomOps,
+  TokenOps,
+  UserMatchmakingOps,
+  UserOps,
+} from "./contracts.ts";
+import type {
+  MatchAssignmentNotification,
+  MatchStorageData,
+  RoomStorageData,
+  RoomWatchEvent,
+  UserMatchmakingStorageData,
+  UserStorageData,
 } from "./models.ts";
+import { KvChatOps } from "./ops/chat_ops.ts";
+import { KvMatchOps } from "./ops/match_ops.ts";
+import { KvPresenceOps } from "./ops/presence_ops.ts";
+import { KvQueueOps } from "./ops/queue_ops.ts";
+import { KvRoomOps } from "./ops/room_ops.ts";
+import { KvTokenOps } from "./ops/token_ops.ts";
+import { KvUserMatchmakingOps } from "./ops/user_matchmaking_ops.ts";
+import { KvUserOps } from "./ops/user_ops.ts";
 
-type QueueEntryValue<T extends GameTypes> = {
-  timestamp: Date;
-  userId: string;
-  playerSnapshot: PlayerSnapshot<T>;
-  loadout: T["Loadout"];
-  assignmentSubscriptionId?: string;
-};
+const DB_LOG_MODULE = "server.db";
 
-export class DB<
-  T extends GameTypes,
-> {
-  private kv: Deno.Kv;
-  private game: GameDefinition<T>;
+/**
+ * Facade over domain-specific DB operation objects.
+ */
+export class DB<T extends GameTypes> {
+  private readonly queueOps: QueueOps<T>;
+  private readonly roomOps: RoomOps<T>;
+  private readonly matchOps: MatchOps<T>;
+  private readonly publicIndexOps: PublicIndexOps<T>;
+  private readonly chatOps: ChatOps<T>;
+  private readonly userOps: UserOps<T>;
+  private readonly userMatchmakingOps: UserMatchmakingOps<T>;
+  private readonly tokenOps: TokenOps;
 
   constructor(
     kv: Deno.Kv,
     game: GameDefinition<T>,
+    overrides: DbOperationOverrides<T> = {},
   ) {
-    this.kv = kv;
-    this.game = game;
-    this.log("INFO", "DB initialized");
+    const context = new DbContext<T>(kv, game);
+
+    const matchOps = overrides.matchOps ?? new KvMatchOps<T>(context);
+
+    this.matchOps = matchOps;
+    this.queueOps = overrides.queueOps ?? new KvQueueOps<T>(context, matchOps);
+    this.roomOps = overrides.roomOps ?? new KvRoomOps<T>(context, matchOps);
+    this.publicIndexOps = overrides.publicIndexOps ??
+      new KvPresenceOps<T>(context);
+    this.chatOps = overrides.chatOps ?? new KvChatOps<T>(context);
+    this.userOps = overrides.userOps ?? new KvUserOps<T>(context);
+    this.userMatchmakingOps = overrides.userMatchmakingOps ??
+      new KvUserMatchmakingOps<T>(context);
+    this.tokenOps = overrides.tokenOps ?? new KvTokenOps<T>(context);
+
+    logServer(DB_LOG_MODULE, "INFO", "DB initialized");
   }
 
   /**
-   * Emits one log entry for database operations.
+   * Adds one queue entry and returns any resulting assignments.
    */
-  private log(level: ServerLogLevel, message: string): void {
-    logServer(DB_LOG_MODULE, level, message);
-  }
-
-  /**
-   * Repeats a transaction operation until it succeeds.
-   * Creates a new Deno.AtomicOperation and passes it to the provided function.
-   * The function should build up operations on the transaction by mutating it.
-   * The function may be async to perform reads before building the transaction.
-   * This will keep retrying until the transaction commits successfully.
-   */
-  private async repeatUntilTransactionSucceeds(
-    fn: (transaction: Deno.AtomicOperation) => void | Promise<void>,
-  ): Promise<void> {
-    let ok = false;
-    while (!ok) {
-      const transaction = this.kv.atomic();
-      await fn(transaction);
-      ok = (await transaction.commit()).ok;
-    }
-  }
-
-  /**
-   * Fetches queue configuration for a queue ID or throws if it is missing.
-   */
-  private getQueueConfig(queueId: string): QueueConfig<T> {
-    const queueConfig = this.game.queues[queueId];
-    if (queueConfig == null) {
-      throw new Error(`Queue ${queueId} not found`);
-    }
-    return queueConfig;
-  }
-
-  /**
-   * Ensures user storage data has all runtime defaults required by new fields.
-   */
-  private normalizeUserStorageData(
-    userStorageData: UserStorageData<T>,
-  ): UserStorageData<T> {
-    return {
-      ...userStorageData,
-      starredUserIds: userStorageData.starredUserIds ?? [],
-    };
-  }
-
-  /**
-   * Reads one snapshot batch for a direct-child index prefix.
-   */
-  private async listSingleBatch<T>(
-    prefix: Deno.KvKey,
-  ): Promise<Deno.KvEntry<T>[]> {
-    const entries = await Array.fromAsync(
-      this.kv.list<T>(
-        { prefix },
-        {
-          limit: PUBLIC_LIST_READ_LIMIT,
-          batchSize: PUBLIC_LIST_BATCH_SIZE,
-        },
-      ),
-    );
-    return entries.filter((entry) => entry.key.length === prefix.length + 1);
-  }
-
-  /**
-   * Mutates an indexed-list root counter by +1, 0, or -1 via a u64 sum.
-   * A delta of 0 keeps the count unchanged while still notifying watchers.
-   */
-  private mutateIndexedListRootCountOnOperation(
-    transaction: Deno.AtomicOperation,
-    key: Deno.KvKey,
-    delta: -1 | 0 | 1,
-  ): void {
-    const sumValue = delta === -1 ? U64_MAX : BigInt(delta);
-    transaction.mutate({
-      type: "sum",
-      key,
-      value: new Deno.KvU64(sumValue),
-    });
-  }
-
-  /**
-   * Mutates the active public matches root count.
-   */
-  private mutateActivePublicMatchesRootCountOnOperation(
-    transaction: Deno.AtomicOperation,
-    delta: -1 | 0 | 1,
-  ): void {
-    this.mutateIndexedListRootCountOnOperation(
-      transaction,
-      getActivePublicMatchesKey(),
-      delta,
-    );
-  }
-
-  /**
-   * Mutates the active public users root ticker.
-   */
-  private mutateActivePublicUsersRootCountOnOperation(
-    transaction: Deno.AtomicOperation,
-    delta: -1 | 0 | 1,
-  ): void {
-    this.mutateIndexedListRootCountOnOperation(
-      transaction,
-      getActivePublicUsersKey(),
-      delta,
-    );
-  }
-
-  /**
-   * Mutates the available public rooms root count.
-   */
-  private mutateAvailablePublicRoomsRootCountOnOperation(
-    transaction: Deno.AtomicOperation,
-    delta: -1 | 0 | 1,
-  ): void {
-    this.mutateIndexedListRootCountOnOperation(
-      transaction,
-      getAvailablePublicRoomsKey(),
-      delta,
-    );
-  }
-
-  /**
-   * Mutates one user's completed-games history root ticker.
-   */
-  private mutateUserCompletedMatchesRootCountOnOperation(
-    transaction: Deno.AtomicOperation,
-    userId: string,
-    delta: -1 | 0 | 1,
-  ): void {
-    this.mutateIndexedListRootCountOnOperation(
-      transaction,
-      getUserCompletedMatchesKey(userId),
-      delta,
-    );
-  }
-
-  /**
-   * Appends one audit log entry to the provided transaction.
-   */
-  private setAuditLogEntryOnOperation(
-    transaction: Deno.AtomicOperation,
-    payload: AuditLogEntryPayload,
-  ): void {
-    const id = ulid();
-    const logEntryKey = getAuditLogEntryKey(id);
-    const logEntry: AuditLogEntry = { id, payload };
-    transaction
-      .check({ key: logEntryKey, versionstamp: null })
-      .set(logEntryKey, logEntry);
-  }
-
-  public async addToQueue(
+  addToQueue(
     queueId: string,
     entryId: string,
     userId: string,
@@ -251,134 +87,30 @@ export class DB<
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<MatchAssignmentNotification[]> {
-    this.log(
-      "INFO",
-      `addToQueue request=${
-        serializeLogValue({
-          queueId,
-          entryId,
-          userId,
-          playerSnapshot,
-          loadout,
-          assignmentSubscriptionId,
-        })
-      }`,
-    );
-    const queueConfig = this.getQueueConfig(queueId);
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entryKey = getQueueEntryKey(queueId, entryId);
-      const userMatchmakingEntry = await this.kv.get<
-        UserMatchmakingStorageData<T>
-      >(
-        getUserMatchmakingKey(userId),
-      );
-      if (userMatchmakingEntry.value == null) {
-        throw new Error(`User ${userId} not found`);
-      }
-
-      const queueEntry: QueueEntry<T> = {
-        queueId,
-        loadout,
-      };
-      const updatedUserMatchmaking: UserMatchmakingStorageData<T> = {
-        ...userMatchmakingEntry.value,
-        queueEntries: [...userMatchmakingEntry.value.queueEntries, queueEntry],
-      };
-
-      transaction
-        .check({ key: entryKey, versionstamp: null })
-        .set(entryKey, {
-          timestamp: new Date(),
-          userId,
-          playerSnapshot,
-          loadout,
-          assignmentSubscriptionId,
-        })
-        .check(userMatchmakingEntry)
-        .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "AddToQueue",
-        userId,
-        queueId,
-        entryId,
-      });
-    });
-
-    const assignments = await this.maybeGraduateFromQueue(
+    return this.queueOps.addToQueue(
       queueId,
-      queueConfig,
+      entryId,
       userId,
+      playerSnapshot,
+      loadout,
+      assignmentSubscriptionId,
     );
-    this.log(
-      "INFO",
-      `addToQueue result=${
-        serializeLogValue({ queueId, entryId, userId, assignments })
-      }`,
-    );
-    return assignments;
   }
 
-  public async removeFromQueue(
+  /**
+   * Removes one queue entry.
+   */
+  removeFromQueue(
     queueId: string,
     entryId: string,
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `removeFromQueue request=${serializeLogValue({ queueId, entryId })}`,
-    );
-    const entryKey = getQueueEntryKey(queueId, entryId);
-
-    // First get the entry to find the userId
-    const entry = await this.kv.get<QueueEntryValue<T>>(entryKey);
-    if (entry.value == null) {
-      // Entry already removed, nothing to do
-      this.log(
-        "INFO",
-        `removeFromQueue noop=${serializeLogValue({ queueId, entryId })}`,
-      );
-      return;
-    }
-
-    const userId = entry.value.userId;
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const userMatchmakingEntry = await this.kv.get<
-        UserMatchmakingStorageData<T>
-      >(
-        getUserMatchmakingKey(userId),
-      );
-      if (userMatchmakingEntry.value == null) {
-        throw new Error(`User ${userId} not found`);
-      }
-
-      const updatedQueues = userMatchmakingEntry.value.queueEntries.filter(
-        (q) => q.queueId !== queueId,
-      );
-      const updatedUserMatchmaking: UserMatchmakingStorageData<T> = {
-        ...userMatchmakingEntry.value,
-        queueEntries: updatedQueues,
-      };
-
-      transaction
-        .delete(entryKey)
-        .check(userMatchmakingEntry)
-        .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "RemoveFromQueue",
-        userId,
-        queueId,
-        entryId,
-      });
-    });
-    this.log(
-      "INFO",
-      `removeFromQueue completed=${
-        serializeLogValue({ queueId, entryId, userId })
-      }`,
-    );
+    return this.queueOps.removeFromQueue(queueId, entryId);
   }
 
-  public async createRoom(
+  /**
+   * Creates one room.
+   */
+  createRoom(
     roomId: string,
     userId: string,
     roomConfig: {
@@ -387,87 +119,31 @@ export class DB<
       private: boolean;
     },
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `createRoom request=${serializeLogValue({ roomId, userId, roomConfig })}`,
-    );
-    const chatThreadId = ulid();
-    const roomKey = getRoomKey(roomId);
-    const roomData: RoomStorageData<T> = {
-      chatThreadId,
-      numPlayers: roomConfig.numPlayers,
-      config: roomConfig.config,
-      private: roomConfig.private,
-      members: [],
-    };
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      transaction
-        .check({ key: roomKey, versionstamp: null })
-        .set(roomKey, roomData);
-      await this.updateAvailablePublicRoomsOnOperation(
-        transaction,
-        { roomId, room: roomData },
-      );
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "CreateRoom",
-        userId,
-        roomId,
-        private: roomConfig.private,
-      });
-    });
-    this.log(
-      "INFO",
-      `createRoom completed=${
-        serializeLogValue({ roomId, userId, chatThreadId })
-      }`,
-    );
+    return this.roomOps.createRoom(roomId, userId, roomConfig);
   }
 
-  public async getRoom(
+  /**
+   * Fetches one room.
+   */
+  getRoom(
     roomId: string,
   ): Promise<RoomStorageData<T> | null> {
-    this.log(
-      "INFO",
-      `getRoom request=${serializeLogValue({ roomId })}`,
-    );
-    const entry = await this.kv.get<RoomStorageData<T>>(
-      getRoomKey(roomId),
-    );
-    this.log(
-      "INFO",
-      `getRoom response=${serializeLogValue({ roomId, room: entry.value })}`,
-    );
-    return entry.value;
+    return this.roomOps.getRoom(roomId);
   }
 
-  // Watches a room record and emits updates as well as room deletion events.
-  public watchForRoomChanges(
+  /**
+   * Watches one room for updates.
+   */
+  watchForRoomChanges(
     roomId: string,
   ): ReadableStream<RoomWatchEvent<T>> {
-    this.log(
-      "INFO",
-      `watchForRoomChanges request=${serializeLogValue({ roomId })}`,
-    );
-    const roomKey = getRoomKey(roomId);
-    const stream = this.kv.watch<RoomStorageData<T>[]>([
-      roomKey,
-    ]);
-    return stream.pipeThrough(
-      new TransformStream({
-        transform: (events, controller) => {
-          const room = events[0].value;
-          if (room == null) {
-            controller.enqueue({ type: "deleted" });
-            return;
-          }
-          controller.enqueue({ type: "updated", room });
-        },
-      }),
-    );
+    return this.roomOps.watchForRoomChanges(roomId);
   }
 
-  public async addToRoom(
+  /**
+   * Adds one member to a room.
+   */
+  addToRoom(
     roomId: string,
     entryId: string,
     userId: string,
@@ -475,1246 +151,198 @@ export class DB<
     loadout: T["Loadout"],
     assignmentSubscriptionId?: string,
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `addToRoom request=${
-        serializeLogValue({
-          roomId,
-          entryId,
-          userId,
-          playerSnapshot,
-          loadout,
-          assignmentSubscriptionId,
-        })
-      }`,
+    return this.roomOps.addToRoom(
+      roomId,
+      entryId,
+      userId,
+      playerSnapshot,
+      loadout,
+      assignmentSubscriptionId,
     );
-    const roomKey = getRoomKey(roomId);
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const roomEntry = await this.kv.get<
-        RoomStorageData<T>
-      >(
-        roomKey,
-      );
-      if (roomEntry.value == null) {
-        throw new Error(`Room ${roomId} not found`);
-      }
-      const currentMembers = roomEntry.value.members;
-      if (currentMembers.some((member) => member.userId === userId)) {
-        throw new Error(`User ${userId} already in room ${roomId}`);
-      }
-      if (currentMembers.length >= roomEntry.value.numPlayers) {
-        throw new Error(`Room ${roomId} is full`);
-      }
-
-      const userMatchmakingEntry = await this.kv.get<
-        UserMatchmakingStorageData<T>
-      >(
-        getUserMatchmakingKey(userId),
-      );
-      if (userMatchmakingEntry.value == null) {
-        throw new Error(`User ${userId} not found`);
-      }
-
-      const updatedRoom: RoomStorageData<T> = {
-        ...roomEntry.value,
-        members: [
-          ...currentMembers,
-          {
-            entryId,
-            timestamp: new Date(),
-            userId,
-            playerSnapshot,
-            loadout,
-            assignmentSubscriptionId,
-          },
-        ],
-      };
-
-      const updatedUserMatchmaking: UserMatchmakingStorageData<T> = {
-        ...userMatchmakingEntry.value,
-        joinedRooms: [
-          ...userMatchmakingEntry.value.joinedRooms,
-          { roomId, loadout },
-        ],
-      };
-
-      transaction
-        .check(roomEntry)
-        .set(roomKey, updatedRoom)
-        .check(userMatchmakingEntry)
-        .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
-      await this.updateAvailablePublicRoomsOnOperation(
-        transaction,
-        { roomId, room: updatedRoom },
-      );
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "AddToRoom",
-        userId,
-        roomId,
-        entryId,
-      });
-    });
-    this.log(
-      "INFO",
-      `addToRoom completed=${serializeLogValue({ roomId, entryId, userId })}`,
-    );
-  }
-
-  public async removeFromRoom(
-    roomId: string,
-    entryId: string,
-  ): Promise<void> {
-    this.log(
-      "INFO",
-      `removeFromRoom request=${serializeLogValue({ roomId, entryId })}`,
-    );
-    const roomKey = getRoomKey(roomId);
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const roomEntry = await this.kv.get<
-        RoomStorageData<T>
-      >(
-        roomKey,
-      );
-      if (roomEntry.value == null) {
-        throw new Error(`Attempted to remove from non-existant room ${roomId}`);
-      }
-      const members = roomEntry.value.members;
-      const memberIndex = members.findIndex(
-        (member) => member.entryId === entryId,
-      );
-      if (memberIndex === -1) {
-        throw new Error(
-          `Attempted to remove non-existing entry ${entryId} room ${roomId}`,
-        );
-      }
-
-      const userId = members[memberIndex].userId;
-      const userMatchmakingEntry = await this.kv.get<
-        UserMatchmakingStorageData<T>
-      >(
-        getUserMatchmakingKey(userId),
-      );
-      if (userMatchmakingEntry.value == null) {
-        throw new Error(`User ${userId} not found`);
-      }
-
-      const nextMembers = members.toSpliced(memberIndex, 1);
-
-      // Remove this room from the user's joinedRooms.
-      const updatedRooms = userMatchmakingEntry.value.joinedRooms.filter(
-        (r) => r.roomId !== roomId,
-      );
-      const updatedUserMatchmaking: UserMatchmakingStorageData<T> = {
-        ...userMatchmakingEntry.value,
-        joinedRooms: updatedRooms,
-      };
-
-      transaction
-        .check(roomEntry)
-        .check(userMatchmakingEntry)
-        .set(getUserMatchmakingKey(userId), updatedUserMatchmaking);
-
-      if (nextMembers.length === 0) {
-        transaction.delete(roomKey);
-      } else {
-        transaction.set(roomKey, {
-          ...roomEntry.value,
-          members: nextMembers,
-        });
-      }
-      await this.updateAvailablePublicRoomsOnOperation(
-        transaction,
-        {
-          roomId,
-          room: nextMembers.length === 0 ? null : {
-            ...roomEntry.value,
-            members: nextMembers,
-          },
-          wasPrivate: roomEntry.value.private,
-        },
-      );
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "RemoveFromRoom",
-        userId,
-        roomId,
-        entryId,
-      });
-    });
-    this.log(
-      "INFO",
-      `removeFromRoom completed=${serializeLogValue({ roomId, entryId })}`,
-    );
-  }
-
-  // Creates a new game record and updates global and user-specific active game lists
-  // by mutating the provided transaction.
-  private async createNewMatchOnOperation(
-    transaction: Deno.AtomicOperation,
-    options: {
-      config: T["Config"];
-      matchId: string;
-      loadouts: T["Loadout"][];
-      playerSnapshots: PlayerSnapshot<T>[];
-      queueId?: string;
-      userIds: string[];
-    },
-  ): Promise<void> {
-    const activePublicMatchKey = getActivePublicMatchKey(options.matchId);
-    const gameKey = getMatchKey(options.matchId);
-    const timestamp = new Date();
-    const userMatchmakingKeys = options.userIds.map((userId) =>
-      getUserMatchmakingKey(userId)
-    );
-    const userMatchmakingEntries = await this.kv.getMany<
-      UserMatchmakingStorageData<T>[]
-    >(
-      userMatchmakingKeys,
-    );
-    for (
-      const [index, userMatchmakingEntry] of userMatchmakingEntries.entries()
-    ) {
-      if (userMatchmakingEntry.value == null) {
-        throw new Error(`User ${options.userIds[index]} not found`);
-      }
-    }
-
-    // Build the new game state and active public game payloads.
-    const setupObject = {
-      timestamp,
-      numPlayers: options.userIds.length,
-      config: options.config,
-      loadouts: options.loadouts,
-    };
-    const chatThreadId = ulid();
-    const gameState = this.game.setup(setupObject);
-    const gameStorageData: MatchStorageData<T> = {
-      chatThreadId,
-      config: options.config,
-      queueId: options.queueId,
-      gameState,
-      userIds: options.userIds,
-      players: options.playerSnapshots,
-      outcome: undefined,
-    };
-
-    const activePublicMatch: ActiveMatch<T> = {
-      matchId: options.matchId,
-      chatThreadId,
-      players: options.playerSnapshots,
-      config: options.config,
-      created: timestamp,
-    };
-
-    // Mutate the provided transaction with game + active list index + user updates.
-    transaction
-      .check({ key: activePublicMatchKey, versionstamp: null })
-      .set(activePublicMatchKey, activePublicMatch)
-      .check({ key: gameKey, versionstamp: null })
-      .set(gameKey, gameStorageData);
-    this.mutateActivePublicMatchesRootCountOnOperation(transaction, 1);
-
-    for (const userMatchmakingEntry of userMatchmakingEntries) {
-      const userActiveMatchesNext = [
-        ...userMatchmakingEntry.value!.activeMatches ?? [],
-        activePublicMatch,
-      ];
-
-      const updatedUserMatchmaking: UserMatchmakingStorageData<T> = {
-        ...userMatchmakingEntry.value!,
-        activeMatches: userActiveMatchesNext,
-      };
-
-      transaction
-        .check(userMatchmakingEntry)
-        .set(userMatchmakingEntry.key, updatedUserMatchmaking);
-    }
-  }
-
-  // Updates the indexed available public room list by mutating the provided
-  // transaction. When room is null, the room is removed from the list.
-  private async updateAvailablePublicRoomsOnOperation(
-    transaction: Deno.AtomicOperation,
-    options: {
-      roomId: string;
-      room: RoomStorageData<T> | null;
-      wasPrivate?: boolean;
-    },
-  ): Promise<void> {
-    if (options.room == null && options.wasPrivate === true) {
-      return;
-    }
-    if (options.room != null && options.room.private) {
-      return;
-    }
-
-    const availablePublicRoomKey = getAvailablePublicRoomKey(options.roomId);
-    const availablePublicRoomEntry = await this.kv.get<
-      AvailableRoom<T>
-    >(
-      availablePublicRoomKey,
-    );
-
-    if (options.room == null) {
-      if (availablePublicRoomEntry.value == null) {
-        return;
-      }
-      transaction
-        .check(availablePublicRoomEntry)
-        .delete(availablePublicRoomKey);
-      this.mutateAvailablePublicRoomsRootCountOnOperation(transaction, -1);
-    } else {
-      const nextRoom: AvailableRoom<T> = {
-        roomId: options.roomId,
-        numPlayers: options.room.numPlayers,
-        players: options.room.members.map((member) => member.playerSnapshot),
-        config: options.room.config,
-      };
-      if (availablePublicRoomEntry.value == null) {
-        transaction
-          .check({ key: availablePublicRoomKey, versionstamp: null })
-          .set(availablePublicRoomKey, nextRoom);
-        this.mutateAvailablePublicRoomsRootCountOnOperation(transaction, 1);
-      } else {
-        transaction
-          .check(availablePublicRoomEntry)
-          .set(availablePublicRoomKey, nextRoom);
-        this.mutateAvailablePublicRoomsRootCountOnOperation(transaction, 0);
-      }
-    }
-  }
-
-  public async commitRoom(
-    roomId: string,
-    userId: string,
-  ): Promise<MatchAssignmentNotification[]> {
-    this.log(
-      "INFO",
-      `commitRoom request=${serializeLogValue({ roomId, userId })}`,
-    );
-    const roomKey = getRoomKey(roomId);
-    let matchAssignments: MatchAssignmentNotification[] = [];
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const roomEntry = await this.kv.get<
-        RoomStorageData<T>
-      >(
-        roomKey,
-      );
-      if (roomEntry.value == null) {
-        throw new Error(`Room ${roomId} not found`);
-      }
-      const members = roomEntry.value.members;
-      if (members.length < roomEntry.value.numPlayers) {
-        throw new Error(`Room ${roomId} does not have enough players`);
-      }
-
-      const assignedMembers = members.slice(0, roomEntry.value.numPlayers);
-      const userIds = assignedMembers.map((member) => member.userId);
-      const loadouts = assignedMembers.map((member) => member.loadout);
-      const playerSnapshots = assignedMembers.map((member) =>
-        member.playerSnapshot
-      );
-
-      const config = roomEntry.value.config;
-      const matchId = ulid();
-      matchAssignments = assignedMembers.map((member) => ({
-        matchId,
-        subscriptionId: member.assignmentSubscriptionId,
-      }));
-      await this.createNewMatchOnOperation(
-        transaction,
-        {
-          config,
-          matchId,
-          loadouts,
-          playerSnapshots,
-          userIds,
-        },
-      );
-
-      transaction
-        .check(roomEntry)
-        .delete(roomKey);
-      await this.updateAvailablePublicRoomsOnOperation(
-        transaction,
-        { roomId, room: null, wasPrivate: roomEntry.value.private },
-      );
-
-      // Fetch all user matchmaking entries to update their joinedRooms.
-      const userMatchmakingKeys = userIds.map((userId) =>
-        getUserMatchmakingKey(userId)
-      );
-      const userMatchmakingEntries = await this.kv.getMany<
-        UserMatchmakingStorageData<T>[]
-      >(userMatchmakingKeys);
-
-      for (let i = 0; i < assignedMembers.length; i++) {
-        const userMatchmakingEntry = userMatchmakingEntries[i];
-        if (userMatchmakingEntry.value == null) {
-          throw new Error(`User ${userIds[i]} not found`);
-        }
-
-        // Remove this room from the user's joinedRooms.
-        const updatedRooms = userMatchmakingEntry.value.joinedRooms.filter(
-          (r) => r.roomId !== roomId,
-        );
-        const updatedUserMatchmaking: UserMatchmakingStorageData<T> = {
-          ...userMatchmakingEntry.value,
-          joinedRooms: updatedRooms,
-        };
-
-        transaction
-          .check(userMatchmakingEntry)
-          .set(userMatchmakingKeys[i], updatedUserMatchmaking);
-      }
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "CommitRoom",
-        userId,
-        roomId,
-        matchId,
-      });
-    });
-
-    this.log(
-      "INFO",
-      `commitRoom result=${
-        serializeLogValue({ roomId, userId, matchAssignments })
-      }`,
-    );
-    return matchAssignments;
-  }
-
-  private async maybeGraduateFromQueue(
-    queueId: string,
-    queueConfig: QueueConfig<T>,
-    userId: string,
-  ): Promise<MatchAssignmentNotification[]> {
-    this.log(
-      "INFO",
-      `maybeGraduateFromQueue request=${
-        serializeLogValue({
-          queueId,
-          userId,
-          numPlayers: queueConfig.numPlayers,
-        })
-      }`,
-    );
-    const queuePrefix = getQueuePrefix(queueId);
-    let matchAssignments: MatchAssignmentNotification[] = [];
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      // Get desired queue entries, if they exist
-      const queueEntries = await Array.fromAsync(
-        this.kv.list<QueueEntryValue<T>>(
-          { prefix: queuePrefix },
-          { limit: queueConfig.numPlayers },
-        ),
-      );
-      // If the queue doesn't have enough entrants, stop
-      if (queueEntries.length < queueConfig.numPlayers) {
-        matchAssignments = [];
-        return; // Nothing to do
-      }
-
-      // Initialize Match Storage Data
-      const userIds: string[] = [];
-
-      for (let i = 0; i < queueConfig.numPlayers; i++) {
-        userIds[i] = queueEntries[i].value.userId;
-      }
-      const loadouts: T["Loadout"][] = [];
-      const playerSnapshots: PlayerSnapshot<T>[] = [];
-      for (let i = 0; i < queueConfig.numPlayers; i++) {
-        loadouts[i] = queueEntries[i].value.loadout;
-        playerSnapshots[i] = queueEntries[i].value.playerSnapshot;
-      }
-      const matchId = ulid();
-      matchAssignments = queueEntries.map((entry) => ({
-        matchId,
-        subscriptionId: entry.value.assignmentSubscriptionId,
-      }));
-      await this.createNewMatchOnOperation(
-        transaction,
-        {
-          config: queueConfig.config,
-          matchId,
-          loadouts,
-          playerSnapshots,
-          queueId,
-          userIds,
-        },
-      );
-
-      // Fetch all user matchmaking entries to update their joinedQueues.
-      const userMatchmakingKeys = userIds.map((userId) =>
-        getUserMatchmakingKey(userId)
-      );
-      const userMatchmakingEntries = await this.kv.getMany<
-        UserMatchmakingStorageData<T>[]
-      >(userMatchmakingKeys);
-
-      // For each player
-      for (let i = 0; i < queueEntries.length; i++) {
-        const entry = queueEntries[i];
-
-        const userMatchmakingEntry = userMatchmakingEntries[i];
-        if (userMatchmakingEntry.value == null) {
-          throw new Error(`User ${userIds[i]} not found`);
-        }
-
-        // Remove this queue from the user's queueEntries
-        const updatedQueues = userMatchmakingEntry.value.queueEntries.filter(
-          (q) => q.queueId !== queueId,
-        );
-        const updatedUserMatchmaking: UserMatchmakingStorageData<T> = {
-          ...userMatchmakingEntry.value,
-          queueEntries: updatedQueues,
-        };
-
-        // Delete their queue entry, add an assignment, and update user data
-        transaction
-          .check(entry)
-          .delete(entry.key)
-          .check(userMatchmakingEntry)
-          .set(userMatchmakingKeys[i], updatedUserMatchmaking);
-      }
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "GraduateQueue",
-        userId,
-        queueId,
-        matchId,
-      });
-    });
-
-    this.log(
-      "INFO",
-      `maybeGraduateFromQueue result=${
-        serializeLogValue({ queueId, userId, matchAssignments })
-      }`,
-    );
-    return matchAssignments;
   }
 
   /**
-   * Updates match storage data and persists per-user completion history
-   * snapshots when a match first reaches an outcome.
-   * Also refreshes per-user matchmaking records so state-derived payloads can
-   * be re-projected by channel subscribers.
-   * @param matchId The ID of the match to update
-   * @param gameData The updated match data
-   * @param userId The actor performing the match mutation
+   * Removes one room member.
    */
-  public async updateMatchStorageData(
+  removeFromRoom(
+    roomId: string,
+    entryId: string,
+  ): Promise<void> {
+    return this.roomOps.removeFromRoom(roomId, entryId);
+  }
+
+  /**
+   * Commits one room into a match.
+   */
+  commitRoom(
+    roomId: string,
+    userId: string,
+  ): Promise<MatchAssignmentNotification[]> {
+    return this.roomOps.commitRoom(roomId, userId);
+  }
+
+  /**
+   * Updates one match storage record.
+   */
+  updateMatchStorageData(
     matchId: string,
     gameData: MatchStorageData<T>,
     userId: string,
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `updateMatchStorageData request=${
-        serializeLogValue({ matchId, userId, gameData })
-      }`,
-    );
-    const gameKey = getMatchKey(matchId);
-    const activePublicMatchKey = getActivePublicMatchKey(matchId);
-    const participantUserIds = [...new Set(gameData.userIds)];
-    const userMatchmakingKeys = participantUserIds.map((participantUserId) =>
-      getUserMatchmakingKey(participantUserId)
-    );
-
-    const entry = await this.kv.get<
-      MatchStorageData<T>
-    >(
-      gameKey,
-    );
-    if (entry.value == null) {
-      throw new Error(`Appending moves to unstored ${matchId}`);
-    }
-
-    const outcome = gameData.outcome;
-    let completedMatchEntryId: string | undefined;
-    const activePublicMatchEntry = await this.kv.get<
-      ActiveMatch<T>
-    >(
-      activePublicMatchKey,
-    );
-    const userMatchmakingEntries = await this.kv.getMany<
-      UserMatchmakingStorageData<T>[]
-    >(userMatchmakingKeys);
-
-    let transaction = this.kv.atomic()
-      .check(entry)
-      .set(gameKey, gameData);
-
-    for (
-      const [index, userMatchmakingEntry] of userMatchmakingEntries.entries()
-    ) {
-      if (userMatchmakingEntry.value == null) {
-        throw new Error(`User ${participantUserIds[index]} not found`);
-      }
-
-      const updatedUserMatchmaking: UserMatchmakingStorageData<T> =
-        outcome == null ? userMatchmakingEntry.value : {
-          ...userMatchmakingEntry.value,
-          activeMatches: userMatchmakingEntry.value.activeMatches.filter(
-            (activeMatch) => activeMatch.matchId !== matchId,
-          ),
-        };
-
-      transaction = transaction
-        .check(userMatchmakingEntry)
-        .set(userMatchmakingEntry.key, updatedUserMatchmaking);
-    }
-
-    if (outcome != null) {
-      // If the match is over, remove it from the active public match index.
-      if (activePublicMatchEntry.value != null) {
-        transaction = transaction
-          .check(activePublicMatchEntry)
-          .delete(activePublicMatchKey);
-        this.mutateActivePublicMatchesRootCountOnOperation(transaction, -1);
-      }
-
-      completedMatchEntryId = ulid();
-      const completedMatch: CompletedMatchSnapshot<T> = {
-        matchId,
-        queueId: gameData.queueId,
-        players: gameData.players,
-        config: gameData.config,
-        outcome,
-        completed: new Date(),
-      };
-
-      // Persist one denormalized completion snapshot per player profile feed.
-      for (const participantUserId of participantUserIds) {
-        const completedMatchKey = getUserCompletedMatchKey(
-          participantUserId,
-          completedMatchEntryId,
-        );
-        transaction = transaction
-          .check({ key: completedMatchKey, versionstamp: null })
-          .set(completedMatchKey, completedMatch);
-        this.mutateUserCompletedMatchesRootCountOnOperation(
-          transaction,
-          participantUserId,
-          1,
-        );
-      }
-    } else if (activePublicMatchEntry.value != null) {
-      // Trigger active public match list subscribers to re-project public state.
-      this.mutateActivePublicMatchesRootCountOnOperation(transaction, 0);
-    }
-
-    this.setAuditLogEntryOnOperation(transaction, {
-      type: "UpdateMatchStorageData",
-      userId,
-      matchId,
-      completedMatchEntryId,
-    });
-
-    const res = await transaction.commit();
-
-    if (!res.ok) {
-      throw new Error(`Failed to update match ${matchId}`);
-    }
-    this.log(
-      "INFO",
-      `updateMatchStorageData completed=${
-        serializeLogValue({
-          matchId,
-          userId,
-          completedMatchEntryId,
-          hasOutcome: gameData.outcome != null,
-        })
-      }`,
-    );
-  }
-
-  public async getMatchStorageData(
-    matchId: string,
-  ): Promise<MatchStorageData<T>> {
-    this.log(
-      "INFO",
-      `getMatchStorageData request=${serializeLogValue({ matchId })}`,
-    );
-    const gameKey = getMatchKey(matchId);
-    const entry = await this.kv.get<
-      MatchStorageData<T>
-    >(
-      gameKey,
-    );
-    if (entry.value == null) {
-      throw new Error(`Match ${matchId} not found`);
-    } else {
-      this.log(
-        "INFO",
-        `getMatchStorageData response=${
-          serializeLogValue({ matchId, gameData: entry.value })
-        }`,
-      );
-      return entry.value;
-    }
+    return this.matchOps.updateMatchStorageData(matchId, gameData, userId);
   }
 
   /**
-   * Increments one user's active-public-user connection count and refreshes TTL.
+   * Fetches one match storage record.
    */
-  public async incrementActivePublicUserConnection(
+  getMatchStorageData(
+    matchId: string,
+  ): Promise<MatchStorageData<T>> {
+    return this.matchOps.getMatchStorageData(matchId);
+  }
+
+  /**
+   * Increments one active public user connection count.
+   */
+  incrementActivePublicUserConnection(
     userId: string,
     playerSnapshot: PlayerSnapshot<T>,
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `incrementActivePublicUserConnection request=${
-        serializeLogValue({ userId, playerSnapshot })
-      }`,
-    );
-    const activePublicUserKey = getActivePublicUserKey(userId);
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entry = await this.kv.get<ActiveUserStorageData<T>>(
-        activePublicUserKey,
-      );
-      const nextActiveUser: ActiveUserStorageData<T> = {
-        playerSnapshot,
-        connectionCount: (entry.value?.connectionCount ?? 0) + 1,
-      };
-
-      transaction
-        .check(entry)
-        .set(activePublicUserKey, nextActiveUser, {
-          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
-        });
-      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
-    });
-    this.log(
-      "INFO",
-      `incrementActivePublicUserConnection completed=${
-        serializeLogValue({ userId })
-      }`,
+    return this.publicIndexOps.incrementActivePublicUserConnection(
+      userId,
+      playerSnapshot,
     );
   }
 
   /**
-   * Refreshes one active-public-user entry's TTL without changing its value.
+   * Refreshes one active public user entry.
    */
-  public async touchActivePublicUser(userId: string): Promise<void> {
-    this.log(
-      "INFO",
-      `touchActivePublicUser request=${serializeLogValue({ userId })}`,
-    );
-    const activePublicUserKey = getActivePublicUserKey(userId);
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entry = await this.kv.get<ActiveUserStorageData<T>>(
-        activePublicUserKey,
-      );
-      if (entry.value == null) {
-        return;
-      }
-
-      transaction
-        .check(entry)
-        .set(activePublicUserKey, entry.value, {
-          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
-        });
-      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
-    });
-    this.log(
-      "INFO",
-      `touchActivePublicUser completed=${serializeLogValue({ userId })}`,
-    );
+  touchActivePublicUser(userId: string): Promise<void> {
+    return this.publicIndexOps.touchActivePublicUser(userId);
   }
 
   /**
-   * Decrements one user's active-public-user connection count.
-   * Deletes the entry once the count reaches zero.
+   * Decrements one active public user connection count.
    */
-  public async decrementActivePublicUserConnection(userId: string): Promise<
-    void
-  > {
-    this.log(
-      "INFO",
-      `decrementActivePublicUserConnection request=${
-        serializeLogValue({ userId })
-      }`,
-    );
-    const activePublicUserKey = getActivePublicUserKey(userId);
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entry = await this.kv.get<ActiveUserStorageData<T>>(
-        activePublicUserKey,
-      );
-      if (entry.value == null) {
-        return;
-      }
-
-      const nextConnectionCount = entry.value.connectionCount - 1;
-      transaction.check(entry);
-      if (nextConnectionCount <= 0) {
-        transaction.delete(activePublicUserKey);
-      } else {
-        transaction.set(activePublicUserKey, {
-          playerSnapshot: entry.value.playerSnapshot,
-          connectionCount: nextConnectionCount,
-        }, {
-          expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
-        });
-      }
-      this.mutateActivePublicUsersRootCountOnOperation(transaction, 1);
-    });
-    this.log(
-      "INFO",
-      `decrementActivePublicUserConnection completed=${
-        serializeLogValue({ userId })
-      }`,
-    );
+  decrementActivePublicUserConnection(userId: string): Promise<void> {
+    return this.publicIndexOps.decrementActivePublicUserConnection(userId);
   }
 
   /**
-   * Returns all currently active public users as player snapshots.
+   * Returns all active public users.
    */
-  public async getAllActivePublicUsers(): Promise<
-    PlayerSnapshot<T>[]
-  > {
-    this.log(
-      "INFO",
-      "getAllActivePublicUsers request={}",
-    );
-    const activePublicUserEntries = await this.listSingleBatch<
-      ActiveUserStorageData<T>
-    >(
-      getActivePublicUsersKey(),
-    );
-    const allActiveUsers = activePublicUserEntries.map((entry) =>
-      entry.value.playerSnapshot
-    );
-    this.log(
-      "INFO",
-      `getAllActivePublicUsers response=${
-        serializeLogValue({ count: allActiveUsers.length, allActiveUsers })
-      }`,
-    );
-    return allActiveUsers;
+  getAllActivePublicUsers(): Promise<PlayerSnapshot<T>[]> {
+    return this.publicIndexOps.getAllActivePublicUsers();
   }
 
   /**
-   * Watches the active public users root key and emits full indexed snapshots.
+   * Watches active public users list updates.
    */
-  public watchForActivePublicUsersListChanges(): ReadableStream<
-    PlayerSnapshot<T>[]
-  > {
-    this.log(
-      "INFO",
-      "watchForActivePublicUsersListChanges request={}",
-    );
-    const activePublicUsersKey = getActivePublicUsersKey();
-    const stream = this.kv.watch<[Deno.KvU64]>([activePublicUsersKey]);
-    return stream.pipeThrough(
-      new TransformStream({
-        transform: async (_events, controller) => {
-          const data = await this.getAllActivePublicUsers();
-          controller.enqueue(data);
-        },
-      }),
-    );
+  watchForActivePublicUsersListChanges(): ReadableStream<PlayerSnapshot<T>[]> {
+    return this.publicIndexOps.watchForActivePublicUsersListChanges();
   }
 
-  // Returns all currently active public matches.
-  public async getAllActivePublicMatches(): Promise<
-    ActiveMatch<T>[]
-  > {
-    this.log(
-      "INFO",
-      "getAllActivePublicMatches request={}",
-    );
-    const activePublicMatchEntries = await this.listSingleBatch<
-      ActiveMatch<T>
-    >(
-      getActivePublicMatchesKey(),
-    );
-    const allActiveMatches = activePublicMatchEntries.map((entry) =>
-      entry.value
-    );
-    this.log(
-      "INFO",
-      `getAllActivePublicMatches response=${
-        serializeLogValue({ count: allActiveMatches.length, allActiveMatches })
-      }`,
-    );
-    return allActiveMatches;
+  /**
+   * Returns all active public matches.
+   */
+  getAllActivePublicMatches(): Promise<ActiveMatch<T>[]> {
+    return this.publicIndexOps.getAllActivePublicMatches();
   }
 
-  public watchForMatchChanges(
+  /**
+   * Watches one match for updates.
+   */
+  watchForMatchChanges(
     matchId: string,
   ): ReadableStream<MatchStorageData<T>> {
-    this.log(
-      "INFO",
-      `watchForMatchChanges request=${serializeLogValue({ matchId })}`,
-    );
-    const gameKey = getMatchKey(matchId);
-    const stream = this.kv.watch<
-      MatchStorageData<T>[]
-    >(
-      [gameKey],
-    );
-    return stream.pipeThrough(
-      new TransformStream({
-        transform(events, controller) {
-          const data = events[0].value;
-          if (data != null) {
-            controller.enqueue(data);
-          }
-        },
-      }),
-    );
-  }
-
-  // Watches the active public matches root key and emits full indexed snapshots.
-  public watchForActivePublicMatchesListChanges(): ReadableStream<
-    ActiveMatch<T>[]
-  > {
-    this.log(
-      "INFO",
-      "watchForActivePublicMatchesListChanges request={}",
-    );
-    const activePublicMatchesKey = getActivePublicMatchesKey();
-    const stream = this.kv.watch<[Deno.KvU64]>([activePublicMatchesKey]);
-    return stream.pipeThrough(
-      new TransformStream({
-        transform: async (_events, controller) => {
-          const data = await this.getAllActivePublicMatches();
-          controller.enqueue(data);
-        },
-      }),
-    );
-  }
-
-  // Returns all currently available public rooms.
-  public async getAllAvailablePublicRooms(): Promise<
-    AvailableRoom<T>[]
-  > {
-    this.log(
-      "INFO",
-      "getAllAvailablePublicRooms request={}",
-    );
-    const availablePublicRoomEntries = await this.listSingleBatch<
-      AvailableRoom<T>
-    >(
-      getAvailablePublicRoomsKey(),
-    );
-    const allAvailableRooms = availablePublicRoomEntries.map((entry) =>
-      entry.value
-    );
-    this.log(
-      "INFO",
-      `getAllAvailablePublicRooms response=${
-        serializeLogValue({
-          count: allAvailableRooms.length,
-          allAvailableRooms,
-        })
-      }`,
-    );
-    return allAvailableRooms;
-  }
-
-  // Watches the available public rooms root key and emits full indexed snapshots.
-  public watchForAvailablePublicRoomListChanges(): ReadableStream<
-    AvailableRoom<T>[]
-  > {
-    this.log(
-      "INFO",
-      "watchForAvailablePublicRoomListChanges request={}",
-    );
-    const availablePublicRoomsKey = getAvailablePublicRoomsKey();
-    const stream = this.kv.watch<[Deno.KvU64]>([availablePublicRoomsKey]);
-    return stream.pipeThrough(
-      new TransformStream({
-        transform: async (_events, controller) => {
-          const data = await this.getAllAvailablePublicRooms();
-          controller.enqueue(data);
-        },
-      }),
-    );
+    return this.matchOps.watchForMatchChanges(matchId);
   }
 
   /**
-   * Normalizes one chat message fetch limit into the supported range.
+   * Watches active public matches list updates.
    */
-  private normalizeChatMessageLimit(limit: number): number {
-    if (!Number.isFinite(limit)) {
-      return CHAT_THREAD_MESSAGES_READ_LIMIT;
-    }
-    const normalizedLimit = Math.floor(limit);
-    if (normalizedLimit <= 0) {
-      return 0;
-    }
-    return Math.min(CHAT_THREAD_MESSAGES_READ_LIMIT, normalizedLimit);
+  watchForActivePublicMatchesListChanges(): ReadableStream<ActiveMatch<T>[]> {
+    return this.publicIndexOps.watchForActivePublicMatchesListChanges();
   }
 
   /**
-   * Appends one chat message and increments the thread's ticker key atomically.
+   * Returns all available public rooms.
    */
-  public async appendChatMessage(
+  getAllAvailablePublicRooms(): Promise<AvailableRoom<T>[]> {
+    return this.publicIndexOps.getAllAvailablePublicRooms();
+  }
+
+  /**
+   * Watches available public rooms list updates.
+   */
+  watchForAvailablePublicRoomListChanges(): ReadableStream<AvailableRoom<T>[]> {
+    return this.publicIndexOps.watchForAvailablePublicRoomListChanges();
+  }
+
+  /**
+   * Appends one chat message.
+   */
+  appendChatMessage(
     chatThreadId: string,
     chatMessage: ChatMessage<T>,
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `appendChatMessage request=${
-        serializeLogValue({ chatThreadId, chatMessage })
-      }`,
-    );
-    const chatThreadMessagesKey = getChatThreadMessagesKey(chatThreadId);
-    const chatMessageKey = getChatThreadMessageKey(
-      chatThreadId,
-      chatMessage.id,
-    );
-    const transaction = this.kv.atomic()
-      .check({ key: chatMessageKey, versionstamp: null })
-      .set(chatMessageKey, chatMessage as ChatMessageStorageData<T>);
-    this.mutateIndexedListRootCountOnOperation(
-      transaction,
-      chatThreadMessagesKey,
-      1,
-    );
-    const result = await transaction.commit();
-    if (!result.ok) {
-      throw new Error(
-        `Chat message ${chatMessage.id} already exists in ${chatThreadId}`,
-      );
-    }
-    this.log(
-      "INFO",
-      `appendChatMessage completed=${
-        serializeLogValue({ chatThreadId, chatMessageId: chatMessage.id })
-      }`,
-    );
+    return this.chatOps.appendChatMessage(chatThreadId, chatMessage);
   }
 
   /**
-   * Fetches the most recent chat messages for one chat thread.
-   * Returns messages oldest-to-newest for append-friendly client rendering.
+   * Fetches recent chat messages for one thread.
    */
-  public async getMostRecentChatThreadMessages(
+  getMostRecentChatThreadMessages(
     chatThreadId: string,
     limit: number,
   ): Promise<ChatMessage<T>[]> {
-    const normalizedLimit = this.normalizeChatMessageLimit(limit);
-    this.log(
-      "INFO",
-      `getMostRecentChatThreadMessages request=${
-        serializeLogValue({ chatThreadId, limit, normalizedLimit })
-      }`,
-    );
-    if (normalizedLimit === 0) {
-      return [];
-    }
-    const chatThreadMessagesKey = getChatThreadMessagesKey(chatThreadId);
-    const chatMessageEntries = await Array.fromAsync(
-      this.kv.list<ChatMessageStorageData<T>>(
-        { prefix: chatThreadMessagesKey },
-        {
-          limit: normalizedLimit,
-          batchSize: CHAT_THREAD_MESSAGES_BATCH_SIZE,
-          reverse: true,
-        },
-      ),
-    );
-    const chatMessages = chatMessageEntries
-      .filter((entry) => entry.key.length === chatThreadMessagesKey.length + 1)
-      .map((entry) => entry.value)
-      .reverse();
-    this.log(
-      "INFO",
-      `getMostRecentChatThreadMessages response=${
-        serializeLogValue({ chatThreadId, count: chatMessages.length })
-      }`,
-    );
-    return chatMessages;
+    return this.chatOps.getMostRecentChatThreadMessages(chatThreadId, limit);
   }
 
   /**
-   * Fetches all chat messages that were appended after a specific message ID.
+   * Fetches chat messages after one message id.
    */
-  public async getChatThreadMessagesAfter(
+  getChatThreadMessagesAfter(
     chatThreadId: string,
     lastMessageId?: string,
   ): Promise<ChatMessage<T>[]> {
-    this.log(
-      "INFO",
-      `getChatThreadMessagesAfter request=${
-        serializeLogValue({ chatThreadId, lastMessageId })
-      }`,
-    );
-    const chatThreadMessagesKey = getChatThreadMessagesKey(chatThreadId);
-    const chatMessageListSelector: Deno.KvListSelector = {
-      start: getChatThreadMessagesRangeStartKey(chatThreadId, lastMessageId),
-      end: getChatThreadMessagesRangeEndKey(chatThreadId),
-    };
-    const chatMessageEntries = await Array.fromAsync(
-      this.kv.list<ChatMessageStorageData<T>>(
-        chatMessageListSelector,
-        {
-          batchSize: CHAT_THREAD_MESSAGES_BATCH_SIZE,
-        },
-      ),
-    );
-    const chatMessages = chatMessageEntries
-      .filter((entry) => entry.key.length === chatThreadMessagesKey.length + 1)
-      .map((entry) => entry.value);
-    this.log(
-      "INFO",
-      `getChatThreadMessagesAfter response=${
-        serializeLogValue({ chatThreadId, count: chatMessages.length })
-      }`,
-    );
-    return chatMessages;
+    return this.chatOps.getChatThreadMessagesAfter(chatThreadId, lastMessageId);
   }
 
   /**
-   * Watches one chat thread's ticker key for newly appended messages.
+   * Watches one chat thread for append notifications.
    */
-  public watchForChatThreadMessageChanges(
+  watchForChatThreadMessageChanges(
     chatThreadId: string,
   ): ReadableStream<void> {
-    this.log(
-      "INFO",
-      `watchForChatThreadMessageChanges request=${
-        serializeLogValue({ chatThreadId })
-      }`,
-    );
-    const chatThreadMessagesKey = getChatThreadMessagesKey(chatThreadId);
-    const stream = this.kv.watch<[Deno.KvU64]>([chatThreadMessagesKey]);
-    return stream.pipeThrough(
-      new TransformStream({
-        transform: (_events, controller) => {
-          controller.enqueue(undefined);
-        },
-      }),
-    );
+    return this.chatOps.watchForChatThreadMessageChanges(chatThreadId);
   }
 
-  // Creates a new user record and username index entry if neither already exists.
-  public async createNewUserStorageData(
+  /**
+   * Creates one user storage record.
+   */
+  createNewUserStorageData(
     userId: string,
     data: UserStorageData<T>,
   ): Promise<void> {
-    const normalizedData = this.normalizeUserStorageData(data);
-    this.log(
-      "INFO",
-      `createNewUserStorageData request=${
-        serializeLogValue({ userId, data: normalizedData })
-      }`,
-    );
-    const userKey = getUserKey(userId);
-    const usernameKey = getUserByUsernameKey(normalizedData.username);
-    const transaction = this.kv.atomic()
-      .check({ key: userKey, versionstamp: null })
-      .check({ key: usernameKey, versionstamp: null })
-      .set(userKey, normalizedData)
-      .set(usernameKey, userId);
-    this.setAuditLogEntryOnOperation(transaction, {
-      type: "CreateNewUserStorageData",
-      userId,
-      username: normalizedData.username,
-      isGuest: normalizedData.isGuest,
-    });
-    const res = await transaction.commit();
-    if (!res.ok) {
-      throw new Error(
-        `User ${userId} or username ${normalizedData.username} already exists`,
-      );
-    }
-    this.log(
-      "INFO",
-      `createNewUserStorageData completed=${
-        serializeLogValue({ userId, username: normalizedData.username })
-      }`,
-    );
+    return this.userOps.createNewUserStorageData(userId, data);
   }
 
   /**
-   * Upserts user storage data and keeps the username index in sync.
+   * Updates one user storage record.
    */
-  public async updateUserStorageData(
+  updateUserStorageData(
     userId: string,
     data: Partial<UserStorageData<T>>,
     options?: { actorUserId?: string },
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `updateUserStorageData request=${
-        serializeLogValue({ userId, data, options })
-      }`,
-    );
-    const actorUserId = options?.actorUserId ?? userId;
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entry = await this.kv.get<UserStorageData<T>>(
-        getUserKey(userId),
-      );
-      if (entry.value == null) {
-        throw new Error(`Updating unstored user ${userId}`);
-      }
-      const existingData = this.normalizeUserStorageData(entry.value);
-
-      const updatedData = this.normalizeUserStorageData({
-        ...existingData,
-        ...data,
-      });
-
-      const previousUsername = existingData.username;
-      const updatedUsername = updatedData.username;
-      const previousUsernameEntry = await this.kv.get<string>(
-        getUserByUsernameKey(previousUsername),
-      );
-      if (previousUsernameEntry.value !== userId) {
-        throw new Error(
-          `Username index for ${previousUsername} is not owned by ${userId}`,
-        );
-      }
-
-      transaction
-        .check(entry)
-        .set(getUserKey(userId), updatedData);
-
-      if (previousUsername !== updatedUsername) {
-        const updatedUsernameEntry = await this.kv.get<string>(
-          getUserByUsernameKey(updatedUsername),
-        );
-        if (
-          updatedUsernameEntry.value != null &&
-          updatedUsernameEntry.value !== userId
-        ) {
-          throw new Error(`Username ${updatedUsername} already exists`);
-        }
-
-        transaction
-          .check(previousUsernameEntry)
-          .check(updatedUsernameEntry)
-          .delete(getUserByUsernameKey(previousUsername))
-          .set(getUserByUsernameKey(updatedUsername), userId);
-      } else {
-        transaction
-          .check(previousUsernameEntry)
-          .set(getUserByUsernameKey(previousUsername), userId);
-      }
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "UpdateUserStorageData",
-        userId: actorUserId,
-      });
-    });
-    this.log(
-      "INFO",
-      `updateUserStorageData completed=${
-        serializeLogValue({ userId, actorUserId })
-      }`,
-    );
+    return this.userOps.updateUserStorageData(userId, data, options);
   }
 
   /**
-   * Updates canonical user profile fields that are user-editable at runtime.
+   * Updates user-editable profile fields.
    */
-  public async updateUserProfile(
+  updateUserProfile(
     userId: string,
     profile: {
       description?: string;
@@ -1722,362 +350,102 @@ export class DB<
       unstarUserId?: string;
     },
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `updateUserProfile request=${serializeLogValue({ userId, profile })}`,
-    );
-    if (
-      profile.description === undefined &&
-      profile.starUserId === undefined &&
-      profile.unstarUserId === undefined
-    ) {
-      this.log(
-        "INFO",
-        `updateUserProfile noop=${serializeLogValue({ userId })}`,
-      );
-      return;
-    }
-
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const userKey = getUserKey(userId);
-      const userEntry = await this.kv.get<UserStorageData<T>>(userKey);
-      if (userEntry.value == null) {
-        throw new Error(`Updating unstored user ${userId}`);
-      }
-      const existingUser = this.normalizeUserStorageData(userEntry.value);
-
-      const nextStarredUserIds = [...existingUser.starredUserIds];
-      if (profile.starUserId !== undefined) {
-        if (nextStarredUserIds.includes(profile.starUserId)) {
-          throw new Error("User already starred.");
-        }
-        nextStarredUserIds.push(profile.starUserId);
-      }
-
-      let updatedStarredUserIds = nextStarredUserIds;
-      if (profile.unstarUserId !== undefined) {
-        updatedStarredUserIds = nextStarredUserIds.filter((starredUserId) =>
-          starredUserId !== profile.unstarUserId
-        );
-      }
-
-      const updatedUser = this.normalizeUserStorageData({
-        ...existingUser,
-        description: profile.description ?? existingUser.description,
-        starredUserIds: updatedStarredUserIds,
-      });
-
-      const usernameKey = getUserByUsernameKey(existingUser.username);
-      const usernameEntry = await this.kv.get<string>(usernameKey);
-      if (usernameEntry.value !== userId) {
-        throw new Error(
-          `Username index for ${existingUser.username} is not owned by ${userId}`,
-        );
-      }
-
-      transaction
-        .check(userEntry)
-        .check(usernameEntry)
-        .set(userKey, updatedUser)
-        .set(usernameKey, userId);
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "UpdateUserStorageData",
-        userId,
-      });
-    });
-
-    this.log(
-      "INFO",
-      `updateUserProfile completed=${serializeLogValue({ userId })}`,
-    );
+    return this.userOps.updateUserProfile(userId, profile);
   }
 
-  // Fetches the stored user data for a userId, if present.
-  public async getUserStorageData(
+  /**
+   * Fetches one user storage record.
+   */
+  getUserStorageData(
     userId: string,
   ): Promise<UserStorageData<T> | null> {
-    this.log(
-      "INFO",
-      `getUserStorageData request=${serializeLogValue({ userId })}`,
-    );
-    const entry = await this.kv.get<UserStorageData<T>>(
-      getUserKey(userId),
-    );
-    const userData = entry.value == null
-      ? null
-      : this.normalizeUserStorageData(entry.value);
-    this.log(
-      "INFO",
-      `getUserStorageData response=${
-        serializeLogValue({ userId, user: userData })
-      }`,
-    );
-    return userData;
+    return this.userOps.getUserStorageData(userId);
   }
 
   /**
-   * Fetches one user's completed games in reverse chronological order.
+   * Fetches one user profile view payload.
    */
-  private async getUserCompletedMatches(
-    userId: string,
-  ): Promise<CompletedMatchSnapshot<T>[]> {
-    const completedMatchesKey = getUserCompletedMatchesKey(userId);
-    const completedMatchEntries = await Array.fromAsync(
-      this.kv.list<CompletedMatchSnapshot<T>>(
-        { prefix: completedMatchesKey },
-        {
-          limit: USER_COMPLETED_MATCHES_READ_LIMIT,
-          batchSize: USER_COMPLETED_MATCHES_BATCH_SIZE,
-          reverse: true,
-        },
-      ),
-    );
-
-    return completedMatchEntries
-      .filter((entry) => entry.key.length === completedMatchesKey.length + 1)
-      .map((entry) => entry.value);
-  }
-
-  /**
-   * Fetches the canonical user profile view data for a userId, if present.
-   */
-  public async getUserProfileViewData(
+  getUserProfileViewData(
     userId: string,
   ): Promise<UserProfileViewData<T> | null> {
-    this.log(
-      "INFO",
-      `getUserProfileViewData request=${serializeLogValue({ userId })}`,
-    );
-    const userStorageData = await this.getUserStorageData(userId);
-    if (userStorageData == null) {
-      this.log(
-        "INFO",
-        `getUserProfileViewData response=${
-          serializeLogValue({ userId, userProfile: null })
-        }`,
-      );
-      return null;
-    }
-    const completedMatches = await this.getUserCompletedMatches(userId);
-    const userProfile = userStorageDataToUserProfileViewData(
-      userId,
-      userStorageData,
-      completedMatches,
-    );
-    this.log(
-      "INFO",
-      `getUserProfileViewData response=${
-        serializeLogValue({ userId, userProfile })
-      }`,
-    );
-    return userProfile;
+    return this.userOps.getUserProfileViewData(userId);
   }
 
   /**
-   * Watches canonical user profile and completed-game history updates for one
-   * user.
+   * Watches one user profile view payload.
    */
-  public watchForUserProfileChanges(
+  watchForUserProfileChanges(
     userId: string,
   ): ReadableStream<UserProfileViewData<T>> {
-    this.log(
-      "INFO",
-      `watchForUserProfileChanges request=${serializeLogValue({ userId })}`,
-    );
-    const userKey = getUserKey(userId);
-    const completedMatchesKey = getUserCompletedMatchesKey(userId);
-    const stream = this.kv.watch<[UserStorageData<T>, Deno.KvU64]>([
-      userKey,
-      completedMatchesKey,
-    ]);
-    return stream.pipeThrough(
-      new TransformStream({
-        transform: async (_events, controller) => {
-          const userProfile = await this.getUserProfileViewData(userId);
-          if (userProfile == null) {
-            return;
-          }
-          controller.enqueue(userProfile);
-        },
-      }),
-    );
+    return this.userOps.watchForUserProfileChanges(userId);
   }
 
   /**
-   * Creates a new user matchmaking record if one does not already exist.
+   * Creates one user matchmaking record.
    */
-  public async createNewUserMatchmakingStorageData(
+  createNewUserMatchmakingStorageData(
     userId: string,
     data: UserMatchmakingStorageData<T>,
     options?: { actorUserId?: string },
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `createNewUserMatchmakingStorageData request=${
-        serializeLogValue({ userId, data, options })
-      }`,
-    );
-    const actorUserId = options?.actorUserId ?? userId;
-    const userMatchmakingKey = getUserMatchmakingKey(userId);
-    const transaction = this.kv.atomic()
-      .check({ key: userMatchmakingKey, versionstamp: null })
-      .set(userMatchmakingKey, data);
-    this.setAuditLogEntryOnOperation(transaction, {
-      type: "UpdateUserMatchmakingStorageData",
-      userId: actorUserId,
-    });
-    const res = await transaction.commit();
-    if (!res.ok) {
-      throw new Error(`User matchmaking ${userId} already exists`);
-    }
-    this.log(
-      "INFO",
-      `createNewUserMatchmakingStorageData completed=${
-        serializeLogValue({ userId, actorUserId })
-      }`,
+    return this.userMatchmakingOps.createNewUserMatchmakingStorageData(
+      userId,
+      data,
+      options,
     );
   }
 
   /**
-   * Upserts user matchmaking storage data.
+   * Updates one user matchmaking record.
    */
-  public async updateUserMatchmakingStorageData(
+  updateUserMatchmakingStorageData(
     userId: string,
     data: Partial<UserMatchmakingStorageData<T>>,
     options?: { actorUserId?: string },
   ): Promise<void> {
-    this.log(
-      "INFO",
-      `updateUserMatchmakingStorageData request=${
-        serializeLogValue({ userId, data, options })
-      }`,
-    );
-    const actorUserId = options?.actorUserId ?? userId;
-    await this.repeatUntilTransactionSucceeds(async (transaction) => {
-      const entry = await this.kv.get<
-        UserMatchmakingStorageData<T>
-      >(
-        getUserMatchmakingKey(userId),
-      );
-      if (entry.value == null) {
-        throw new Error(`Updating unstored user matchmaking ${userId}`);
-      }
-
-      const updatedData: UserMatchmakingStorageData<T> = {
-        ...entry.value,
-        ...data,
-      };
-
-      transaction
-        .check(entry)
-        .set(getUserMatchmakingKey(userId), updatedData);
-      this.setAuditLogEntryOnOperation(transaction, {
-        type: "UpdateUserMatchmakingStorageData",
-        userId: actorUserId,
-      });
-    });
-    this.log(
-      "INFO",
-      `updateUserMatchmakingStorageData completed=${
-        serializeLogValue({ userId, actorUserId })
-      }`,
+    return this.userMatchmakingOps.updateUserMatchmakingStorageData(
+      userId,
+      data,
+      options,
     );
   }
 
   /**
-   * Fetches the stored user matchmaking data for a userId, if present.
+   * Fetches one user matchmaking record.
    */
-  public async getUserMatchmakingStorageData(
+  getUserMatchmakingStorageData(
     userId: string,
   ): Promise<UserMatchmakingStorageData<T> | null> {
-    this.log(
-      "INFO",
-      `getUserMatchmakingStorageData request=${serializeLogValue({ userId })}`,
-    );
-    const entry = await this.kv.get<
-      UserMatchmakingStorageData<T>
-    >(
-      getUserMatchmakingKey(userId),
-    );
-    this.log(
-      "INFO",
-      `getUserMatchmakingStorageData response=${
-        serializeLogValue({ userId, userMatchmaking: entry.value })
-      }`,
-    );
-    return entry.value;
+    return this.userMatchmakingOps.getUserMatchmakingStorageData(userId);
   }
 
   /**
-   * Watches user matchmaking storage data updates for one user.
+   * Watches one user matchmaking record.
    */
-  public watchForUserMatchmakingChanges(
+  watchForUserMatchmakingChanges(
     userId: string,
   ): ReadableStream<UserMatchmakingStorageData<T>> {
-    this.log(
-      "INFO",
-      `watchForUserMatchmakingChanges request=${serializeLogValue({ userId })}`,
-    );
-    const userMatchmakingKey = getUserMatchmakingKey(userId);
-    const stream = this.kv.watch<
-      [UserMatchmakingStorageData<T>]
-    >([
-      userMatchmakingKey,
-    ]);
-    return stream.pipeThrough(
-      new TransformStream({
-        transform: (events, controller) => {
-          const data = events[0].value;
-          if (data != null) {
-            controller.enqueue(data);
-          }
-        },
-      }),
-    );
+    return this.userMatchmakingOps.watchForUserMatchmakingChanges(userId);
   }
 
-  public async usernameExists(username: string): Promise<boolean> {
-    this.log(
-      "INFO",
-      `usernameExists request=${serializeLogValue({ username })}`,
-    );
-    const entry = await this.kv.get<string>(getUserByUsernameKey(username));
-    const exists = entry.value != null;
-    this.log(
-      "INFO",
-      `usernameExists response=${serializeLogValue({ username, exists })}`,
-    );
-    return exists;
+  /**
+   * Checks whether one username exists.
+   */
+  usernameExists(username: string): Promise<boolean> {
+    return this.userOps.usernameExists(username);
   }
 
-  public async storeToken(token: string, tokenData: TokenData): Promise<void> {
-    this.log(
-      "INFO",
-      `storeToken request=${serializeLogValue({ token, tokenData })}`,
-    );
-    const res = await this.kv.atomic()
-      .set(getTokenKey(token), tokenData)
-      .commit();
-    if (!res.ok) {
-      throw new Error(`Failed to store token`);
-    }
-    this.log(
-      "INFO",
-      `storeToken completed=${serializeLogValue({ token, tokenData })}`,
-    );
+  /**
+   * Stores one auth token payload.
+   */
+  storeToken(token: string, tokenData: TokenData): Promise<void> {
+    return this.tokenOps.storeToken(token, tokenData);
   }
 
-  public async getToken(token: string): Promise<TokenData | null> {
-    this.log(
-      "INFO",
-      `getToken request=${serializeLogValue({ token })}`,
-    );
-    const entry = await this.kv.get<TokenData>(getTokenKey(token));
-    const tokenData = entry.value ?? null;
-    this.log(
-      "INFO",
-      `getToken response=${serializeLogValue({ token, tokenData })}`,
-    );
-    return tokenData;
+  /**
+   * Fetches one auth token payload.
+   */
+  getToken(token: string): Promise<TokenData | null> {
+    return this.tokenOps.getToken(token);
   }
 }
