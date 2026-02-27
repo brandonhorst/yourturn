@@ -78,8 +78,6 @@ subscribe to multiple channels.
   `user_matchmaking`, `token`).
 - `server/services/game_state_service.ts` - Game state projection + move
   application + ranked rating updates.
-- `server/services/match_projection_service.ts` - Shared match projection logic
-  for active/public/user match views.
 - `server/logging.ts` - Shared server-side logger.
 
 ### Client Architecture
@@ -167,13 +165,14 @@ Uses Deno KV for:
   starred user IDs, ratings)
 - Completed-match history at
   `["completedmatchesbyuser", userId, completedMatchEntryId]`
-- User matchmaking records at `["usermatchmakings", userId]`
+- User matchmaking records at `["usermatchmakings", userId]` (including per-user
+  `activeMatches` snapshots with `publicState` + `privateState`)
 - Auth tokens at `["tokens", token ]`
 - Audit log entries at `["auditlogentries", id]`
 - Indexed global list snapshots at `["activepublicmatches", matchId]`,
   `["availablepublicrooms", roomId]`, and `["activepublicusers", userId]`
-  (`ActiveMatch` snapshots expose match metadata only and do not include
-  `chatThreadId`)
+  (`ActivePublicMatch` snapshots include precomputed `publicState` and do not
+  include `chatThreadId`)
 - Root invalidation counters at `["activepublicmatches"]`,
   `["availablepublicrooms"]`, and `["activepublicusers"]`
 - Chat thread ticker keys at `["chatthread", chatThreadId, "chatmessage"]`

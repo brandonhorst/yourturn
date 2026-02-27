@@ -120,20 +120,28 @@ export type AuditLogEntry = {
   payload: AuditLogEntryPayload;
 };
 
-export type ActiveMatch<T extends GameTypes> = {
+/**
+ * Public active-match payload stored in the global active-public index.
+ */
+export type ActivePublicMatch<T extends GameTypes> = {
   matchId: string;
   players: PlayerSnapshot<T>[];
   config: T["Config"];
   created: Date;
+  publicState: T["PublicState"];
 };
 
-export type ActivePublicMatch<T extends GameTypes> =
-  & ActiveMatch<T>
-  & { publicState: T["PublicState"] };
-
-export type UserActiveMatch<T extends GameTypes> =
-  & ActivePublicMatch<T>
-  & { privateState: T["PlayerState"] };
+/**
+ * User-scoped active-match payload stored on a user's matchmaking record.
+ */
+export type UserActiveMatch<T extends GameTypes> = {
+  matchId: string;
+  players: PlayerSnapshot<T>[];
+  config: T["Config"];
+  created: Date;
+  publicState: T["PublicState"];
+  privateState: T["PlayerState"];
+};
 
 export type AvailableRoom<T extends GameTypes> = {
   roomId: string;

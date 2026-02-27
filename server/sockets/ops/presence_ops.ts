@@ -1,6 +1,5 @@
 import { logServer, serializeLogValue } from "@/server/logging.ts";
 import type {
-  ActiveMatch,
   ActivePublicMatch,
   ActivePublicMatchesViewData,
   ActiveUsersViewData,
@@ -8,7 +7,6 @@ import type {
   AvailableRoom,
   GameTypes,
   PlayerSnapshot,
-  UserActiveMatch,
 } from "@/types/mod.ts";
 import type {
   PresenceSocketOps,
@@ -107,17 +105,14 @@ export class SocketPresenceOps<T extends GameTypes>
    * Broadcasts active match list updates to all active public match subscriptions.
    */
   streamActivePublicMatchesToSockets(
-    activeMatchesStream: ReadableStream<ActiveMatch<T>[]>,
+    activeMatchesStream: ReadableStream<ActivePublicMatch<T>[]>,
   ): void {
     activeMatchesStream.pipeTo(
       new WritableStream({
-        write: async (allActiveMatches: ActiveMatch<T>[]) => {
+        write: (allActiveMatches: ActivePublicMatch<T>[]) => {
           if (this.context.activePublicMatchesSubscriptions.size === 0) {
             return;
           }
-          const projectedMatches = await this.buildActivePublicMatchViews(
-            allActiveMatches,
-          );
           for (
             const [subscriptionId, socket] of this.context
               .activePublicMatchesSubscriptions.entries()
@@ -125,7 +120,7 @@ export class SocketPresenceOps<T extends GameTypes>
             this.sendActivePublicMatchesUpdate(
               socket,
               subscriptionId,
-              projectedMatches,
+              allActiveMatches,
             );
           }
         },
@@ -206,32 +201,6 @@ export class SocketPresenceOps<T extends GameTypes>
   }
 
   /**
-   * Projects active public matches with up-to-date public state.
-   */
-  buildActivePublicMatchViews(
-    activeMatches: ActiveMatch<T>[],
-  ): Promise<ActivePublicMatch<T>[]> {
-    return this.context.requireMatchProjectionService()
-      .buildActivePublicMatchViews(
-        activeMatches,
-      );
-  }
-
-  /**
-   * Projects user-active matches with up-to-date public and private state.
-   */
-  buildUserActiveMatchViews(
-    userId: string,
-    activeMatches: ActiveMatch<T>[],
-  ): Promise<UserActiveMatch<T>[]> {
-    return this.context.requireMatchProjectionService()
-      .buildUserActiveMatchViews(
-        userId,
-        activeMatches,
-      );
-  }
-
-  /**
    * Sends the latest active public matches snapshot to one subscription.
    */
   private async sendActivePublicMatchesSnapshot(
@@ -239,13 +208,10 @@ export class SocketPresenceOps<T extends GameTypes>
     subscriptionId: string,
   ): Promise<void> {
     const allActiveMatches = await this.context.db.getAllActivePublicMatches();
-    const projectedMatches = await this.buildActivePublicMatchViews(
-      allActiveMatches,
-    );
     this.sendActivePublicMatchesUpdate(
       socket,
       subscriptionId,
-      projectedMatches,
+      allActiveMatches,
     );
   }
 

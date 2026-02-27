@@ -1,5 +1,5 @@
 import type {
-  ActiveMatch,
+  ActivePublicMatch,
   AvailableRoom,
   ChatMessage,
   GameDefinition,
@@ -245,7 +245,7 @@ export class DB<T extends GameTypes> {
   /**
    * Returns all active public matches.
    */
-  getAllActivePublicMatches(): Promise<ActiveMatch<T>[]> {
+  getAllActivePublicMatches(): Promise<ActivePublicMatch<T>[]> {
     return this.publicIndexOps.getAllActivePublicMatches();
   }
 
@@ -261,7 +261,9 @@ export class DB<T extends GameTypes> {
   /**
    * Watches active public matches list updates.
    */
-  watchForActivePublicMatchesListChanges(): ReadableStream<ActiveMatch<T>[]> {
+  watchForActivePublicMatchesListChanges(): ReadableStream<
+    ActivePublicMatch<T>[]
+  > {
     return this.publicIndexOps.watchForActivePublicMatchesListChanges();
   }
 

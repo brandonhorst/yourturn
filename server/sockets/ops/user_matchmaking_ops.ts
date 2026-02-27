@@ -2,7 +2,6 @@ import type { UserMatchmakingStorageData } from "@/server/db/mod.ts";
 import { logServer, serializeLogValue } from "@/server/logging.ts";
 import type { GameTypes, UserMatchmakingViewData } from "@/types/mod.ts";
 import type {
-  PresenceSocketOps,
   QueueSocketOps,
   UnsubscribeSubscription,
   UserMatchmakingSocketOps,
@@ -21,7 +20,6 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
   constructor(
     private readonly context: SocketStoreContext<T>,
     private readonly queueOps: QueueSocketOps<T>,
-    private readonly presenceOps: PresenceSocketOps<T>,
   ) {}
 
   /**
@@ -51,12 +49,10 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
       existingConnection != null &&
       existingConnection.userMatchmaking != null
     ) {
-      const connectionUserId = existingConnection.userMatchmaking.userId;
       existingConnection.userMatchmaking.subscriptionIds.add(subscriptionId);
-      await this.sendUserMatchmakingSnapshot(
+      this.sendUserMatchmakingSnapshot(
         socket,
         subscriptionId,
-        connectionUserId,
         userData,
       );
       return;
@@ -77,7 +73,7 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
         userChangesReader,
         queueSubscriptions: new Map(),
       };
-      void this.streamUserChangesToSocket(socket, userId, userChangesReader);
+      void this.streamUserChangesToSocket(socket, userChangesReader);
     }
 
     const userMatchmakingState = connectionState.userMatchmaking;
@@ -90,10 +86,9 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
       type: "UserMatchmaking",
     });
 
-    await this.sendUserMatchmakingSnapshot(
+    this.sendUserMatchmakingSnapshot(
       socket,
       subscriptionId,
-      userId,
       userData,
     );
   }
@@ -148,7 +143,6 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
    */
   private async streamUserChangesToSocket(
     socket: WebSocket,
-    userId: string,
     userChangesReader: ReadableStreamDefaultReader<
       UserMatchmakingStorageData<T>
     >,
@@ -161,9 +155,8 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
         }
 
         const userData = data.value;
-        await this.sendUserMatchmakingSnapshotToSubscriptions(
+        this.sendUserMatchmakingSnapshotToSubscriptions(
           socket,
-          userId,
           userData,
         );
       }
@@ -173,18 +166,15 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
   }
 
   /**
-   * Builds one full UserMatchmaking payload with derived match state.
+   * Builds one full UserMatchmaking payload from stored user snapshots.
    */
-  private async buildUserMatchmakingProps(
-    userId: string,
+  private buildUserMatchmakingProps(
     userData: UserMatchmakingStorageData<T>,
-  ): Promise<UserMatchmakingViewData<T>> {
-    const userActiveMatches = await this.presenceOps.buildUserActiveMatchViews(
-      userId,
-      userData.activeMatches,
-    );
+  ): UserMatchmakingViewData<T> {
     return {
-      userActiveMatches,
+      userActiveMatches: userData.activeMatches.map((activeMatch) => ({
+        ...activeMatch,
+      })),
       roomIds: userData.joinedRooms.map((joinedRoom) => joinedRoom.roomId),
       queueEntries: userData.queueEntries,
     };
@@ -208,16 +198,12 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
   /**
    * Sends one full UserMatchmaking snapshot to one subscription ID.
    */
-  private async sendUserMatchmakingSnapshot(
+  private sendUserMatchmakingSnapshot(
     socket: WebSocket,
     subscriptionId: string,
-    userId: string,
     userData: UserMatchmakingStorageData<T>,
-  ): Promise<void> {
-    const userMatchmakingProps = await this.buildUserMatchmakingProps(
-      userId,
-      userData,
-    );
+  ): void {
+    const userMatchmakingProps = this.buildUserMatchmakingProps(userData);
     this.sendUserMatchmakingUpdate(
       socket,
       subscriptionId,
@@ -228,15 +214,11 @@ export class SocketUserMatchmakingOps<T extends GameTypes>
   /**
    * Sends the latest UserMatchmaking snapshot to each active UserMatchmaking subscription.
    */
-  private async sendUserMatchmakingSnapshotToSubscriptions(
+  private sendUserMatchmakingSnapshotToSubscriptions(
     socket: WebSocket,
-    userId: string,
     userData: UserMatchmakingStorageData<T>,
-  ): Promise<void> {
-    const userMatchmakingProps = await this.buildUserMatchmakingProps(
-      userId,
-      userData,
-    );
+  ): void {
+    const userMatchmakingProps = this.buildUserMatchmakingProps(userData);
     for (
       const subscriptionId of this.getUserMatchmakingSubscriptionIds(socket)
     ) {

@@ -1,5 +1,5 @@
 import type {
-  ActiveMatch,
+  ActivePublicMatch,
   GameDefinition,
   GameTypes,
   PlayerSnapshot,
@@ -24,7 +24,7 @@ export async function initializeServer<T extends GameTypes>(
   const db = new DB<T>(kv, game);
 
   const activePublicMatchesStream: ReadableStream<
-    ActiveMatch<T>[]
+    ActivePublicMatch<T>[]
   > = db
     .watchForActivePublicMatchesListChanges();
   const activePublicUsersStream: ReadableStream<

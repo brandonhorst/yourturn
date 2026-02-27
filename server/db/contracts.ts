@@ -1,5 +1,5 @@
 import type {
-  ActiveMatch,
+  ActivePublicMatch,
   AvailableRoom,
   ChatMessage,
   GameTypes,
@@ -122,9 +122,11 @@ export interface PublicIndexOps<T extends GameTypes> {
 
   watchForActivePublicUsersListChanges(): ReadableStream<PlayerSnapshot<T>[]>;
 
-  getAllActivePublicMatches(): Promise<ActiveMatch<T>[]>;
+  getAllActivePublicMatches(): Promise<ActivePublicMatch<T>[]>;
 
-  watchForActivePublicMatchesListChanges(): ReadableStream<ActiveMatch<T>[]>;
+  watchForActivePublicMatchesListChanges(): ReadableStream<
+    ActivePublicMatch<T>[]
+  >;
 
   getAllAvailablePublicRooms(): Promise<AvailableRoom<T>[]>;
 

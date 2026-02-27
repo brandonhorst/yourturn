@@ -1,7 +1,6 @@
 import type { DB, MatchAssignmentNotification } from "@/server/db/mod.ts";
 import { logServer } from "@/server/logging.ts";
 import type { GameStateService } from "@/server/services/game_state_service.ts";
-import { MatchProjectionService } from "@/server/services/match_projection_service.ts";
 import type { GameTypes } from "@/types/mod.ts";
 import type {
   MatchConnection,
@@ -25,7 +24,6 @@ export class SocketStoreContext<T extends GameTypes> {
   readonly matchConnections: Map<string, MatchConnection<T>> = new Map();
 
   private gameStateService?: GameStateService<T>;
-  private matchProjectionService?: MatchProjectionService<T>;
 
   constructor(
     readonly db: DB<T>,
@@ -38,10 +36,6 @@ export class SocketStoreContext<T extends GameTypes> {
     gameStateService: GameStateService<T>,
   ): void {
     this.gameStateService = gameStateService;
-    this.matchProjectionService = new MatchProjectionService(
-      this.db,
-      gameStateService,
-    );
     logServer(
       SOCKET_CONTEXT_LOG_MODULE,
       "INFO",
@@ -57,16 +51,6 @@ export class SocketStoreContext<T extends GameTypes> {
       throw new Error("SocketStore match state service is not configured");
     }
     return this.gameStateService;
-  }
-
-  /**
-   * Returns the configured projection helpers or throws when missing.
-   */
-  requireMatchProjectionService(): MatchProjectionService<T> {
-    if (this.matchProjectionService == null) {
-      throw new Error("SocketStore match projection service is not configured");
-    }
-    return this.matchProjectionService;
   }
 
   /**

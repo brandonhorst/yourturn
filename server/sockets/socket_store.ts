@@ -1,7 +1,7 @@
 import { logServer } from "@/server/logging.ts";
 import type { GameStateService } from "@/server/services/game_state_service.ts";
 import type {
-  ActiveMatch,
+  ActivePublicMatch,
   AvailableRoom,
   GameTypes,
   PlayerSnapshot,
@@ -47,7 +47,7 @@ export class SocketStore<T extends GameTypes> {
 
   constructor(
     db: DB<T>,
-    activeMatchesStream: ReadableStream<ActiveMatch<T>[]>,
+    activeMatchesStream: ReadableStream<ActivePublicMatch<T>[]>,
     activeUsersStream: ReadableStream<PlayerSnapshot<T>[]>,
     availableRoomsStream: ReadableStream<AvailableRoom<T>[]>,
     overrides: SocketOperationOverrides<T> = {},
@@ -62,7 +62,6 @@ export class SocketStore<T extends GameTypes> {
       new SocketUserMatchmakingOps<T>(
         this.context,
         this.queueOps,
-        this.presenceOps,
       );
     this.roomOps = overrides.roomOps ?? new SocketRoomOps<T>(this.context);
     this.chatOps = overrides.chatOps ?? new SocketChatOps<T>(this.context);

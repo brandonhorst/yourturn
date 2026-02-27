@@ -12,7 +12,6 @@ export type {
 } from "./game.ts";
 
 export type {
-  ActiveMatch,
   ActivePublicMatch,
   AuditLogEntry,
   AuditLogEntryPayload,

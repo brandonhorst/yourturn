@@ -1,11 +1,9 @@
 import type { UserMatchmakingStorageData } from "@/server/db/mod.ts";
 import type {
-  ActiveMatch,
   ActivePublicMatch,
   AvailableRoom,
   GameTypes,
   PlayerSnapshot,
-  UserActiveMatch,
   UserProfileViewData,
 } from "@/types/mod.ts";
 
@@ -37,7 +35,7 @@ export interface PresenceSocketOps<T extends GameTypes> {
   ): Promise<void>;
 
   streamActivePublicMatchesToSockets(
-    activeMatchesStream: ReadableStream<ActiveMatch<T>[]>,
+    activeMatchesStream: ReadableStream<ActivePublicMatch<T>[]>,
   ): void;
 
   streamActivePublicUsersToSockets(
@@ -47,15 +45,6 @@ export interface PresenceSocketOps<T extends GameTypes> {
   streamAvailablePublicRoomsToSockets(
     availableRoomsStream: ReadableStream<AvailableRoom<T>[]>,
   ): void;
-
-  buildActivePublicMatchViews(
-    activeMatches: ActiveMatch<T>[],
-  ): Promise<ActivePublicMatch<T>[]>;
-
-  buildUserActiveMatchViews(
-    userId: string,
-    activeMatches: ActiveMatch<T>[],
-  ): Promise<UserActiveMatch<T>[]>;
 }
 
 /**

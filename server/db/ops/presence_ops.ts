@@ -4,7 +4,7 @@ import {
   type ServerLogLevel,
 } from "@/server/logging.ts";
 import type {
-  ActiveMatch,
+  ActivePublicMatch,
   AvailableRoom,
   GameTypes,
   PlayerSnapshot,
@@ -210,13 +210,13 @@ export class KvPresenceOps<T extends GameTypes> implements PublicIndexOps<T> {
   /**
    * Returns all currently active public matches.
    */
-  async getAllActivePublicMatches(): Promise<ActiveMatch<T>[]> {
+  async getAllActivePublicMatches(): Promise<ActivePublicMatch<T>[]> {
     this.log(
       "INFO",
       "getAllActivePublicMatches request={}",
     );
     const activePublicMatchEntries = await this.context.listSingleBatch<
-      ActiveMatch<T>
+      ActivePublicMatch<T>
     >(
       getActivePublicMatchesKey(),
     );
@@ -235,7 +235,9 @@ export class KvPresenceOps<T extends GameTypes> implements PublicIndexOps<T> {
   /**
    * Watches the active public matches root key and emits full snapshots.
    */
-  watchForActivePublicMatchesListChanges(): ReadableStream<ActiveMatch<T>[]> {
+  watchForActivePublicMatchesListChanges(): ReadableStream<
+    ActivePublicMatch<T>[]
+  > {
     this.log(
       "INFO",
       "watchForActivePublicMatchesListChanges request={}",

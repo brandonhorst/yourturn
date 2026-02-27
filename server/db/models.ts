@@ -1,10 +1,10 @@
 import type {
-  ActiveMatch,
   ChatMessage,
   CompletedMatchSnapshot,
   GameTypes,
   PlayerSnapshot,
   QueueEntry,
+  UserActiveMatch,
   UserProfileViewData,
 } from "@/types/mod.ts";
 
@@ -58,7 +58,7 @@ export type UserStorageData<T extends GameTypes> = {
 };
 
 export type UserMatchmakingStorageData<T extends GameTypes> = {
-  activeMatches: ActiveMatch<T>[];
+  activeMatches: UserActiveMatch<T>[];
   joinedRooms: JoinedRoom<T>[];
   queueEntries: QueueEntry<T>[];
 };

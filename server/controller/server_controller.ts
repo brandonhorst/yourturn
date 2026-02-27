@@ -14,7 +14,6 @@ import type {
 import type { DB, MatchStorageData } from "../db/mod.ts";
 import { logServer, serializeLogValue } from "../logging.ts";
 import { GameStateService } from "../services/game_state_service.ts";
-import { MatchProjectionService } from "../services/match_projection_service.ts";
 import type { SocketStore } from "../sockets/mod.ts";
 import { SocketRouter } from "./socket_router.ts";
 
@@ -26,7 +25,6 @@ const SERVER_CONTROLLER_LOG_MODULE = "server.controller";
  */
 export class ServerController<T extends GameTypes> implements Server<T> {
   private readonly gameStateService: GameStateService<T>;
-  private readonly matchProjectionService: MatchProjectionService<T>;
   private readonly socketRouter: SocketRouter<T>;
 
   constructor(
@@ -35,10 +33,6 @@ export class ServerController<T extends GameTypes> implements Server<T> {
     private readonly socketStore: SocketStore<T>,
   ) {
     this.gameStateService = new GameStateService(this.game);
-    this.matchProjectionService = new MatchProjectionService(
-      this.db,
-      this.gameStateService,
-    );
     this.socketRouter = new SocketRouter(
       this.game,
       this.db,
@@ -90,11 +84,11 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       expiration: new Date(Date.now() + tokenTtlMs),
     });
 
-    const userActiveMatches = await this.matchProjectionService
-      .buildUserActiveMatchViews(
-        userId,
-        userMatchmakingData.activeMatches,
-      );
+    const userActiveMatches = userMatchmakingData.activeMatches.map((
+      activeMatch,
+    ) => ({
+      ...activeMatch,
+    }));
 
     const response = {
       props: {
@@ -130,14 +124,14 @@ export class ServerController<T extends GameTypes> implements Server<T> {
       "getActivePublicMatchesViewData request={}",
     );
 
-    const allActiveMatches = await this.db.getAllActivePublicMatches();
-    const projectedMatches = await this.matchProjectionService
-      .buildActivePublicMatchViews(
-        allActiveMatches,
-      );
+    const allActiveMatches = (await this.db.getAllActivePublicMatches()).map((
+      activeMatch,
+    ) => ({
+      ...activeMatch,
+    }));
 
     const response = {
-      allActiveMatches: projectedMatches,
+      allActiveMatches,
     };
 
     logServer(
