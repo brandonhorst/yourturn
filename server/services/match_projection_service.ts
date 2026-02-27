@@ -35,7 +35,10 @@ export class MatchProjectionService<T extends GameTypes> {
       }
 
       projectedMatches.push({
-        ...activeMatch,
+        matchId: activeMatch.matchId,
+        players: activeMatch.players,
+        config: activeMatch.config,
+        created: activeMatch.created,
         publicState: this.gameStateService.getPublicState(gameData, timestamp),
       });
     }
@@ -68,7 +71,10 @@ export class MatchProjectionService<T extends GameTypes> {
       }
 
       projectedMatches.push({
-        ...activeMatch,
+        matchId: activeMatch.matchId,
+        players: activeMatch.players,
+        config: activeMatch.config,
+        created: activeMatch.created,
         publicState: this.gameStateService.getPublicState(gameData, timestamp),
         privateState: this.gameStateService.getPlayerState(
           gameData,

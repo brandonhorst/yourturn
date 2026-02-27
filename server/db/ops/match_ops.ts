@@ -87,7 +87,6 @@ export class KvMatchOps<T extends GameTypes> implements MatchOps<T> {
 
     const activePublicMatch: ActiveMatch<T> = {
       matchId: options.matchId,
-      chatThreadId,
       players: options.playerSnapshots,
       config: options.config,
       created: timestamp,

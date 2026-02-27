@@ -172,6 +172,8 @@ Uses Deno KV for:
 - Audit log entries at `["auditlogentries", id]`
 - Indexed global list snapshots at `["activepublicmatches", matchId]`,
   `["availablepublicrooms", roomId]`, and `["activepublicusers", userId]`
+  (`ActiveMatch` snapshots expose match metadata only and do not include
+  `chatThreadId`)
 - Root invalidation counters at `["activepublicmatches"]`,
   `["availablepublicrooms"]`, and `["activepublicusers"]`
 - Chat thread ticker keys at `["chatthread", chatThreadId, "chatmessage"]`

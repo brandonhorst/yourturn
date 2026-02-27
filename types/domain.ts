@@ -122,7 +122,6 @@ export type AuditLogEntry = {
 
 export type ActiveMatch<T extends GameTypes> = {
   matchId: string;
-  chatThreadId: string;
   players: PlayerSnapshot<T>[];
   config: T["Config"];
   created: Date;
