@@ -101,11 +101,6 @@ export class KvPresenceOps<T extends GameTypes> implements PublicIndexOps<T> {
         .set(activePublicUserKey, entry.value, {
           expireIn: ACTIVE_PUBLIC_USER_TTL_MS,
         });
-      this.context.mutateIndexedListRootCountOnOperation(
-        transaction,
-        getActivePublicUsersKey(),
-        1,
-      );
     });
     this.log(
       "INFO",
